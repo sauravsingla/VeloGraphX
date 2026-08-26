@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "velographx/storage/file_prefetch.hpp"
 #include "velographx/storage/partition_cache.hpp"
 #include "velographx/storage/partition_file.hpp"
 
@@ -24,6 +25,7 @@ class AsyncPartitionLoader {
       if (auto* cached = cache_.get(static_cast<PartitionId>(partition_id))) {
         return *cached;
       }
+      last_prefetch_ = FilePrefetchAdvisor::advise_will_need(path);
       auto payload = PartitionFile::read_mmap_or_fallback(path, partition_id);
       const auto bytes = payload.size();
       cache_.put(static_cast<PartitionId>(partition_id), payload, bytes);
@@ -36,6 +38,7 @@ class AsyncPartitionLoader {
     if (auto* cached = cache_.get(static_cast<PartitionId>(partition_id))) {
       return *cached;
     }
+    last_prefetch_ = FilePrefetchAdvisor::advise_will_need(path);
     auto payload = PartitionFile::read_mmap_or_fallback(path, partition_id);
     const auto bytes = payload.size();
     cache_.put(static_cast<PartitionId>(partition_id), payload, bytes);
@@ -50,8 +53,17 @@ class AsyncPartitionLoader {
     return cache_.resident_bytes();
   }
 
+  [[nodiscard]] FilePrefetchResult last_prefetch_result() const noexcept {
+    return last_prefetch_;
+  }
+
+  [[nodiscard]] static constexpr bool native_prefetch_supported() noexcept {
+    return FilePrefetchAdvisor::supported();
+  }
+
  private:
   PartitionCache<> cache_;
+  FilePrefetchResult last_prefetch_{};
 };
 
 }  // namespace velographx
