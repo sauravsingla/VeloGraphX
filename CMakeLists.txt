@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VeloGraphX VERSION 0.5.4 LANGUAGES CXX)
+project(VeloGraphX VERSION 0.5.5 LANGUAGES CXX)
 
 option(VELOGRAPHX_BUILD_TESTS "Build tests" ON)
 option(VELOGRAPHX_BUILD_BENCHMARKS "Build benchmarks" ON)
@@ -31,7 +31,7 @@ target_link_libraries(velographx_dynamic_example PRIVATE velographx)
 
 if(VELOGRAPHX_BUILD_TESTS)
   enable_testing()
-  set(VELOGRAPHX_TESTS static dynamic incremental incremental_components_deletion kcore_localized pagerank_localized io io_hardening kernels weighted_sssp numa numa_policy work_stealing work_stealing_stress degree_frontier_scheduler execution_plan compression temporal randomized_dynamic partition_cache partition_file async_partition_loader)
+  set(VELOGRAPHX_TESTS static dynamic incremental incremental_components_deletion kcore_localized pagerank_localized io io_hardening kernels weighted_sssp numa numa_policy numa_partitioner work_stealing work_stealing_stress degree_frontier_scheduler execution_plan compression temporal randomized_dynamic partition_cache partition_file async_partition_loader)
   foreach(test_name IN LISTS VELOGRAPHX_TESTS)
     set(test_source "${PROJECT_SOURCE_DIR}/tests/test_${test_name}.cpp")
     if(NOT EXISTS "${test_source}")
