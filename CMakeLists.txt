@@ -10,13 +10,17 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_library(velographx INTERFACE)
-target_include_directories(velographx INTERFACE ${PROJECT_SOURCE_DIR}/include)
-target_compile_features(velographx INTERFACE cxx_std_20)
+add_library(velographx STATIC
+  src/csr_graph.cpp
+  src/algorithms.cpp
+  src/io.cpp
+)
+target_include_directories(velographx PUBLIC ${PROJECT_SOURCE_DIR}/include)
+target_compile_features(velographx PUBLIC cxx_std_20)
 
 if(VELOGRAPHX_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
-  add_link_options(-fsanitize=address,undefined)
+  target_compile_options(velographx PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(velographx PUBLIC -fsanitize=address,undefined)
 endif()
 
 add_executable(velographx_example examples/basic.cpp)
@@ -33,7 +37,7 @@ if(VELOGRAPHX_BUILD_TESTS)
     if(NOT EXISTS "${test_source}")
       message(FATAL_ERROR "Configured test source does not exist: ${test_source}")
     endif()
-    add_executable(velographx_test_${test_name} "${test_source}")
+    add_executable(velographx_test_${test_name} ${test_source})
     target_link_libraries(velographx_test_${test_name} PRIVATE velographx)
     add_test(NAME ${test_name} COMMAND velographx_test_${test_name})
   endforeach()
@@ -43,16 +47,14 @@ if(VELOGRAPHX_BUILD_BENCHMARKS)
   set(static_benchmark_source "${PROJECT_SOURCE_DIR}/benchmarks/static_benchmark.cpp")
   set(dynamic_benchmark_source "${PROJECT_SOURCE_DIR}/benchmarks/dynamic_benchmark.cpp")
   if(NOT EXISTS "${static_benchmark_source}")
-    message(FATAL_ERROR "Static benchmark source does not exist: ${static_benchmark_source}")
+    message(FATAL_ERROR "Configured benchmark source does not exist: ${static_benchmark_source}")
   endif()
   if(NOT EXISTS "${dynamic_benchmark_source}")
-    message(FATAL_ERROR "Dynamic benchmark source does not exist: ${dynamic_benchmark_source}")
+    message(FATAL_ERROR "Configured benchmark source does not exist: ${dynamic_benchmark_source}")
   endif()
-
-  add_executable(velographx_benchmark "${static_benchmark_source}")
+  add_executable(velographx_benchmark ${static_benchmark_source})
   target_link_libraries(velographx_benchmark PRIVATE velographx)
-
-  add_executable(velographx_dynamic_benchmark "${dynamic_benchmark_source}")
+  add_executable(velographx_dynamic_benchmark ${dynamic_benchmark_source})
   target_link_libraries(velographx_dynamic_benchmark PRIVATE velographx)
 endif()
 
