@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
-project(VeloGraphX VERSION 0.6.1 LANGUAGES CXX)
+project(VeloGraphX VERSION 0.6.2 LANGUAGES CXX)
 
 option(VELOGRAPHX_BUILD_TESTS "Build tests" ON)
 option(VELOGRAPHX_BUILD_BENCHMARKS "Build benchmarks" ON)
 option(VELOGRAPHX_BUILD_PYTHON "Build Python bindings" OFF)
 option(VELOGRAPHX_ENABLE_SANITIZERS "Enable ASan/UBSan" OFF)
+option(VELOGRAPHX_ENABLE_IO_URING "Enable optional Linux liburing prefetch path" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +19,20 @@ add_library(velographx STATIC
 target_include_directories(velographx PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_compile_features(velographx PUBLIC cxx_std_20)
 
+if(VELOGRAPHX_ENABLE_IO_URING)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "VELOGRAPHX_ENABLE_IO_URING is supported only on Linux")
+  endif()
+  find_path(VELOGRAPHX_LIBURING_INCLUDE_DIR liburing.h)
+  find_library(VELOGRAPHX_LIBURING_LIBRARY uring)
+  if(NOT VELOGRAPHX_LIBURING_INCLUDE_DIR OR NOT VELOGRAPHX_LIBURING_LIBRARY)
+    message(FATAL_ERROR "VELOGRAPHX_ENABLE_IO_URING=ON requires liburing headers and library")
+  endif()
+  target_include_directories(velographx PUBLIC ${VELOGRAPHX_LIBURING_INCLUDE_DIR})
+  target_link_libraries(velographx PUBLIC ${VELOGRAPHX_LIBURING_LIBRARY})
+  target_compile_definitions(velographx PUBLIC VELOGRAPHX_ENABLE_IO_URING=1)
+endif()
+
 if(VELOGRAPHX_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(velographx PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(velographx PUBLIC -fsanitize=address,undefined)
@@ -25,7 +40,6 @@ endif()
 
 add_executable(velographx_example examples/basic.cpp)
 target_link_libraries(velographx_example PRIVATE velographx)
-
 add_executable(velographx_dynamic_example examples/dynamic_transactions.cpp)
 target_link_libraries(velographx_dynamic_example PRIVATE velographx)
 
