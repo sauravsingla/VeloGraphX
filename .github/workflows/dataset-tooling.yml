@@ -1,0 +1,44 @@
+name: Dataset Tooling
+on:
+  push:
+  pull_request:
+
+jobs:
+  dataset-manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare checksum-verified fixture
+        run: |
+          python tools/prepare_dataset.py \
+            --manifest datasets/manifest.example.json \
+            --output-dir build/datasets \
+            --dataset example-local-edge-list > build/dataset-prepared.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/dataset-prepared.json').read_text())
+          assert report['schema_version'] == 1
+          assert len(report['prepared']) == 1
+          item = report['prepared'][0]
+          assert item['name'] == 'example-local-edge-list'
+          assert item['sha256'] == 'b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e'
+          assert Path(item['path']).read_text() == '0 1\n1 2\n2 0\n'
+          PY
+      - name: Reject checksum mismatch
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('datasets/manifest.example.json').read_text())
+          manifest['datasets'][0]['sha256'] = '0' * 64
+          Path('build/bad-manifest.json').write_text(json.dumps(manifest))
+          PY
+          if python tools/prepare_dataset.py --manifest build/bad-manifest.json --output-dir build/bad; then
+            echo 'checksum mismatch unexpectedly accepted' >&2
+            exit 1
+          fi
