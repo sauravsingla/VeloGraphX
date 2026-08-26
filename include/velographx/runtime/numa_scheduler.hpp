@@ -1,11 +1,11 @@
 #pragma once
 
-#include "velographx/runtime/numa_partitioner.hpp"
+#include "velographx/runtime/partitioner.hpp"
 #include "velographx/runtime/work_stealing_pool.hpp"
 
 #include <algorithm>
 #include <cstddef>
-#include <functional>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -13,19 +13,20 @@ namespace velographx {
 
 class NumaLocalScheduler {
  public:
-  NumaLocalScheduler(WorkStealingPool& pool, NumaPartitionPlan plan)
-      : pool_(pool), plan_(std::move(plan)) {
-    for (const auto& partition : plan_.partitions) {
-      if (std::find(node_ids_.begin(), node_ids_.end(), partition.node_id) == node_ids_.end())
-        node_ids_.push_back(partition.node_id);
+  NumaLocalScheduler(WorkStealingPool& pool, std::vector<NumaVertexPartition> partitions)
+      : pool_(pool), partitions_(std::move(partitions)) {
+    for (const auto& partition : partitions_) {
+      if (!partition.node_id.has_value()) continue;
+      if (std::find(node_ids_.begin(), node_ids_.end(), *partition.node_id) == node_ids_.end())
+        node_ids_.push_back(*partition.node_id);
     }
     std::sort(node_ids_.begin(), node_ids_.end());
   }
 
   std::size_t preferred_queue_for_node(std::size_t node_id,
                                        std::size_t sequence = 0) const noexcept {
-    if (pool_.size() == 0 || node_ids_.empty()) return 0;
-    auto it = std::find(node_ids_.begin(), node_ids_.end(), node_id);
+    if (pool_.size() == 0 || node_ids_.empty()) return sequence % std::max<std::size_t>(1, pool_.size());
+    const auto it = std::find(node_ids_.begin(), node_ids_.end(), node_id);
     const std::size_t node_rank = it == node_ids_.end()
         ? node_id % node_ids_.size()
         : static_cast<std::size_t>(it - node_ids_.begin());
@@ -36,7 +37,9 @@ class NumaLocalScheduler {
 
   std::size_t preferred_queue_for_vertex(std::size_t vertex,
                                          std::size_t sequence = 0) const noexcept {
-    return preferred_queue_for_node(plan_.node_for_vertex(vertex), sequence);
+    const auto node = numa_node_for_vertex(vertex, partitions_);
+    if (!node.has_value()) return sequence % std::max<std::size_t>(1, pool_.size());
+    return preferred_queue_for_node(*node, sequence);
   }
 
   void submit_for_vertex(std::size_t vertex, WorkStealingPool::Task task,
@@ -47,18 +50,20 @@ class NumaLocalScheduler {
   template <class Fn>
   void parallel_for_partitions(Fn&& fn) {
     std::size_t sequence = 0;
-    for (const auto& partition : plan_.partitions) {
-      pool_.submit([partition, &fn] { fn(partition); },
-                   preferred_queue_for_node(partition.node_id, sequence++));
+    for (const auto& partition : partitions_) {
+      const auto queue = partition.node_id.has_value()
+          ? preferred_queue_for_node(*partition.node_id, sequence++)
+          : sequence++ % std::max<std::size_t>(1, pool_.size());
+      pool_.submit([partition, &fn] { fn(partition); }, queue);
     }
     pool_.wait_idle();
   }
 
-  const NumaPartitionPlan& plan() const noexcept { return plan_; }
+  const std::vector<NumaVertexPartition>& partitions() const noexcept { return partitions_; }
 
  private:
   WorkStealingPool& pool_;
-  NumaPartitionPlan plan_;
+  std::vector<NumaVertexPartition> partitions_;
   std::vector<std::size_t> node_ids_;
 };
 
