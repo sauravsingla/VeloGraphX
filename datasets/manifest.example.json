@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "datasets": [
+    {
+      "name": "example-local-edge-list",
+      "source": "local",
+      "url": "file://datasets/example-local-edge-list.txt",
+      "sha256": "",
+      "format": "edge_list",
+      "directed": false,
+      "weighted": false,
+      "compression": "none",
+      "notes": "Replace sha256 before using as a reproducible benchmark input."
+    }
+  ]
+}
