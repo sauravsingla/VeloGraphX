@@ -11,7 +11,12 @@ int main() {
   assert(WorkStealingPool::adaptive_grain(0, 4) == 1);
   assert(WorkStealingPool::adaptive_grain(1000, 4) >= 1);
 
-  WorkStealingPool pool(4);
+  WorkStealingPool pool(4, {0, 1, 0, 1});
+  assert(pool.queue_group(0) == 0);
+  assert(pool.queue_group(1) == 1);
+  assert(pool.queue_group(2) == 0);
+  assert(pool.queue_group(3) == 1);
+
   std::atomic<std::size_t> sum{0};
   for (std::size_t i = 0; i < 1000; ++i) {
     pool.submit([&sum, i] { sum.fetch_add(i, std::memory_order_relaxed); }, 0);
@@ -27,5 +32,6 @@ int main() {
   assert(stats.submitted > 1000);
   assert(stats.executed == stats.submitted);
   assert(stats.steal_attempts > 0);
+  assert(stats.local_steals + stats.remote_steals == stats.successful_steals);
   return 0;
 }
