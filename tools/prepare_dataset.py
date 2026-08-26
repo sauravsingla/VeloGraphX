@@ -27,6 +27,23 @@ def load_manifest(path: pathlib.Path):
     return datasets
 
 
+def resolve_file_url(parsed: urllib.parse.ParseResult, manifest_dir: pathlib.Path) -> pathlib.Path:
+    # file:///absolute/path -> absolute path
+    # file:relative/path -> relative to the manifest directory
+    # file://datasets/foo.txt -> repository-relative datasets/foo.txt
+    # (the latter uses URL authority syntax, so urlparse places "datasets" in netloc).
+    if parsed.netloc and parsed.netloc not in ('', 'localhost'):
+        repo_root = manifest_dir.parent
+        relative = pathlib.Path(parsed.netloc) / urllib.request.url2pathname(parsed.path.lstrip('/'))
+        return (repo_root / relative).resolve()
+
+    raw_path = urllib.request.url2pathname(parsed.path)
+    source = pathlib.Path(raw_path)
+    if source.is_absolute():
+        return source
+    return (manifest_dir / source).resolve()
+
+
 def acquire(entry, manifest_dir: pathlib.Path, output_dir: pathlib.Path) -> pathlib.Path:
     name = entry['name']
     url = entry['url']
@@ -40,10 +57,9 @@ def acquire(entry, manifest_dir: pathlib.Path, output_dir: pathlib.Path) -> path
     target = output_dir / f'{name}{suffix}'
 
     if parsed.scheme == 'file':
-        raw_path = urllib.request.url2pathname(parsed.path)
-        source = pathlib.Path(raw_path)
-        if not source.is_absolute():
-            source = (manifest_dir / raw_path).resolve()
+        source = resolve_file_url(parsed, manifest_dir)
+        if not source.is_file():
+            raise ValueError(f'{name}: local dataset source is not a file: {source}')
         shutil.copyfile(source, target)
     elif parsed.scheme in ('http', 'https'):
         with urllib.request.urlopen(url) as response, target.open('wb') as out:
