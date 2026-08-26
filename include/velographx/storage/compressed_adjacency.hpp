@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -121,11 +122,123 @@ inline std::vector<VertexId> blocked_variable_byte_decode(const BlockedAdjacency
   return out;
 }
 
+struct FixedWidthDeltaBlock {
+  std::size_t value_offset{0};
+  std::size_t value_count{0};
+  std::size_t payload_offset{0};
+  std::uint8_t lane_bytes{4};
+};
+
+struct SimdFriendlyAdjacency {
+  std::size_t block_size{128};
+  std::size_t value_count{0};
+  std::vector<FixedWidthDeltaBlock> blocks;
+  std::vector<std::uint8_t> payload;
+};
+
+inline std::uint8_t required_lane_bytes(std::uint32_t max_delta) noexcept {
+  if (max_delta <= std::numeric_limits<std::uint8_t>::max()) return 1;
+  if (max_delta <= std::numeric_limits<std::uint16_t>::max()) return 2;
+  return 4;
+}
+
+inline void append_fixed_width_uint32(std::uint32_t value, std::uint8_t lane_bytes,
+                                      std::vector<std::uint8_t>& out) {
+  for (std::uint8_t byte = 0; byte < lane_bytes; ++byte)
+    out.push_back(static_cast<std::uint8_t>((value >> (8U * byte)) & 0xFFU));
+}
+
+inline std::uint32_t read_fixed_width_uint32(const std::vector<std::uint8_t>& payload,
+                                             std::size_t offset,
+                                             std::uint8_t lane_bytes) {
+  if (lane_bytes != 1 && lane_bytes != 2 && lane_bytes != 4)
+    throw std::invalid_argument("invalid fixed-width lane size");
+  if (offset > payload.size() || lane_bytes > payload.size() - offset)
+    throw std::invalid_argument("truncated fixed-width payload");
+  std::uint32_t value = 0;
+  for (std::uint8_t byte = 0; byte < lane_bytes; ++byte)
+    value |= static_cast<std::uint32_t>(payload[offset + byte]) << (8U * byte);
+  return value;
+}
+
+inline SimdFriendlyAdjacency simd_friendly_delta_encode(const std::vector<VertexId>& ids,
+                                                        std::size_t block_size = 128) {
+  if (block_size == 0) throw std::invalid_argument("block size must be positive");
+  if (!std::is_sorted(ids.begin(), ids.end())) throw std::invalid_argument("adjacency must be sorted");
+
+  SimdFriendlyAdjacency encoded;
+  encoded.block_size = block_size;
+  encoded.value_count = ids.size();
+
+  for (std::size_t first = 0; first < ids.size(); first += block_size) {
+    const std::size_t last = std::min(ids.size(), first + block_size);
+    std::vector<std::uint32_t> deltas;
+    deltas.reserve(last - first);
+    std::uint32_t max_delta = 0;
+    for (std::size_t i = first; i < last; ++i) {
+      const std::uint32_t delta = (i == first) ? ids[i] : ids[i] - ids[i - 1];
+      deltas.push_back(delta);
+      max_delta = std::max(max_delta, delta);
+    }
+    const auto lane_bytes = required_lane_bytes(max_delta);
+    encoded.blocks.push_back({first, last - first, encoded.payload.size(), lane_bytes});
+    encoded.payload.reserve(encoded.payload.size() + deltas.size() * lane_bytes);
+    for (auto delta : deltas) append_fixed_width_uint32(delta, lane_bytes, encoded.payload);
+  }
+  return encoded;
+}
+
+inline std::vector<VertexId> simd_friendly_delta_decode(const SimdFriendlyAdjacency& encoded) {
+  std::vector<VertexId> out(encoded.value_count);
+  std::size_t expected_value_offset = 0;
+  std::size_t expected_payload_offset = 0;
+
+  for (const auto& block : encoded.blocks) {
+    if (block.value_offset != expected_value_offset || block.payload_offset != expected_payload_offset)
+      throw std::invalid_argument("non-contiguous fixed-width block metadata");
+    if (block.value_count == 0 || block.value_offset + block.value_count > encoded.value_count)
+      throw std::invalid_argument("invalid fixed-width block value bounds");
+    if (block.lane_bytes != 1 && block.lane_bytes != 2 && block.lane_bytes != 4)
+      throw std::invalid_argument("invalid fixed-width lane size");
+    const std::size_t block_bytes = block.value_count * static_cast<std::size_t>(block.lane_bytes);
+    if (block.payload_offset > encoded.payload.size() ||
+        block_bytes > encoded.payload.size() - block.payload_offset)
+      throw std::invalid_argument("truncated fixed-width block");
+
+    VertexId value = 0;
+    for (std::size_t i = 0; i < block.value_count; ++i) {
+      const auto delta = read_fixed_width_uint32(
+          encoded.payload, block.payload_offset + i * block.lane_bytes, block.lane_bytes);
+      if (i == 0) {
+        value = delta;
+      } else {
+        if (delta > std::numeric_limits<VertexId>::max() - value)
+          throw std::overflow_error("fixed-width delta decode overflow");
+        value += delta;
+      }
+      out[block.value_offset + i] = value;
+    }
+    expected_value_offset += block.value_count;
+    expected_payload_offset += block_bytes;
+  }
+
+  if (expected_value_offset != encoded.value_count || expected_payload_offset != encoded.payload.size())
+    throw std::invalid_argument("fixed-width adjacency metadata mismatch");
+  return out;
+}
+
 inline double compression_ratio_bytes(const std::vector<VertexId>& ids,
                                       const std::vector<std::uint8_t>& encoded) noexcept {
   if (ids.empty()) return encoded.empty() ? 1.0 : 0.0;
   const auto raw_bytes = static_cast<double>(ids.size() * sizeof(VertexId));
   return raw_bytes / static_cast<double>(encoded.empty() ? 1 : encoded.size());
+}
+
+inline double compression_ratio_bytes(const std::vector<VertexId>& ids,
+                                      const SimdFriendlyAdjacency& encoded) noexcept {
+  if (ids.empty()) return encoded.payload.empty() ? 1.0 : 0.0;
+  const auto raw_bytes = static_cast<double>(ids.size() * sizeof(VertexId));
+  return raw_bytes / static_cast<double>(encoded.payload.empty() ? 1 : encoded.payload.size());
 }
 
 }  // namespace velographx::storage
