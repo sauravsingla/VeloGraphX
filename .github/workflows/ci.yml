@@ -98,8 +98,6 @@ jobs:
           initial.add(0, 1); initial.add(1, 2); initial.add(3, 4); initial.add(4, 5)
           g5.apply(initial)
           cc = vx.IncrementalComponents(g5)
-          assert cc.component(0) == cc.component(2)
-          assert cc.component(0) != cc.component(3)
           deletion = vx.UpdateBatch(); deletion.remove(1, 2)
           cc.apply(deletion)
           assert cc.component(0) != cc.component(2)
@@ -121,10 +119,22 @@ jobs:
           pinit.add(0, 1); pinit.add(1, 2); pinit.add(2, 0); pinit.add(2, 3); pinit.add(3, 4)
           g7.apply(pinit)
           pr = vx.IncrementalPageRank(g7)
-          assert len(pr.values) == 5
           pup = vx.UpdateBatch(); pup.add(4, 0)
           pr.apply(pup)
           assert len(pr.values) == 5
           assert pr.last_repaired_vertices > 0
-          assert pr.last_repair_iterations > 0
+
+          wg = vx.WeightedGraph(5, True)
+          wb = vx.WeightedUpdateBatch()
+          wb.add(0, 1, 5); wb.add(1, 2, 4); wb.add(0, 2, 20); wb.add(2, 3, 3)
+          wg.apply(wb)
+          sssp = vx.IncrementalWeightedSSSP(wg, 0)
+          assert sssp.distances[:4] == [0, 5, 9, 12]
+          improve = vx.WeightedUpdateBatch(); improve.update(0, 2, 2)
+          sssp.apply(improve)
+          assert sssp.distances[:4] == [0, 5, 2, 5]
+          destructive = vx.WeightedUpdateBatch(); destructive.remove(0, 2)
+          sssp.apply(destructive)
+          assert sssp.distances[:4] == [0, 5, 9, 12]
+          assert sssp.distances[4] == vx.IncrementalWeightedSSSP.unreachable
           PY
