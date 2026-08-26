@@ -4,13 +4,13 @@
     {
       "name": "example-local-edge-list",
       "source": "local",
-      "url": "file://datasets/example-local-edge-list.txt",
-      "sha256": "",
+      "url": "file://example-local-edge-list.txt",
+      "sha256": "b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e",
       "format": "edge_list",
       "directed": false,
       "weighted": false,
       "compression": "none",
-      "notes": "Replace sha256 before using as a reproducible benchmark input."
+      "notes": "Deterministic fixture used to validate the reproducible dataset preparation path in CI."
     }
   ]
 }
