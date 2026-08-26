@@ -1,0 +1,3 @@
+# Novelty ledger addendum
+
+Implemented components such as CSR+delta storage, union-find insertion repair, incremental BFS/SSSP, local PageRank repair, adaptive intersection, thread pools, aligned allocation and versioned updates are treated as established engineering techniques. The main candidate research contribution remains a benchmark-calibrated, observable planner that combines update size, affected-region growth, topology and measured hardware behavior to choose incremental repair, local rebuild or global recomputation. This remains a hypothesis until compared rigorously with strong baselines.

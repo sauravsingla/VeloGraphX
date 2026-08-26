@@ -1,0 +1,3 @@
+# Current limitations
+
+Architecture-specific intersection enum paths currently dispatch through the portable scalar implementation; intrinsic AVX2/AVX-512/NEON loops require dedicated calibration and CI hardware. Connected-components deletion and k-core updates conservatively rebuild. Weighted SSSP is not yet implemented because DynamicGraph currently stores unweighted topology. NUMA detection is portable fallback only, and out-of-core execution is a design contract rather than an NVMe engine. Python bindings require pybind11 to be available at configure time. These limitations are explicit so the repository does not overstate milestone completeness.
