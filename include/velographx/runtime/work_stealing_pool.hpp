@@ -47,12 +47,12 @@ class WorkStealingPool {
 
   void submit(Task task, std::size_t locality_hint = 0) {
     const auto queue = locality_hint % queues_.size();
+    outstanding_.fetch_add(1, std::memory_order_acq_rel);
+    submitted_.fetch_add(1, std::memory_order_relaxed);
     {
       std::lock_guard<std::mutex> lock(queues_[queue]->mutex);
       queues_[queue]->tasks.push_back(std::move(task));
     }
-    submitted_.fetch_add(1, std::memory_order_relaxed);
-    outstanding_.fetch_add(1, std::memory_order_release);
     cv_.notify_one();
   }
 
