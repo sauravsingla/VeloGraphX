@@ -3,9 +3,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <future>
-#include <mutex>
-#include <optional>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -24,18 +21,24 @@ class AsyncPartitionLoader {
       std::filesystem::path path) {
     return std::async(std::launch::async,
                       [this, partition_id, path = std::move(path)]() mutable {
-      if (auto cached = cache_.get(partition_id)) return *cached;
+      if (auto* cached = cache_.get(static_cast<PartitionId>(partition_id))) {
+        return *cached;
+      }
       auto payload = PartitionFile::read_mmap_or_fallback(path, partition_id);
-      cache_.put(partition_id, payload);
+      const auto bytes = payload.size();
+      cache_.put(static_cast<PartitionId>(partition_id), payload, bytes);
       return payload;
     });
   }
 
   std::vector<std::uint8_t> load(std::uint64_t partition_id,
                                  const std::filesystem::path& path) {
-    if (auto cached = cache_.get(partition_id)) return *cached;
+    if (auto* cached = cache_.get(static_cast<PartitionId>(partition_id))) {
+      return *cached;
+    }
     auto payload = PartitionFile::read_mmap_or_fallback(path, partition_id);
-    cache_.put(partition_id, payload);
+    const auto bytes = payload.size();
+    cache_.put(static_cast<PartitionId>(partition_id), payload, bytes);
     return payload;
   }
 
@@ -48,7 +51,7 @@ class AsyncPartitionLoader {
   }
 
  private:
-  PartitionCache cache_;
+  PartitionCache<> cache_;
 };
 
 }  // namespace velographx
