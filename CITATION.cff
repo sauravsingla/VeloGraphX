@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+title: VeloGraphX
+message: "If you use VeloGraphX in research, please cite the repository and the relevant release."
+type: software
+authors:
+  - family-names: Singla
+    given-names: Saurav
+repository-code: "https://github.com/sauravsingla/VeloGraphX"
+license: Apache-2.0
+version: 0.1.0
+date-released: 2026-08-26
