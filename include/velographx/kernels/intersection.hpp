@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <vector>
 
 #include "velographx/kernels/cpu_features.hpp"
 
@@ -20,7 +21,7 @@ namespace velographx::kernels {
 
 using VertexId = std::uint32_t;
 
-enum class IntersectionKernel { scalar_merge, galloping, avx2, avx512, neon };
+enum class IntersectionKernel { scalar_merge, galloping, bitmap, avx2, avx512, neon };
 
 inline std::size_t scalar_intersection(std::span<const VertexId> a,
                                        std::span<const VertexId> b) {
@@ -48,6 +49,22 @@ inline std::size_t galloping_intersection(std::span<const VertexId> smaller,
   return count;
 }
 
+inline std::size_t bitmap_intersection(std::span<const VertexId> a,
+                                       std::span<const VertexId> b) {
+  if (a.empty() || b.empty()) return 0;
+  const auto max_value = std::max(a.back(), b.back());
+  const std::size_t word_count = static_cast<std::size_t>(max_value) / 64u + 1u;
+  std::vector<std::uint64_t> bitmap(word_count, 0);
+  for (const auto value : a) {
+    bitmap[value >> 6u] |= (std::uint64_t{1} << (value & 63u));
+  }
+  std::size_t count = 0;
+  for (const auto value : b) {
+    count += (bitmap[value >> 6u] >> (value & 63u)) & 1u;
+  }
+  return count;
+}
+
 #if (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(_M_X64))
 __attribute__((target("avx2"))) inline std::size_t avx2_intersection_impl(
     std::span<const VertexId> a, std::span<const VertexId> b) {
@@ -61,18 +78,14 @@ __attribute__((target("avx2"))) inline std::size_t avx2_intersection_impl(
       const auto va = _mm256_set1_epi32(static_cast<int>(a[i + lane]));
       const auto eq = _mm256_cmpeq_epi32(va, vb);
       const auto mask = static_cast<unsigned>(_mm256_movemask_ps(_mm256_castsi256_ps(eq)));
-      if (mask != 0) {
-        matched_mask |= static_cast<std::uint32_t>(1u << lane);
-      }
+      if (mask != 0) matched_mask |= static_cast<std::uint32_t>(1u << lane);
     }
     count += std::popcount(matched_mask);
-
     const auto a_last = a[i + lanes - 1];
     const auto b_last = b[j + lanes - 1];
     if (a_last <= b_last) i += lanes;
     if (b_last <= a_last) j += lanes;
   }
-
   count += scalar_intersection(a.subspan(i), b.subspan(j));
   return count;
 }
@@ -92,13 +105,11 @@ __attribute__((target("avx512f"))) inline std::size_t avx512_intersection_impl(
       }
     }
     count += std::popcount(matched_mask);
-
     const auto a_last = a[i + lanes - 1];
     const auto b_last = b[j + lanes - 1];
     if (a_last <= b_last) i += lanes;
     if (b_last <= a_last) j += lanes;
   }
-
   count += scalar_intersection(a.subspan(i), b.subspan(j));
   return count;
 }
@@ -146,10 +157,20 @@ inline std::size_t neon_intersection(std::span<const VertexId> a,
 #endif
 }
 
-inline IntersectionKernel select_intersection(std::size_t a_size, std::size_t b_size) {
-  const auto min_size = std::min(a_size, b_size);
-  const auto max_size = std::max(a_size, b_size);
+inline bool bitmap_is_efficient(std::span<const VertexId> a,
+                                std::span<const VertexId> b) {
+  if (a.empty() || b.empty()) return false;
+  const auto max_value = std::max(a.back(), b.back());
+  const auto combined = a.size() + b.size();
+  return combined >= 1024 && static_cast<std::size_t>(max_value) <= combined * 8u;
+}
+
+inline IntersectionKernel select_intersection(std::span<const VertexId> a,
+                                              std::span<const VertexId> b) {
+  const auto min_size = std::min(a.size(), b.size());
+  const auto max_size = std::max(a.size(), b.size());
   if (min_size == 0) return IntersectionKernel::scalar_merge;
+  if (bitmap_is_efficient(a, b)) return IntersectionKernel::bitmap;
   if (max_size > 16 * min_size) return IntersectionKernel::galloping;
 
   const auto features = detect_cpu_features();
@@ -161,10 +182,12 @@ inline IntersectionKernel select_intersection(std::size_t a_size, std::size_t b_
 
 inline std::size_t adaptive_intersection(std::span<const VertexId> a,
                                          std::span<const VertexId> b) {
-  switch (select_intersection(a.size(), b.size())) {
+  switch (select_intersection(a, b)) {
     case IntersectionKernel::galloping:
       return a.size() <= b.size() ? galloping_intersection(a, b)
                                   : galloping_intersection(b, a);
+    case IntersectionKernel::bitmap:
+      return bitmap_intersection(a, b);
     case IntersectionKernel::avx2:
       return avx2_intersection(a, b);
     case IntersectionKernel::avx512:
