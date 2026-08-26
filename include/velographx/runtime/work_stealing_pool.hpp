@@ -53,10 +53,6 @@ class WorkStealingPool {
       std::lock_guard<std::mutex> lock(queues_[queue]->mutex);
       queues_[queue]->tasks.push_back(std::move(task));
     }
-    // More than one worker may need to steal from the hinted queue. Waking all
-    // workers avoids the lost-progress case where the notified worker races,
-    // finds no work, and the remaining workers stay asleep while outstanding
-    // tasks are still queued.
     cv_.notify_all();
   }
 
@@ -76,8 +72,21 @@ class WorkStealingPool {
   }
 
   void wait_idle() {
-    std::unique_lock<std::mutex> lock(wait_mutex_);
-    idle_cv_.wait(lock, [this] { return outstanding_.load(std::memory_order_acquire) == 0; });
+    while (outstanding_.load(std::memory_order_acquire) != 0) {
+      Task task;
+      if (pop_any(task)) {
+        task();
+        executed_.fetch_add(1, std::memory_order_relaxed);
+        if (outstanding_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+          idle_cv_.notify_all();
+        }
+        continue;
+      }
+      std::unique_lock<std::mutex> lock(wait_mutex_);
+      idle_cv_.wait_for(lock, std::chrono::milliseconds(1), [this] {
+        return outstanding_.load(std::memory_order_acquire) == 0;
+      });
+    }
   }
 
   WorkStealingStats stats() const noexcept {
@@ -104,6 +113,17 @@ class WorkStealingPool {
     task = std::move(queues_[index]->tasks.back());
     queues_[index]->tasks.pop_back();
     return true;
+  }
+
+  bool pop_any(Task& task) {
+    for (auto& queue : queues_) {
+      std::lock_guard<std::mutex> lock(queue->mutex);
+      if (queue->tasks.empty()) continue;
+      task = std::move(queue->tasks.front());
+      queue->tasks.pop_front();
+      return true;
+    }
+    return false;
   }
 
   bool steal(std::size_t thief, Task& task) {
