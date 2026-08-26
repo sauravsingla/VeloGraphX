@@ -1,0 +1,8 @@
+find_package(pybind11 CONFIG QUIET)
+if(pybind11_FOUND)
+  pybind11_add_module(velographx_python bindings.cpp)
+  target_include_directories(velographx_python PRIVATE ${PROJECT_SOURCE_DIR}/include)
+  set_target_properties(velographx_python PROPERTIES OUTPUT_NAME velographx)
+else()
+  message(STATUS "pybind11 not found; Python extension skipped")
+endif()
