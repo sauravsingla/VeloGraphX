@@ -1,39 +1,34 @@
 name: CI
-
 on:
   push:
-    branches: [main]
   pull_request:
-  workflow_dispatch:
 
 jobs:
   build-test:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        compiler: [default]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
       - name: Build
-        run: cmake --build build --parallel 2
+        run: cmake --build build -j 2
       - name: Test
         run: ctest --test-dir build --output-on-failure
-      - name: Benchmark smoke test
-        run: ./build/vgx_benchmark 1000 5000
+      - name: Static benchmark smoke
+        run: ./build/velographx_benchmark
+      - name: Dynamic benchmark smoke
+        run: ./build/velographx_dynamic_benchmark
 
   sanitizers:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Configure ASan/UBSan
-        env:
-          CXXFLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer
-          LDFLAGS: -fsanitize=address,undefined
-        run: cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+        run: cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=OFF -DVELOGRAPHX_ENABLE_SANITIZERS=ON
       - name: Build
-        run: cmake --build build-san --parallel 2
+        run: cmake --build build-san -j 2
       - name: Test
         run: ctest --test-dir build-san --output-on-failure
