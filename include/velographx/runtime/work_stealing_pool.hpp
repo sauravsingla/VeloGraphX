@@ -53,7 +53,11 @@ class WorkStealingPool {
       std::lock_guard<std::mutex> lock(queues_[queue]->mutex);
       queues_[queue]->tasks.push_back(std::move(task));
     }
-    cv_.notify_one();
+    // More than one worker may need to steal from the hinted queue. Waking all
+    // workers avoids the lost-progress case where the notified worker races,
+    // finds no work, and the remaining workers stay asleep while outstanding
+    // tasks are still queued.
+    cv_.notify_all();
   }
 
   template <class Fn>
