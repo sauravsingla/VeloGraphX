@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VeloGraphX VERSION 0.4.3 LANGUAGES CXX)
+project(VeloGraphX VERSION 0.4.4 LANGUAGES CXX)
 
 option(VELOGRAPHX_BUILD_TESTS "Build tests" ON)
 option(VELOGRAPHX_BUILD_BENCHMARKS "Build benchmarks" ON)
@@ -40,6 +40,7 @@ if(VELOGRAPHX_BUILD_TESTS)
     add_executable(velographx_test_${test_name} ${test_source})
     target_link_libraries(velographx_test_${test_name} PRIVATE velographx)
     add_test(NAME ${test_name} COMMAND velographx_test_${test_name})
+    set_tests_properties(${test_name} PROPERTIES TIMEOUT 60)
   endforeach()
 endif()
 
