@@ -1,6 +1,7 @@
 #include "velographx/runtime/numa_policy.hpp"
 
 #include <cassert>
+#include <cstdint>
 
 int main() {
   velographx::NumaInfo info;
@@ -28,5 +29,25 @@ int main() {
   const auto description = velographx::describe_numa_placement(placements[0]);
   assert(description.find("mode=interleave") != std::string::npos);
   assert(description.find("node=0") != std::string::npos);
+
+#if defined(__linux__)
+  auto region = velographx::allocate_numa_memory(8192, info, velographx::NumaMode::off);
+  assert(region.data != nullptr);
+  assert(region.bytes == 8192);
+  assert(!region.native_policy_applied);
+  velographx::first_touch_region(region);
+  auto* data = static_cast<std::uint8_t*>(region.data);
+  data[0] = 7;
+  data[4096] = 9;
+  assert(data[0] == 7 && data[4096] == 9);
+  velographx::release_numa_memory(region);
+  assert(region.data == nullptr && region.bytes == 0);
+
+  auto empty = velographx::allocate_numa_memory(0, info, velographx::NumaMode::off);
+  assert(empty.data == nullptr && empty.bytes == 0);
+#else
+  auto region = velographx::allocate_numa_memory(8192, info, velographx::NumaMode::off);
+  assert(region.data == nullptr);
+#endif
   return 0;
 }
