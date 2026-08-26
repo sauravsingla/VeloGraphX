@@ -8,6 +8,7 @@
 #include "velographx/storage/compressed_adjacency.hpp"
 
 int main() {
+  using velographx::kernels::IntersectionKernel;
   using velographx::kernels::VertexId;
 
   std::vector<VertexId> a{1, 3, 5, 7};
@@ -27,6 +28,18 @@ int main() {
   assert(velographx::kernels::avx512_intersection(large_a, large_b) == expected);
   assert(velographx::kernels::neon_intersection(large_a, large_b) == expected);
   assert(velographx::kernels::adaptive_intersection(large_a, large_b) == expected);
+
+  std::vector<VertexId> dense_a;
+  std::vector<VertexId> dense_b;
+  for (VertexId i = 0; i < 1024; ++i) {
+    dense_a.push_back(i);
+    if ((i % 2) == 0) dense_b.push_back(i);
+  }
+  const auto dense_expected = velographx::kernels::scalar_intersection(dense_a, dense_b);
+  assert(velographx::kernels::bitmap_intersection(dense_a, dense_b) == dense_expected);
+  assert(velographx::kernels::select_intersection(dense_a, dense_b) ==
+         IntersectionKernel::bitmap);
+  assert(velographx::kernels::adaptive_intersection(dense_a, dense_b) == dense_expected);
 
   std::vector<VertexId> disjoint_a;
   std::vector<VertexId> disjoint_b;
