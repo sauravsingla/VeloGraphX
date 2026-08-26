@@ -8,6 +8,7 @@
 #include <pybind11/stl.h>
 
 #include "velographx/incremental/bfs.hpp"
+#include "velographx/incremental/connected_components.hpp"
 #include "velographx/incremental/triangles.hpp"
 #include "velographx/runtime/execution_plan.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
@@ -159,20 +160,27 @@ PYBIND11_MODULE(velographx, m) {
       .def_property_readonly_static("unreachable",
            [](py::object) { return velographx::IncrementalBFS::unreachable; });
 
+  py::class_<velographx::IncrementalComponents>(m, "IncrementalComponents")
+      .def(py::init<velographx::DynamicGraph&>(), py::arg("graph"), py::keep_alive<1, 2>())
+      .def("component", &velographx::IncrementalComponents::component)
+      .def("apply", &velographx::IncrementalComponents::apply)
+      .def_property_readonly("last_repaired_vertices",
+           &velographx::IncrementalComponents::last_repaired_vertices);
+
   m.def("from_numpy_edges", &graph_from_numpy_edges, py::arg("edges"),
         py::arg("directed") = false,
         "Create a graph from a contiguous NumPy uint32 edge array of shape (N, 2). "
-        "The binding reads directly from the NumPy buffer and only copies into graph update storage.");
+        "Input buffers are consumed synchronously; graph storage owns its data after return.");
   m.def("from_scipy_csr", &graph_from_scipy_csr, py::arg("csr"),
         py::arg("directed") = false,
         "Create a graph from a SciPy CSR-like matrix using its indptr/indices buffers without "
-        "materializing a Python edge list.");
+        "materializing a Python edge list. Graph storage owns its data after return.");
   m.def("from_arrow_columns", &graph_from_arrow_columns, py::arg("src"), py::arg("dst"),
         py::arg("directed") = false,
-        "Create a graph from Arrow-like source and destination columns. The binding asks Arrow for "
-        "NumPy-compatible contiguous views where possible; Arrow may copy for unsupported/chunked layouts.");
+        "Create a graph from Arrow-like source and destination columns. Arrow may provide a view or "
+        "copy; VeloGraphX consumes it synchronously and retains no borrowed Python/Arrow buffer.");
   m.def("from_arrow_table", &graph_from_arrow_table, py::arg("table"), py::arg("src") = "src",
         py::arg("dst") = "dst", py::arg("directed") = false,
-        "Create a graph from two named Arrow table columns. This is low-copy when Arrow can expose "
-        "contiguous NumPy views and otherwise performs the minimum conversion required by Arrow.");
+        "Create a graph from two named Arrow table columns. Input lifetime need only cover this call; "
+        "the returned graph owns its dynamic adjacency storage.");
 }
