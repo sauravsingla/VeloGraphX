@@ -26,6 +26,9 @@ jobs:
   sanitizers:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      VELOGRAPHX_RANDOMIZED_OPS: 300
+      VELOGRAPHX_RANDOMIZED_SEEDS: 2
     steps:
       - uses: actions/checkout@v4
       - name: Configure ASan/UBSan
