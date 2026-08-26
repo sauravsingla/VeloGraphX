@@ -22,11 +22,24 @@ int main() {
   assert(f.get() == a);
   assert(loader.resident_bytes() == a.size());
 
+  const auto io_uring_result = loader.last_io_uring_result();
+#if defined(VELOGRAPHX_ENABLE_IO_URING) && defined(__linux__)
+  assert(velographx::AsyncPartitionLoader::io_uring_prefetch_compiled());
+  assert(io_uring_result.compiled);
+  assert(io_uring_result.attempted);
+#else
+  assert(!velographx::AsyncPartitionLoader::io_uring_prefetch_compiled());
+  assert(!io_uring_result.compiled);
+  assert(!io_uring_result.attempted);
+#endif
+
   const auto prefetch_result = loader.last_prefetch_result();
 #if defined(__linux__)
   assert(velographx::AsyncPartitionLoader::native_prefetch_supported());
-  assert(prefetch_result.supported);
-  assert(prefetch_result.advised);
+  if (!io_uring_result.succeeded) {
+    assert(prefetch_result.supported);
+    assert(prefetch_result.advised);
+  }
 #else
   assert(!velographx::AsyncPartitionLoader::native_prefetch_supported());
   assert(!prefetch_result.supported);
