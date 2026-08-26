@@ -55,6 +55,7 @@ jobs:
       - name: Python NumPy SciPy Arrow incremental smoke
         run: |
           PYTHONPATH=build-python/python python - <<'PY'
+          import gc
           import numpy as np
           import scipy.sparse as sp
           import pyarrow as pa
@@ -62,15 +63,23 @@ jobs:
 
           edges = np.array([[0, 1], [1, 2], [2, 0]], dtype=np.uint32)
           g = vx.from_numpy_edges(edges)
+          del edges
+          gc.collect()
           assert g.vertex_count == 3
+          assert g.neighbors(0) == [1, 2]
 
           csr = sp.csr_matrix((np.ones(3), ([0, 1, 2], [1, 2, 0])), shape=(3, 3))
           g2 = vx.from_scipy_csr(csr, directed=True)
+          del csr
+          gc.collect()
           assert g2.vertex_count == 3
+          assert g2.neighbors(1) == [2]
 
           table = pa.table({"src": pa.array([0, 1, 2], type=pa.uint32()),
                             "dst": pa.array([1, 2, 0], type=pa.uint32())})
           g3 = vx.from_arrow_table(table, directed=True)
+          del table
+          gc.collect()
           assert g3.vertex_count == 3
           assert g3.neighbors(1) == [2]
 
@@ -85,4 +94,20 @@ jobs:
           update.add(2, 3)
           bfs.apply(update)
           assert bfs.distances == [0, 1, 2, 3]
+
+          g5 = vx.Graph(6, False)
+          initial = vx.UpdateBatch()
+          initial.add(0, 1)
+          initial.add(1, 2)
+          initial.add(3, 4)
+          initial.add(4, 5)
+          g5.apply(initial)
+          cc = vx.IncrementalComponents(g5)
+          assert cc.component(0) == cc.component(2)
+          assert cc.component(0) != cc.component(3)
+          deletion = vx.UpdateBatch()
+          deletion.remove(1, 2)
+          cc.apply(deletion)
+          assert cc.component(0) != cc.component(2)
+          assert cc.last_repaired_vertices == 3
           PY
