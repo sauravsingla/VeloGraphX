@@ -35,7 +35,7 @@ int main() {
                                  "   # comment\n\t% another comment\n0 1\n1 2   \n");
     const auto graph = velographx::load_edge_list(path, true);
     assert(graph.vertex_count() == 3);
-    assert(graph.edge_count() == 2);
+    assert(graph.edge_entry_count() == 2);
     std::filesystem::remove(path);
   }
 
