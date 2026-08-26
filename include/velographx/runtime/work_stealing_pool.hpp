@@ -19,14 +19,19 @@ struct WorkStealingStats {
   std::size_t executed{0};
   std::size_t steal_attempts{0};
   std::size_t successful_steals{0};
+  std::size_t local_steals{0};
+  std::size_t remote_steals{0};
 };
 
 class WorkStealingPool {
  public:
   using Task = std::function<void()>;
 
-  explicit WorkStealingPool(std::size_t threads = std::thread::hardware_concurrency()) {
+  explicit WorkStealingPool(std::size_t threads = std::thread::hardware_concurrency(),
+                            std::vector<std::size_t> queue_groups = {}) {
     if (threads == 0) threads = 1;
+    if (queue_groups.size() != threads) queue_groups.assign(threads, 0);
+    queue_groups_ = std::move(queue_groups);
     queues_.reserve(threads);
     for (std::size_t i = 0; i < threads; ++i) queues_.push_back(std::make_unique<Queue>());
     workers_.reserve(threads);
@@ -44,6 +49,9 @@ class WorkStealingPool {
   }
 
   std::size_t size() const noexcept { return workers_.size(); }
+  std::size_t queue_group(std::size_t index) const noexcept {
+    return index < queue_groups_.size() ? queue_groups_[index] : 0;
+  }
 
   void submit(Task task, std::size_t locality_hint = 0) {
     const auto queue = locality_hint % queues_.size();
@@ -91,7 +99,8 @@ class WorkStealingPool {
 
   WorkStealingStats stats() const noexcept {
     return {submitted_.load(std::memory_order_relaxed), executed_.load(std::memory_order_relaxed),
-            steal_attempts_.load(std::memory_order_relaxed), successful_steals_.load(std::memory_order_relaxed)};
+            steal_attempts_.load(std::memory_order_relaxed), successful_steals_.load(std::memory_order_relaxed),
+            local_steals_.load(std::memory_order_relaxed), remote_steals_.load(std::memory_order_relaxed)};
   }
 
   static std::size_t adaptive_grain(std::size_t work_items, std::size_t threads) noexcept {
@@ -126,16 +135,28 @@ class WorkStealingPool {
     return false;
   }
 
+  bool try_steal_from(std::size_t thief, std::size_t victim, Task& task, bool local) {
+    steal_attempts_.fetch_add(1, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(queues_[victim]->mutex);
+    if (queues_[victim]->tasks.empty()) return false;
+    task = std::move(queues_[victim]->tasks.front());
+    queues_[victim]->tasks.pop_front();
+    successful_steals_.fetch_add(1, std::memory_order_relaxed);
+    (local ? local_steals_ : remote_steals_).fetch_add(1, std::memory_order_relaxed);
+    return true;
+  }
+
   bool steal(std::size_t thief, Task& task) {
+    const auto thief_group = queue_group(thief);
     for (std::size_t offset = 1; offset < queues_.size(); ++offset) {
-      steal_attempts_.fetch_add(1, std::memory_order_relaxed);
       const std::size_t victim = (thief + offset) % queues_.size();
-      std::lock_guard<std::mutex> lock(queues_[victim]->mutex);
-      if (queues_[victim]->tasks.empty()) continue;
-      task = std::move(queues_[victim]->tasks.front());
-      queues_[victim]->tasks.pop_front();
-      successful_steals_.fetch_add(1, std::memory_order_relaxed);
-      return true;
+      if (queue_group(victim) != thief_group) continue;
+      if (try_steal_from(thief, victim, task, true)) return true;
+    }
+    for (std::size_t offset = 1; offset < queues_.size(); ++offset) {
+      const std::size_t victim = (thief + offset) % queues_.size();
+      if (queue_group(victim) == thief_group) continue;
+      if (try_steal_from(thief, victim, task, false)) return true;
     }
     return false;
   }
@@ -158,12 +179,15 @@ class WorkStealingPool {
 
   std::vector<std::unique_ptr<Queue>> queues_;
   std::vector<std::thread> workers_;
+  std::vector<std::size_t> queue_groups_;
   std::atomic<bool> stop_{false};
   std::atomic<std::size_t> outstanding_{0};
   std::atomic<std::size_t> submitted_{0};
   std::atomic<std::size_t> executed_{0};
   std::atomic<std::size_t> steal_attempts_{0};
   std::atomic<std::size_t> successful_steals_{0};
+  std::atomic<std::size_t> local_steals_{0};
+  std::atomic<std::size_t> remote_steals_{0};
   std::mutex cv_mutex_;
   std::condition_variable cv_;
   std::mutex wait_mutex_;
