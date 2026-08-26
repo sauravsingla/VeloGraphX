@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VeloGraphX VERSION 0.4.8 LANGUAGES CXX)
+project(VeloGraphX VERSION 0.4.9 LANGUAGES CXX)
 
 option(VELOGRAPHX_BUILD_TESTS "Build tests" ON)
 option(VELOGRAPHX_BUILD_BENCHMARKS "Build benchmarks" ON)
