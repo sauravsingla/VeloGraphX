@@ -52,7 +52,7 @@ jobs:
         run: cmake -S . -B build-python -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=OFF -DVELOGRAPHX_BUILD_PYTHON=ON -Dpybind11_DIR="$(python -m pybind11 --cmakedir)"
       - name: Build Python bindings
         run: cmake --build build-python -j 2
-      - name: Python NumPy SciPy Arrow smoke
+      - name: Python NumPy SciPy Arrow incremental smoke
         run: |
           PYTHONPATH=build-python/python python - <<'PY'
           import numpy as np
@@ -73,4 +73,16 @@ jobs:
           g3 = vx.from_arrow_table(table, directed=True)
           assert g3.vertex_count == 3
           assert g3.neighbors(1) == [2]
+
+          g4 = vx.Graph(4, False)
+          batch = vx.UpdateBatch()
+          batch.add(0, 1)
+          batch.add(1, 2)
+          g4.apply(batch)
+          bfs = vx.IncrementalBFS(g4, 0)
+          assert bfs.distances == [0, 1, 2, vx.IncrementalBFS.unreachable]
+          update = vx.UpdateBatch()
+          update.add(2, 3)
+          bfs.apply(update)
+          assert bfs.distances == [0, 1, 2, 3]
           PY
