@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <queue>
 #include <random>
@@ -15,6 +16,15 @@ namespace {
 using velographx::DynamicGraph;
 using velographx::UpdateBatch;
 using velographx::VertexId;
+
+std::size_t env_size(const char* name, std::size_t fallback) {
+  const char* value = std::getenv(name);
+  if (!value || *value == '\0') return fallback;
+  char* end = nullptr;
+  const auto parsed = std::strtoull(value, &end, 10);
+  if (end == value || *end != '\0' || parsed == 0) return fallback;
+  return static_cast<std::size_t>(parsed);
+}
 
 std::vector<std::uint32_t> reference_bfs(const DynamicGraph& graph, VertexId source) {
   constexpr auto unreachable = std::numeric_limits<std::uint32_t>::max();
@@ -61,9 +71,8 @@ std::uint64_t reference_triangles(const DynamicGraph& graph) {
   return triangles;
 }
 
-void run_seed(std::uint32_t seed) {
+void run_seed(std::uint32_t seed, std::size_t operations) {
   constexpr std::size_t vertices = 40;
-  constexpr std::size_t operations = 2000;
 
   DynamicGraph bfs_graph(vertices, false);
   DynamicGraph triangle_graph(vertices, false);
@@ -109,6 +118,10 @@ void run_seed(std::uint32_t seed) {
 }  // namespace
 
 int main() {
-  for (std::uint32_t seed = 1; seed <= 8; ++seed) run_seed(seed * 7919U);
+  const auto operations = env_size("VELOGRAPHX_RANDOMIZED_OPS", 2000);
+  const auto seeds = env_size("VELOGRAPHX_RANDOMIZED_SEEDS", 8);
+  for (std::size_t seed = 1; seed <= seeds; ++seed) {
+    run_seed(static_cast<std::uint32_t>(seed * 7919U), operations);
+  }
   return 0;
 }
