@@ -7,6 +7,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include "velographx/incremental/bfs.hpp"
 #include "velographx/incremental/triangles.hpp"
 #include "velographx/runtime/execution_plan.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
@@ -147,6 +148,16 @@ PYBIND11_MODULE(velographx, m) {
       .def(py::init<velographx::DynamicGraph&>(), py::keep_alive<1, 2>())
       .def("value", &velographx::IncrementalTriangleCount::value)
       .def("apply", &velographx::IncrementalTriangleCount::apply);
+
+  py::class_<velographx::IncrementalBFS>(m, "IncrementalBFS")
+      .def(py::init<velographx::DynamicGraph&, velographx::VertexId>(),
+           py::arg("graph"), py::arg("source"), py::keep_alive<1, 2>())
+      .def_property_readonly("distances",
+           [](const velographx::IncrementalBFS& bfs) { return bfs.distances(); })
+      .def("apply", &velographx::IncrementalBFS::apply)
+      .def("recompute", &velographx::IncrementalBFS::recompute)
+      .def_property_readonly_static("unreachable",
+           [](py::object) { return velographx::IncrementalBFS::unreachable; });
 
   m.def("from_numpy_edges", &graph_from_numpy_edges, py::arg("edges"),
         py::arg("directed") = false,
