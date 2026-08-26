@@ -9,6 +9,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Configure
@@ -16,7 +17,7 @@ jobs:
       - name: Build
         run: cmake --build build -j 2
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --timeout 60
       - name: Static benchmark smoke
         run: ./build/velographx_benchmark
       - name: Dynamic benchmark smoke
@@ -24,6 +25,7 @@ jobs:
 
   sanitizers:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Configure ASan/UBSan
@@ -31,10 +33,11 @@ jobs:
       - name: Build
         run: cmake --build build-san -j 2
       - name: Test
-        run: ctest --test-dir build-san --output-on-failure
+        run: ctest --test-dir build-san --output-on-failure --timeout 60 -V
 
   python-bindings:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
