@@ -71,13 +71,53 @@ velographx::DynamicGraph graph_from_scipy_csr(const py::object& csr, bool direct
       if (v < 0 || static_cast<std::size_t>(v) >= vertices) {
         throw std::invalid_argument("CSR contains out-of-range vertex id");
       }
-      // For undirected CSR matrices, suppress the mirrored half to avoid duplicate work.
       if (!directed && static_cast<std::size_t>(v) < u) continue;
       batch.add(static_cast<velographx::VertexId>(u), static_cast<velographx::VertexId>(v));
     }
   }
   graph.apply(batch);
   return graph;
+}
+
+py::array arrow_column_to_numpy(const py::object& column) {
+  if (!py::hasattr(column, "to_numpy")) {
+    throw std::invalid_argument("expected an Arrow-like column exposing to_numpy()");
+  }
+  py::object array = column.attr("to_numpy")(py::arg("zero_copy_only") = false);
+  return py::array::ensure(array);
+}
+
+velographx::DynamicGraph graph_from_arrow_columns(const py::object& src_column,
+                                                   const py::object& dst_column,
+                                                   bool directed) {
+  auto src = py::array_t<std::uint32_t, py::array::c_style | py::array::forcecast>(
+      arrow_column_to_numpy(src_column));
+  auto dst = py::array_t<std::uint32_t, py::array::c_style | py::array::forcecast>(
+      arrow_column_to_numpy(dst_column));
+  const auto s = src.unchecked<1>();
+  const auto d = dst.unchecked<1>();
+  if (s.shape(0) != d.shape(0)) {
+    throw std::invalid_argument("Arrow source and destination columns must have equal length");
+  }
+
+  velographx::DynamicGraph graph(0, directed);
+  velographx::UpdateBatch batch;
+  batch.updates.reserve(static_cast<std::size_t>(s.shape(0)));
+  for (py::ssize_t i = 0; i < s.shape(0); ++i) {
+    batch.add(s(i), d(i));
+  }
+  graph.apply(batch);
+  return graph;
+}
+
+velographx::DynamicGraph graph_from_arrow_table(const py::object& table,
+                                                 const std::string& src_name,
+                                                 const std::string& dst_name,
+                                                 bool directed) {
+  if (!py::hasattr(table, "column")) {
+    throw std::invalid_argument("expected an Arrow-like table exposing column(name)");
+  }
+  return graph_from_arrow_columns(table.attr("column")(src_name), table.attr("column")(dst_name), directed);
 }
 
 }  // namespace
@@ -111,9 +151,17 @@ PYBIND11_MODULE(velographx, m) {
   m.def("from_numpy_edges", &graph_from_numpy_edges, py::arg("edges"),
         py::arg("directed") = false,
         "Create a graph from a contiguous NumPy uint32 edge array of shape (N, 2). "
-        "The binding reads directly from the NumPy buffer and only copies into the graph update storage.");
+        "The binding reads directly from the NumPy buffer and only copies into graph update storage.");
   m.def("from_scipy_csr", &graph_from_scipy_csr, py::arg("csr"),
         py::arg("directed") = false,
         "Create a graph from a SciPy CSR-like matrix using its indptr/indices buffers without "
         "materializing a Python edge list.");
+  m.def("from_arrow_columns", &graph_from_arrow_columns, py::arg("src"), py::arg("dst"),
+        py::arg("directed") = false,
+        "Create a graph from Arrow-like source and destination columns. The binding asks Arrow for "
+        "NumPy-compatible contiguous views where possible; Arrow may copy for unsupported/chunked layouts.");
+  m.def("from_arrow_table", &graph_from_arrow_table, py::arg("table"), py::arg("src") = "src",
+        py::arg("dst") = "dst", py::arg("directed") = false,
+        "Create a graph from two named Arrow table columns. This is low-copy when Arrow can expose "
+        "contiguous NumPy views and otherwise performs the minimum conversion required by Arrow.");
 }
