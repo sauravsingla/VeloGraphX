@@ -85,29 +85,46 @@ jobs:
 
           g4 = vx.Graph(4, False)
           batch = vx.UpdateBatch()
-          batch.add(0, 1)
-          batch.add(1, 2)
+          batch.add(0, 1); batch.add(1, 2)
           g4.apply(batch)
           bfs = vx.IncrementalBFS(g4, 0)
           assert bfs.distances == [0, 1, 2, vx.IncrementalBFS.unreachable]
-          update = vx.UpdateBatch()
-          update.add(2, 3)
+          update = vx.UpdateBatch(); update.add(2, 3)
           bfs.apply(update)
           assert bfs.distances == [0, 1, 2, 3]
 
           g5 = vx.Graph(6, False)
           initial = vx.UpdateBatch()
-          initial.add(0, 1)
-          initial.add(1, 2)
-          initial.add(3, 4)
-          initial.add(4, 5)
+          initial.add(0, 1); initial.add(1, 2); initial.add(3, 4); initial.add(4, 5)
           g5.apply(initial)
           cc = vx.IncrementalComponents(g5)
           assert cc.component(0) == cc.component(2)
           assert cc.component(0) != cc.component(3)
-          deletion = vx.UpdateBatch()
-          deletion.remove(1, 2)
+          deletion = vx.UpdateBatch(); deletion.remove(1, 2)
           cc.apply(deletion)
           assert cc.component(0) != cc.component(2)
           assert cc.last_repaired_vertices == 3
+
+          g6 = vx.Graph(6, False)
+          kinit = vx.UpdateBatch()
+          kinit.add(0, 1); kinit.add(1, 2); kinit.add(2, 0); kinit.add(3, 4)
+          g6.apply(kinit)
+          kc = vx.IncrementalKCore(g6)
+          assert kc.core[:3] == [2, 2, 2]
+          kdel = vx.UpdateBatch(); kdel.remove(1, 2)
+          kc.apply(kdel)
+          assert kc.core[:3] == [1, 1, 1]
+          assert kc.last_repaired_vertices == 3
+
+          g7 = vx.Graph(5, True)
+          pinit = vx.UpdateBatch()
+          pinit.add(0, 1); pinit.add(1, 2); pinit.add(2, 0); pinit.add(2, 3); pinit.add(3, 4)
+          g7.apply(pinit)
+          pr = vx.IncrementalPageRank(g7)
+          assert len(pr.values) == 5
+          pup = vx.UpdateBatch(); pup.add(4, 0)
+          pr.apply(pup)
+          assert len(pr.values) == 5
+          assert pr.last_repaired_vertices > 0
+          assert pr.last_repair_iterations > 0
           PY
