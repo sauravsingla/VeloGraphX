@@ -22,6 +22,17 @@ int main() {
   assert(f.get() == a);
   assert(loader.resident_bytes() == a.size());
 
+  const auto prefetch_result = loader.last_prefetch_result();
+#if defined(__linux__)
+  assert(velographx::AsyncPartitionLoader::native_prefetch_supported());
+  assert(prefetch_result.supported);
+  assert(prefetch_result.advised);
+#else
+  assert(!velographx::AsyncPartitionLoader::native_prefetch_supported());
+  assert(!prefetch_result.supported);
+  assert(!prefetch_result.advised);
+#endif
+
   auto cached = loader.load(1, p1);
   assert(cached == a);
   assert(loader.stats().hits >= 1);
