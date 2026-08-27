@@ -1,0 +1,50 @@
+name: Public Dataset Verification
+
+on:
+  push:
+    paths:
+      - '.github/workflows/public-dataset-verify.yml'
+      - 'tools/verify_public_dataset.py'
+  workflow_dispatch:
+
+jobs:
+  verify-ca-grqc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify immutable ca-GrQc candidate
+        run: |
+          mkdir -p build/public-dataset-verification
+          python tools/verify_public_dataset.py \
+            --name ca-GrQc \
+            --canonical-source https://snap.stanford.edu/data/ \
+            --source-revision a2c89c74098ff191caa2379778c9c1dc00c011ba \
+            --url https://raw.githubusercontent.com/CheemaMeshal/AstroPhysics-Network-Analysis/a2c89c74098ff191caa2379778c9c1dc00c011ba/CA-GrQc.txt \
+            --output build/public-dataset-verification/ca-GrQc.json
+
+      - name: Sanity-check canonical metadata
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/public-dataset-verification/ca-GrQc.json').read_text())
+          assert report['research_claim'] is False
+          assert report['inspection']['unique_vertices'] == 5242
+          assert report['inspection']['malformed_rows'] == 0
+          assert report['inspection']['normalized_edge_count'] > 14000
+          assert report['inspection']['normalized_edge_count'] < 15000
+          assert len(report['sha256']) == 64
+          PY
+
+      - name: Upload verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-public-dataset-verification
+          path: build/public-dataset-verification/
+          retention-days: 30
