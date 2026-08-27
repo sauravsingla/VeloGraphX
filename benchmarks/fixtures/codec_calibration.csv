@@ -1,0 +1,7 @@
+family,codec,values,encoded_bytes,ratio,encode_us,decode_us
+dense,varbyte,100000,100000,4.0,100,120
+dense,fixed-width-vectorized,100000,110000,3.636,90,60
+medium,varbyte,100000,120000,3.333,110,100
+medium,fixed-width-vectorized,100000,132000,3.030,95,80
+sparse,varbyte,100000,180000,2.222,130,70
+sparse,fixed-width-vectorized,100000,260000,1.538,100,90
