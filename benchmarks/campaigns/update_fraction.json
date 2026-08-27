@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "triangle-update-fraction-crossover",
+  "command": ["./build/velographx_update_fraction_benchmark"],
+  "axes": {
+    "run_group": ["full-required-fractions"]
+  },
+  "repeat": 5,
+  "timeout_seconds": 600,
+  "env": {
+    "VELOGRAPHX_CAMPAIGN": "{run_group}"
+  }
+}
