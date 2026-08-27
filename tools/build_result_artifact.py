@@ -44,6 +44,24 @@ def read_optional_json(path: Path | None):
     return payload
 
 
+def attachment(path: Path | None, label: str):
+    if path is None:
+        return None
+    if not path.is_file():
+        raise ValueError(f"{label} file does not exist: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} must contain a JSON object: {path}")
+    return {
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "bytes": path.stat().st_size,
+        "artifact_type": payload.get("artifact_type"),
+        "valid": payload.get("valid"),
+        "research_claim": payload.get("research_claim"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Bundle benchmark outputs into a provenance-rich publication artifact manifest."
@@ -54,6 +72,11 @@ def main() -> int:
     parser.add_argument("--result", type=Path, action="append", required=True)
     parser.add_argument("--hardware-json", type=Path)
     parser.add_argument("--software-json", type=Path)
+    parser.add_argument(
+        "--preflight-json",
+        type=Path,
+        help="Optional benchmark preflight report to bind immutably to this artifact.",
+    )
     parser.add_argument("--notes")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -74,6 +97,13 @@ def main() -> int:
             }
         )
 
+    preflight = attachment(args.preflight_json, "preflight")
+    if preflight is not None:
+        if preflight["valid"] is not True:
+            raise ValueError("preflight report must have valid=true")
+        if preflight["research_claim"] is not False:
+            raise ValueError("preflight report must keep research_claim=false")
+
     artifact = {
         "schema_version": SCHEMA_VERSION,
         "artifact_type": "velographx-experiment-results",
@@ -91,6 +121,7 @@ def main() -> int:
             "python": platform.python_version(),
             "cpu_count": os.cpu_count(),
         },
+        "preflight": preflight,
         "hardware": read_optional_json(args.hardware_json),
         "software": read_optional_json(args.software_json),
         "notes": args.notes,
