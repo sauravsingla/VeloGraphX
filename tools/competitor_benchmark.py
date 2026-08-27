@@ -5,13 +5,15 @@ import importlib
 import json
 import os
 import platform
+import shlex
+import subprocess
 import sys
 import time
 from collections import deque
 from pathlib import Path
 
 SCHEMA_VERSION = 1
-SUPPORTED = ("builtin", "networkx", "igraph", "networkit", "rustworkx")
+SUPPORTED = ("builtin", "networkx", "igraph", "networkit", "rustworkx", "external")
 
 
 def read_edges(path: Path):
@@ -101,6 +103,56 @@ def run_rustworkx(edges, vertices, source, directed):
     return [int(lengths[v]) if v in lengths else -1 for v in range(vertices)]
 
 
+def validate_distances(values, vertices):
+    if not isinstance(values, list) or len(values) != vertices:
+        raise ValueError(f"competitor result must contain exactly {vertices} distances")
+    result = []
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("competitor distances must be numeric")
+        ivalue = int(value)
+        if ivalue < -1 or ivalue != value:
+            raise ValueError("competitor distances must be integers >= -1")
+        result.append(ivalue)
+    return result
+
+
+def run_external(command, dataset, vertices, source, directed, timeout_seconds):
+    if not command:
+        raise ValueError("--external-command is required when --framework external is selected")
+    argv = shlex.split(command)
+    if not argv:
+        raise ValueError("--external-command is empty")
+    env = os.environ.copy()
+    env.update(
+        {
+            "VELOGRAPHX_DATASET": str(dataset.resolve()),
+            "VELOGRAPHX_ALGORITHM": "bfs",
+            "VELOGRAPHX_SOURCE": str(source),
+            "VELOGRAPHX_DIRECTED": "1" if directed else "0",
+            "VELOGRAPHX_VERTICES": str(vertices),
+        }
+    )
+    proc = subprocess.run(
+        argv,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=timeout_seconds,
+    )
+    if proc.returncode != 0:
+        detail = proc.stderr.strip() or proc.stdout.strip() or f"exit code {proc.returncode}"
+        raise RuntimeError(f"external competitor failed: {detail}")
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("external competitor stdout must be one JSON object") from exc
+    if not isinstance(payload, dict) or "distances" not in payload:
+        raise ValueError("external competitor JSON must contain a distances field")
+    return validate_distances(payload["distances"], vertices), payload.get("framework_version")
+
+
 def run_framework(name, edges, vertices, source, directed):
     if name == "builtin":
         return bfs_builtin(edges, vertices, source, directed)
@@ -112,7 +164,7 @@ def run_framework(name, edges, vertices, source, directed):
         return run_networkit(edges, vertices, source, directed)
     if name == "rustworkx":
         return run_rustworkx(edges, vertices, source, directed)
-    raise ValueError(f"unsupported framework: {name}")
+    raise ValueError(f"unsupported in-process framework: {name}")
 
 
 def package_version(name):
@@ -127,7 +179,7 @@ def package_version(name):
 
 def main():
     parser = argparse.ArgumentParser(description="Run reproducible graph competitor benchmarks and emit machine-readable JSON.")
-    parser.add_argument("--dataset", type=Path, required=True)
+    parser.add_argument("--dataset", type=Path)
     parser.add_argument("--framework", choices=SUPPORTED, default="builtin")
     parser.add_argument("--algorithm", choices=("bfs",), default="bfs")
     parser.add_argument("--source", type=int, default=0)
@@ -135,26 +187,54 @@ def main():
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--list-frameworks", action="store_true")
+    parser.add_argument("--external-command", help="Command implementing the external JSON adapter contract")
+    parser.add_argument("--external-name", default="external", help="Name recorded for an external native engine")
+    parser.add_argument("--external-version", help="Version override when the external adapter does not report one")
+    parser.add_argument("--timeout-seconds", type=float, default=300.0)
     args = parser.parse_args()
 
     if args.list_frameworks:
         print(json.dumps({"frameworks": list(SUPPORTED)}))
         return 0
+    if args.dataset is None:
+        raise ValueError("--dataset is required")
     if args.repeat < 1:
         raise ValueError("--repeat must be at least 1")
+    if args.timeout_seconds <= 0:
+        raise ValueError("--timeout-seconds must be positive")
 
     edges, vertices = read_edges(args.dataset)
     timings = []
     result = None
+    external_reported_version = None
     for _ in range(args.repeat):
         start = time.perf_counter()
-        result = run_framework(args.framework, edges, vertices, args.source, args.directed)
+        if args.framework == "external":
+            result, reported_version = run_external(
+                args.external_command,
+                args.dataset,
+                vertices,
+                args.source,
+                args.directed,
+                args.timeout_seconds,
+            )
+            if reported_version is not None:
+                external_reported_version = str(reported_version)
+        else:
+            result = run_framework(args.framework, edges, vertices, args.source, args.directed)
         timings.append(time.perf_counter() - start)
 
+    framework_name = args.external_name if args.framework == "external" else args.framework
+    framework_version = (
+        external_reported_version or args.external_version or "unknown"
+        if args.framework == "external"
+        else package_version(args.framework)
+    )
     report = {
         "schema_version": SCHEMA_VERSION,
-        "framework": args.framework,
-        "framework_version": package_version(args.framework),
+        "framework": framework_name,
+        "adapter": args.framework,
+        "framework_version": framework_version,
         "algorithm": args.algorithm,
         "dataset": str(args.dataset),
         "dataset_sha256": sha256_file(args.dataset),
@@ -190,6 +270,9 @@ if __name__ == "__main__":
     except ModuleNotFoundError as exc:
         print(f"error: optional framework dependency is not installed: {exc.name}", file=sys.stderr)
         raise SystemExit(3)
+    except subprocess.TimeoutExpired:
+        print("error: external competitor timed out", file=sys.stderr)
+        raise SystemExit(4)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2)
