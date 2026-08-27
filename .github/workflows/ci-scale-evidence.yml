@@ -1,0 +1,158 @@
+name: CI-scale Evidence Campaign
+
+on:
+  push:
+    paths:
+      - '.github/workflows/ci-scale-evidence.yml'
+  workflow_dispatch:
+
+jobs:
+  ci-scale-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install hosted-CI competitor dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install networkx igraph networkit rustworkx
+
+      - name: Configure and build benchmark targets
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=ON \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build -j 2
+          ctest --test-dir build --output-on-failure --timeout 60
+          mkdir -p build/evidence
+
+      - name: Capture benchmark environment and dataset provenance
+        run: |
+          python tools/prepare_dataset.py \
+            --manifest datasets/manifest.example.json \
+            --output-dir build/datasets \
+            --dataset example-local-edge-list > build/evidence/dataset-prepared.json
+          python tools/capture_benchmark_environment.py \
+            --label github-hosted-ci-scale-evidence \
+            --output build/evidence/environment.json
+          python tools/validate_benchmark_preflight.py \
+            --environment build/evidence/environment.json \
+            --dataset-report build/evidence/dataset-prepared.json \
+            > build/evidence/preflight.json
+
+      - name: Run core benchmark evidence
+        run: |
+          ./build/velographx_benchmark > build/evidence/static-benchmark.txt
+          ./build/velographx_dynamic_benchmark > build/evidence/dynamic-benchmark.txt
+          ./build/velographx_intersection_benchmark > build/evidence/intersection-benchmark.txt
+          ./build/velographx_compression_benchmark > build/evidence/compression-benchmark.txt
+
+      - name: Run full update-fraction crossover campaign
+        run: |
+          python tools/experiment_campaign.py \
+            --config benchmarks/campaigns/update_fraction.json \
+            --output build/evidence/update-fraction-campaign.json
+
+      - name: Run paired ablation suites
+        run: |
+          python tools/experiment_campaign.py \
+            --config benchmarks/campaigns/ablation.json \
+            --output build/evidence/ablation-campaign.json
+
+      - name: Run conservative hosted-runner thread scaling
+        run: |
+          cat > build/evidence/thread-scaling-ci.json <<'JSON'
+          {
+            "schema_version": 1,
+            "name": "hosted-ci-thread-scaling",
+            "command": [
+              "python",
+              "tools/hardware_campaign_driver.py",
+              "--threads",
+              "{threads}",
+              "--",
+              "./build/velographx_benchmark"
+            ],
+            "axes": {"threads": [1, 2]},
+            "repeat": 3,
+            "timeout_seconds": 300
+          }
+          JSON
+          python tools/experiment_campaign.py \
+            --config build/evidence/thread-scaling-ci.json \
+            --output build/evidence/thread-scaling-results.json
+
+      - name: Run BFS competitor adapters on identical fixture
+        run: |
+          for framework in builtin networkx igraph networkit rustworkx; do
+            python tools/competitor_benchmark.py \
+              --dataset datasets/example-local-edge-list.txt \
+              --framework "$framework" \
+              --repeat 5 \
+              --output "build/evidence/competitor-${framework}.json"
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          reports = [json.loads(p.read_text()) for p in sorted(Path('build/evidence').glob('competitor-*.json'))]
+          assert len(reports) == 5
+          digests = {r['result_digest'] for r in reports}
+          hashes = {r['dataset_sha256'] for r in reports}
+          reachable = {r['reachable_vertices'] for r in reports}
+          assert len(digests) == 1, 'competitor BFS results disagree'
+          assert len(hashes) == 1, 'competitors did not use the same dataset'
+          assert reachable == {3}, 'unexpected reachable-vertex count'
+          summary = {
+              'schema_version': 1,
+              'artifact_type': 'velographx-hosted-ci-competitor-summary',
+              'research_claim': False,
+              'frameworks': [r['framework'] for r in reports],
+              'versions': {r['framework']: r['framework_version'] for r in reports},
+              'dataset_sha256': reports[0]['dataset_sha256'],
+              'result_digest': reports[0]['result_digest'],
+              'all_results_agree': True,
+          }
+          Path('build/evidence/competitor-summary.json').write_text(json.dumps(summary, sort_keys=True, indent=2) + '\n')
+          PY
+
+      - name: Build and validate one provenance-rich evidence bundle
+        run: |
+          python tools/build_result_artifact.py \
+            --experiment hosted-ci-scale-evidence \
+            --dataset example-local-edge-list \
+            --dataset-sha256 b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e \
+            --preflight-json build/evidence/preflight.json \
+            --hardware-json build/evidence/environment.json \
+            --software-json build/evidence/environment.json \
+            --result build/evidence/static-benchmark.txt \
+            --result build/evidence/dynamic-benchmark.txt \
+            --result build/evidence/intersection-benchmark.txt \
+            --result build/evidence/compression-benchmark.txt \
+            --result build/evidence/update-fraction-campaign.json \
+            --result build/evidence/ablation-campaign.json \
+            --result build/evidence/thread-scaling-results.json \
+            --result build/evidence/competitor-summary.json \
+            --notes 'GitHub-hosted CI engineering evidence only; research_claim=false; not publication-grade performance.' \
+            --output build/evidence/result-bundle.json
+          python tools/validate_result_bundle.py build/evidence/result-bundle.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          bundle = json.loads(Path('build/evidence/result-bundle.json').read_text())
+          assert bundle['research_claim'] is False
+          assert len(bundle['results']) == 8
+          assert bundle['preflight']['valid'] is True
+          PY
+
+      - name: Upload CI-scale evidence bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-ci-scale-evidence
+          path: build/evidence/
+          retention-days: 30
