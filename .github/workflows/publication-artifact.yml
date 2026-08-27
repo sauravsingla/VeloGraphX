@@ -1,0 +1,41 @@
+name: Publication Artifact Contract
+on:
+  push:
+  pull_request:
+
+jobs:
+  publication-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and validate non-research publication artifact
+        run: |
+          mkdir -p build
+          python tools/build_result_artifact.py \
+            --experiment fixture-publication-artifact \
+            --dataset example-local-edge-list \
+            --dataset-sha256 b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e \
+            --result benchmarks/fixtures/publication-result.json \
+            --notes 'CI fixture only; not a research measurement' \
+            --output build/publication-artifact.json
+          python tools/validate_result_bundle.py build/publication-artifact.json
+      - name: Reject tampered result artifact
+        run: |
+          cp benchmarks/fixtures/publication-result.json build/tampered-publication-result.json
+          python tools/build_result_artifact.py \
+            --experiment fixture-publication-artifact \
+            --dataset example-local-edge-list \
+            --dataset-sha256 b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e \
+            --result build/tampered-publication-result.json \
+            --notes 'CI fixture only; not a research measurement' \
+            --output build/tampered-artifact.json
+          printf '\n' >> build/tampered-publication-result.json
+          if python tools/validate_result_bundle.py build/tampered-artifact.json 2> build/tampered.err; then
+            echo 'tampered publication result unexpectedly accepted' >&2
+            exit 1
+          fi
+          grep -Fqi 'sha256 mismatch' build/tampered.err
