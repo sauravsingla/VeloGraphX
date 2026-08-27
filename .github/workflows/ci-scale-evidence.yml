@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/ci-scale-evidence.yml'
       - 'tools/ablation_suite.py'
+      - 'tools/competitor_benchmark.py'
   workflow_dispatch:
 
 jobs:
