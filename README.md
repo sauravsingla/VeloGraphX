@@ -142,10 +142,13 @@ The repository contains:
 - codec throughput/compression-ratio tooling and codec-policy calibration;
 - provenance-rich publication artifact generation and integrity validation.
 
-Hosted CI runs validate contracts and correctness, **not publication-grade performance**. Dedicated-hardware benchmark results should only be treated as project claims when the corresponding dataset, environment, version pins and result artifacts are captured by the documented workflow.
+A complete **hosted-CI engineering campaign** now runs core benchmarks, update-fraction measurements, paired ablations, conservative 1/2-thread checks and normalized BFS adapters for builtin, NetworkX, igraph, NetworKit and rustworkx. The resulting bundle is provenance-captured and integrity-validated, but remains explicitly `research_claim: false`.
+
+Hosted CI runs validate contracts, correctness and small-scale engineering behavior, **not publication-grade performance**. Dedicated-hardware benchmark results should only be treated as project claims when the corresponding dataset, environment, version pins and result artifacts are captured by the documented workflow.
 
 Useful references:
 
+- [`docs/ci-scale-evidence.md`](docs/ci-scale-evidence.md) — measured hosted-CI engineering evidence and limitations
 - [`docs/benchmark-methodology.md`](docs/benchmark-methodology.md) — experimental methodology
 - [`docs/prompt-coverage.md`](docs/prompt-coverage.md) — implemented vs partial vs unmeasured work
 - [`docs/limitations.md`](docs/limitations.md) — known limitations
@@ -156,7 +159,9 @@ Useful references:
 
 VeloGraphX does **not** currently claim publication-grade superiority over other graph engines. Several evaluation milestones require dedicated hardware and completed public-dataset runs.
 
-Still unmeasured or environment-dependent are true multi-socket NUMA locality and remote-traffic behavior, large 1/2/4/8/16/32+ thread-scaling studies, 100M+ edge experiments, the full update-fraction crossover campaign, complete competitor comparisons on identical hardware, publication-grade hardware-counter and ablation measurements, research-scale codec campaigns, and NVMe/`io_uring` throughput studies.
+The hosted-CI campaign has already exercised the full configured update-fraction set, paired ablations, 1/2-thread affinity checks and five normalized Python/reference BFS adapters on a small fixture. Those results are documented as engineering evidence only.
+
+Still unmeasured at publication grade or environment-dependent are true multi-socket NUMA locality and remote-traffic behavior, large 1/2/4/8/16/32+ thread-scaling studies, 100M+ edge experiments, complete competitor comparisons on identical dedicated hardware including native LAGraph/GAP, publication-grade hardware-counter and ablation measurements, research-scale codec campaigns, public research datasets, and NVMe/`io_uring` throughput studies.
 
 The engineering infrastructure for many of these experiments is already present; the remaining gap is execution and evidence, not permission to infer results.
 
@@ -183,7 +188,7 @@ docs/           architecture, methodology, limitations and research notes
 
 VeloGraphX is under active development. The authoritative status is maintained in [`docs/prompt-coverage.md`](docs/prompt-coverage.md), which distinguishes implemented functionality from partial, environment-dependent, unmeasured and future work.
 
-If you are evaluating the repository for research or systems work, start with the README, then review the benchmark methodology and prompt-coverage matrix before interpreting any benchmark output.
+If you are evaluating the repository for research or systems work, start with the README, then review the benchmark methodology, hosted-CI evidence note and prompt-coverage matrix before interpreting any benchmark output.
 
 ## Contributing
 
