@@ -6,6 +6,7 @@
 #include <limits>
 #include <numeric>
 #include <string>
+#include <unordered_set>
 
 #include "velographx/algorithms.hpp"
 #include "velographx/io.hpp"
@@ -36,9 +37,8 @@ int main(int argc, char** argv) {
   const auto cc_begin = clock::now();
   const auto components = velographx::connected_components(graph);
   const auto cc_end = clock::now();
-  const auto component_count = components.empty()
-      ? std::size_t{0}
-      : static_cast<std::size_t>(*std::max_element(components.begin(), components.end())) + 1;
+  const std::unordered_set<velographx::VertexId> component_labels(components.begin(), components.end());
+  const auto component_count = component_labels.size();
 
   const auto triangle_begin = clock::now();
   const auto triangles = velographx::triangle_count(graph);
@@ -54,8 +54,8 @@ int main(int argc, char** argv) {
   };
 
   std::cout
-      << "dataset,source,vertices,edges,load_us,bfs_us,reachable_vertices,components_us,component_count,triangle_us,triangles,pagerank_us,pagerank_sum\n"
-      << dataset.string() << ',' << source << ',' << graph.vertex_count() << ',' << graph.edge_count() << ','
+      << "dataset,source,vertices,edge_entries,load_us,bfs_us,reachable_vertices,components_us,component_count,triangle_us,triangles,pagerank_us,pagerank_sum\n"
+      << dataset.string() << ',' << source << ',' << graph.vertex_count() << ',' << graph.edge_entry_count() << ','
       << us(load_begin, load_end) << ',' << us(bfs_begin, bfs_end) << ',' << reachable << ','
       << us(cc_begin, cc_end) << ',' << component_count << ','
       << us(triangle_begin, triangle_end) << ',' << triangles << ','
