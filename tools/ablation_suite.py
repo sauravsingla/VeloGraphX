@@ -16,13 +16,31 @@ SUITES = {
 }
 
 
+def normalize_csv_row(row):
+    """Convert DictReader rows into JSON-safe string-keyed dictionaries.
+
+    csv.DictReader stores surplus columns under a None key. Preserve those
+    values explicitly so evidence is not lost and json.dumps(sort_keys=True)
+    remains deterministic.
+    """
+    normalized = {}
+    extras = row.get(None)
+    for key, value in row.items():
+        if key is None:
+            continue
+        normalized[str(key)] = value
+    if extras:
+        normalized["__extra_fields__"] = list(extras)
+    return normalized
+
+
 def run_csv(executable: Path):
     started = time.perf_counter()
     completed = subprocess.run([str(executable)], text=True, capture_output=True, check=False)
     elapsed = time.perf_counter() - started
     rows = []
     if completed.returncode == 0:
-        rows = list(csv.DictReader(io.StringIO(completed.stdout)))
+        rows = [normalize_csv_row(row) for row in csv.DictReader(io.StringIO(completed.stdout))]
     return {
         "executable": str(executable),
         "returncode": completed.returncode,
