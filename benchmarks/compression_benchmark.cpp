@@ -48,7 +48,7 @@ int main() {
 
     {
       long long encode_us = 0, decode_us = 0;
-      BlockedVariableByte encoded;
+      BlockedAdjacency encoded;
       std::vector<VertexId> decoded;
       for (int r = 0; r < repeat; ++r) {
         auto t0 = clock::now();
@@ -60,14 +60,15 @@ int main() {
         decode_us += std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
       }
       if (decoded != ids) return 3;
+      const double ratio = static_cast<double>(ids.size() * sizeof(VertexId)) /
+                           static_cast<double>(encoded.payload.empty() ? 1 : encoded.payload.size());
       std::cout << family.name << ",blocked-varbyte," << values << ',' << encoded.payload.size() << ','
-                << compression_ratio_bytes(ids, encoded) << ',' << encode_us / repeat << ','
-                << decode_us / repeat << '\n';
+                << ratio << ',' << encode_us / repeat << ',' << decode_us / repeat << '\n';
     }
 
     {
       long long encode_us = 0, scalar_us = 0, vector_us = 0;
-      SimdFriendlyDelta encoded;
+      SimdFriendlyAdjacency encoded;
       std::vector<VertexId> decoded;
       for (int r = 0; r < repeat; ++r) {
         auto t0 = clock::now();
