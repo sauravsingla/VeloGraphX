@@ -61,9 +61,20 @@ jobs:
 
       - name: Run paired ablation suites
         run: |
-          python tools/experiment_campaign.py \
-            --config benchmarks/campaigns/ablation.json \
+          python tools/ablation_suite.py \
+            --build-dir build \
+            --suite intersection \
+            --suite compression \
+            --suite incremental \
             --output build/evidence/ablation-campaign.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/evidence/ablation-campaign.json').read_text())
+          assert report['schema_version'] == 1
+          assert set(report['suites']) == {'intersection', 'compression', 'incremental'}
+          assert all(item['returncode'] == 0 for item in report['suites'].values())
+          PY
 
       - name: Run conservative hosted-runner thread scaling
         run: |
