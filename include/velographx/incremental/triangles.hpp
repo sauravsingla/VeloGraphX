@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include "velographx/storage/dynamic_graph.hpp"
 #include "velographx/kernels/intersection.hpp"
@@ -11,14 +12,22 @@ class IncrementalTriangleCount {
   [[nodiscard]] std::uint64_t value() const noexcept { return triangles_; }
 
   void apply(const UpdateBatch& batch) {
+    if (batch.empty()) return;
+
     for (const auto& op : batch.updates) {
-      auto a = graph_.neighbors(op.src);
-      auto b = graph_.neighbors(op.dst);
+      const bool exists = graph_.has_edge(op.src, op.dst);
+      const auto a = graph_.neighbors(op.src);
+      const auto b = graph_.neighbors(op.dst);
       const auto common = kernels::adaptive_intersection(a, b);
-      if (op.add && !graph_.has_edge(op.src, op.dst)) triangles_ += common;
-      if (!op.add && graph_.has_edge(op.src, op.dst)) triangles_ -= std::min<std::uint64_t>(triangles_, common);
+
+      if (op.add && !exists) triangles_ += common;
+      if (!op.add && exists) triangles_ -= std::min<std::uint64_t>(triangles_, common);
+
+      // Advance the graph after each operation so later operations in the same
+      // batch observe earlier changes. The batch version is still bumped once.
+      graph_.apply_unversioned(op);
     }
-    graph_.apply(batch);
+    ++graph_.version_;
   }
 
   void recompute() {
