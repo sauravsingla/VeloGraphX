@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "artifact_type": "velographx-public-dataset-research-plan",
+  "research_claim": false,
+  "purpose": "Define the immutable metadata required before public research-scale datasets may be used in benchmark claims.",
+  "required_before_execution": [
+    "canonical_source",
+    "license_or_terms",
+    "download_url",
+    "sha256",
+    "format",
+    "directed",
+    "vertex_count",
+    "edge_count"
+  ],
+  "dataset_slots": [
+    {
+      "id": "small-public",
+      "role": "correctness-and-tooling",
+      "canonical_source": null,
+      "license_or_terms": null,
+      "download_url": null,
+      "sha256": null,
+      "format": null,
+      "directed": null,
+      "vertex_count": null,
+      "edge_count": null,
+      "ready": false
+    },
+    {
+      "id": "medium-public",
+      "role": "crossover-and-scaling",
+      "canonical_source": null,
+      "license_or_terms": null,
+      "download_url": null,
+      "sha256": null,
+      "format": null,
+      "directed": null,
+      "vertex_count": null,
+      "edge_count": null,
+      "ready": false
+    },
+    {
+      "id": "100m-plus-public",
+      "role": "research-scale-validation",
+      "canonical_source": null,
+      "license_or_terms": null,
+      "download_url": null,
+      "sha256": null,
+      "format": null,
+      "directed": null,
+      "vertex_count": null,
+      "edge_count": null,
+      "ready": false
+    }
+  ],
+  "notes": "Dataset identities and checksums are intentionally unresolved here. Populate only from verified canonical sources; do not infer or copy unverified hashes."
+}
