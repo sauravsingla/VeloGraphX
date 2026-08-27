@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "repository_commit": "9ae88ce",
+  "campaign": "contract-fixture",
+  "dataset": {
+    "name": "example-local-edge-list",
+    "sha256": "b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e"
+  },
+  "environment": {
+    "kind": "synthetic-ci-fixture",
+    "dedicated_hardware": false
+  },
+  "results": [
+    {
+      "name": "fixture-case",
+      "metrics": {
+        "wall_seconds": 0.001,
+        "reachable_vertices": 3
+      }
+    }
+  ],
+  "research_claim": false
+}
