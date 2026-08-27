@@ -77,7 +77,7 @@ jobs:
             echo 'checksum mismatch unexpectedly accepted' >&2
             exit 1
           fi
-          grep -qi 'checksum' build/bad-checksum.err
+          grep -Fqi 'sha256 mismatch' build/bad-checksum.err
       - name: Validate competitor adapter contract
         run: |
           python tools/competitor_benchmark.py \
