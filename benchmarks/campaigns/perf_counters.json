@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "name": "perf-counter-static-benchmark",
+  "command": [
+    "python",
+    "tools/hardware_campaign_driver.py",
+    "--threads",
+    "{threads}",
+    "--perf",
+    "--perf-events",
+    "cycles,instructions,cache-misses,branches,branch-misses",
+    "--",
+    "./build/velographx_benchmark"
+  ],
+  "axes": {
+    "threads": [1, 8, 16, 32]
+  },
+  "repeat": 5,
+  "timeout_seconds": 600
+}
