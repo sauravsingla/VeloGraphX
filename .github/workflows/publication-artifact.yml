@@ -38,4 +38,4 @@ jobs:
             echo 'tampered publication result unexpectedly accepted' >&2
             exit 1
           fi
-          grep -Fqi 'sha256 mismatch' build/tampered.err
+          grep -Eqi 'byte-size mismatch|sha256 mismatch' build/tampered.err
