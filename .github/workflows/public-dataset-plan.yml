@@ -1,0 +1,34 @@
+name: Public Dataset Plan Contract
+on:
+  push:
+  pull_request:
+
+jobs:
+  public-dataset-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate planning artifact
+        run: |
+          mkdir -p build
+          python tools/validate_public_dataset_plan.py datasets/public-research-plan.json > build/public-plan.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/public-plan.json').read_text())
+          assert report['valid_plan'] is True
+          assert report['execution_ready'] is False
+          assert report['slot_count'] == 3
+          assert report['incomplete_slots'] == ['100m-plus-public', 'medium-public', 'small-public']
+          PY
+      - name: Fail closed when execution readiness is required
+        run: |
+          if python tools/validate_public_dataset_plan.py datasets/public-research-plan.json --require-ready 2> build/public-plan-ready.err; then
+            echo 'unresolved public dataset plan unexpectedly marked execution-ready' >&2
+            exit 1
+          fi
+          grep -Fqi 'not execution-ready' build/public-plan-ready.err
