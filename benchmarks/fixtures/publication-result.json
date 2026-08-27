@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "experiment": "fixture",
+  "metric": "elapsed_seconds",
+  "value": 0.001,
+  "research_claim": false
+}
