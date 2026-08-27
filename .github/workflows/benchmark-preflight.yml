@@ -1,0 +1,49 @@
+name: Benchmark Preflight Contract
+on:
+  push:
+  pull_request:
+
+jobs:
+  benchmark-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build provenance fixtures
+        run: |
+          mkdir -p build
+          python tools/prepare_dataset.py \
+            --manifest datasets/manifest.example.json \
+            --output-dir build/datasets \
+            --dataset example-local-edge-list > build/dataset-prepared.json
+          python tools/capture_benchmark_environment.py \
+            --label ci-benchmark-preflight \
+            --output build/benchmark-environment.json
+      - name: Accept complete non-native preflight
+        run: |
+          python tools/validate_benchmark_preflight.py \
+            --environment build/benchmark-environment.json \
+            --dataset-report build/dataset-prepared.json > build/preflight.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/preflight.json').read_text())
+          assert report['valid'] is True
+          assert report['research_claim'] is False
+          assert report['dataset_count'] == 1
+          assert report['native_competitors_required'] is False
+          assert report['git_revision']
+          PY
+      - name: Reject missing required native competitors
+        run: |
+          if python tools/validate_benchmark_preflight.py \
+              --environment build/benchmark-environment.json \
+              --dataset-report build/dataset-prepared.json \
+              --require-native-competitors 2> build/native-preflight.err; then
+            echo 'native competitor preflight unexpectedly accepted' >&2
+            exit 1
+          fi
+          grep -Fqi 'required native competitor unavailable' build/native-preflight.err
