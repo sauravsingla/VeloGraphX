@@ -21,19 +21,21 @@ This document maps the repository against the original VeloGraphX implementation
 - Out-of-core partition-file backend with mmap/fallback reads, async loading, bounded partition cache, Linux kernel readahead hints and an opt-in Linux liburing/io_uring prefetch path with portable fallback.
 - Loader hardening, malformed-input regression coverage, randomized dynamic mutation campaigns and concurrent work-stealing stress tests.
 - Checksum-verified dataset preparation tooling with local fixture coverage and explicit SHA-256 mismatch validation.
-- Competitor benchmark adapters for builtin reference, NetworkX, igraph, NetworKit and rustworkx, plus a normalized external/native command contract suitable for GraphBLAS/LAGraph/GAP wrappers.
+- Competitor benchmark adapters for builtin reference, NetworkX, igraph, NetworKit and rustworkx, plus a normalized external/native command contract.
+- Concrete native adapter shims and reproducibility recipes for locally installed SuiteSparse:GraphBLAS/LAGraph and GAP BFS runners, with deterministic contract fixtures and explicit failure when native binaries are unavailable.
 - Reproducible machine-readable experiment orchestration and campaign definitions for update-fraction crossover, thread scaling, NUMA placement, hardware counters and ablations.
 - Codec throughput/compression-ratio benchmark tooling across dense, medium and sparse graph-neighbor families, including scalar versus vectorized fixed-width decode measurements.
+- Codec-policy calibration tooling that derives machine-readable thresholds from supplied benchmark CSV while explicitly separating synthetic/self-test data from research claims.
 - CI on Ubuntu/macOS, ASan/UBSan, observability structures, ablation suite, paper scaffold and benchmark tooling.
 
 ## Partial — implementation exists but original prompt requires deeper capability or validation
 
 - NUMA execution is implemented at policy/runtime level, but true multi-socket locality, bandwidth and remote-traffic experiments remain environment-dependent.
-- Adaptive compression selection is implemented, but the fixed-width crossover/overhead threshold still requires calibration from dedicated codec benchmark campaigns.
+- Adaptive compression selection and calibration tooling are implemented, but the production fixed-width crossover/overhead threshold still requires calibration from dedicated public-dataset codec campaigns.
 - Python interoperability covers the major dynamic/incremental algorithms implemented by the engine; additional convenience APIs and future algorithms can still be exposed as they are added.
 - Out-of-core storage supports mmap, async loading, bounded caching, readahead and optional io_uring prefetch; research-scale NVMe evaluation remains environment-dependent.
 - Adaptive execution planning is implemented, but crossover thresholds still require large benchmark campaigns on public datasets.
-- Competitor adapter infrastructure is implemented, but SuiteSparse:GraphBLAS/LAGraph and GAP still require environment-specific native installations/wrappers for full campaign execution.
+- Native LAGraph/GraphBLAS and GAP wrapper contracts are implemented, but full competitor execution still requires those projects to be built and version-pinned on the target benchmark machine.
 
 ## Not measured / environment-dependent
 
@@ -48,8 +50,8 @@ This document maps the repository against the original VeloGraphX implementation
 
 ## Future / genuinely remaining engineering milestones
 
-- Calibrate adaptive codec-selection thresholds from reproducible codec campaigns on representative public graph families.
-- Add concrete environment-specific wrappers/install recipes for SuiteSparse:GraphBLAS/LAGraph and GAP while preserving the normalized external adapter contract.
+- Execute representative public-dataset codec campaigns and feed measured CSV into the calibration tool to select production codec thresholds.
+- Build/version-pin SuiteSparse:GraphBLAS/LAGraph and GAP on the target benchmark environment and execute the normalized competitor campaign.
 - Execute the full update-size crossover, scaling, NUMA, perf-counter and ablation campaigns on dedicated hardware.
 - Research-scale evaluation at 100M+ edges and publication-quality machine-readable result artifacts.
 
