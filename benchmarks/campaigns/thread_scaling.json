@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "name": "thread-scaling-static-benchmark",
+  "command": [
+    "python",
+    "tools/hardware_campaign_driver.py",
+    "--threads",
+    "{threads}",
+    "--",
+    "./build/velographx_benchmark"
+  ],
+  "axes": {
+    "threads": [1, 2, 4, 8, 16, 32]
+  },
+  "repeat": 5,
+  "timeout_seconds": 600
+}
