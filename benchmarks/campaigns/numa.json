@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "numa-placement-dynamic-benchmark",
+  "command": [
+    "python",
+    "tools/hardware_campaign_driver.py",
+    "--threads",
+    "{threads}",
+    "--numa-policy",
+    "{numa_policy}",
+    "--numa-node",
+    "{numa_node}",
+    "--",
+    "./build/velographx_dynamic_benchmark"
+  ],
+  "axes": {
+    "threads": [8, 16, 32],
+    "numa_policy": ["local", "interleave"],
+    "numa_node": [0]
+  },
+  "repeat": 5,
+  "timeout_seconds": 600
+}
