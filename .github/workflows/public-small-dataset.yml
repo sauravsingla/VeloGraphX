@@ -8,13 +8,14 @@ on:
       - 'datasets/public-research-plan.json'
       - 'tools/normalize_edge_list.py'
       - 'benchmarks/public_dataset_benchmark.cpp'
+      - 'benchmarks/public_update_fraction_campaign.cpp'
       - 'CMakeLists.txt'
   workflow_dispatch:
 
 jobs:
   ca-grqc:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -53,7 +54,7 @@ jobs:
           assert r['research_claim'] is False
           PY
 
-      - name: Configure and build VeloGraphX public-data benchmark
+      - name: Configure and build VeloGraphX public-data benchmarks
         run: |
           cmake -S . -B build/cmake \
             -DCMAKE_BUILD_TYPE=Release \
@@ -98,6 +99,54 @@ jobs:
           assert len({r['triangles'] for r in rows}) == 1
           PY
 
+      - name: Run public incremental update-fraction crossover
+        run: |
+          build/cmake/velographx_public_update_fraction_benchmark \
+            build/public-small/ca-GrQc-normalized.txt 10 \
+            > build/public-small/update-fraction-ca-GrQc.csv
+          python - <<'PY'
+          import csv
+          import json
+          import statistics
+          from collections import defaultdict
+          from pathlib import Path
+
+          path = Path('build/public-small/update-fraction-ca-GrQc.csv')
+          rows = list(csv.DictReader(path.open()))
+          assert len(rows) == 70
+          assert {int(r['vertices']) for r in rows} == {5242}
+          assert {int(r['base_edges']) for r in rows} == {14484}
+          assert all(r['correct'] == '1' for r in rows)
+          assert all(int(r['changed_edges']) == int(r['requested_edges']) for r in rows)
+          assert all(int(r['incremental_ns']) > 0 for r in rows)
+          assert all(int(r['full_recompute_ns']) > 0 for r in rows)
+
+          grouped = defaultdict(list)
+          for row in rows:
+            grouped[row['update_fraction']].append(float(row['speedup']))
+          assert len(grouped) == 7
+          assert all(len(values) == 10 for values in grouped.values())
+
+          summary = {
+              'schema_version': 1,
+              'artifact_type': 'velographx-public-update-crossover-summary',
+              'dataset': 'ca-GrQc',
+              'research_claim': False,
+              'repeats_per_fraction': 10,
+              'fractions': {
+                  fraction: {
+                      'median_speedup': statistics.median(values),
+                      'min_speedup': min(values),
+                      'max_speedup': max(values),
+                  }
+                  for fraction, values in sorted(grouped.items(), key=lambda item: float(item[0]))
+              },
+              'all_incremental_results_match_full_recompute': True,
+          }
+          Path('build/public-small/update-fraction-summary.json').write_text(
+              json.dumps(summary, sort_keys=True, indent=2) + '\n')
+          PY
+
       - name: Run normalized BFS competitor correctness campaign
         run: |
           for framework in builtin networkx igraph networkit rustworkx; do
@@ -140,8 +189,10 @@ jobs:
             --software-json build/public-small/environment.json \
             --result build/public-small/normalization.json \
             --result build/public-small/velographx-ca-GrQc.csv \
+            --result build/public-small/update-fraction-ca-GrQc.csv \
+            --result build/public-small/update-fraction-summary.json \
             --result build/public-small/competitor-summary.json \
-            --notes 'Real public ca-GrQc dataset on GitHub-hosted CI; engineering evidence only; research_claim=false.' \
+            --notes 'Real public ca-GrQc dataset on GitHub-hosted CI; incremental crossover and correctness evidence; research_claim=false; not publication-grade performance.' \
             --output build/public-small/result-bundle.json
           python tools/validate_result_bundle.py build/public-small/result-bundle.json
 
