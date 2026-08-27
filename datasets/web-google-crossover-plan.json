@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "artifact_type": "velographx-crossover-plan",
+  "dataset": "web-Google",
+  "research_claim": false,
+  "purpose": "Practical hosted-runner crossover sweep for the verified web-Google dataset.",
+  "update_fractions": [0.001, 0.005, 0.01, 0.02, 0.05],
+  "repetitions": 5,
+  "correctness": "incremental result must equal full recomputation for every measurement",
+  "report": ["median", "p95", "per-run timings", "correctness"],
+  "notes": "Start conservatively because web-Google has 5,105,039 directed edges. Larger fractions may be added only after runtime and memory are observed on hosted CI."
+}
