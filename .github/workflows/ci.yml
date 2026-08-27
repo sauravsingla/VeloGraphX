@@ -122,6 +122,24 @@ jobs:
           faster = [x for x in report['observations'] if x['fixed_width_faster']]
           assert len(faster) == 2
           PY
+      - name: Validate benchmark environment capture
+        run: |
+          python tools/capture_benchmark_environment.py --label ci-fixture --output build/benchmark-environment.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          env = json.loads(Path('build/benchmark-environment.json').read_text())
+          assert env['schema_version'] == 1
+          assert env['artifact_type'] == 'velographx-benchmark-environment'
+          assert env['research_claim'] is False
+          assert env['label'] == 'ci-fixture'
+          assert env['velographx']['git_revision']
+          assert env['hardware']['cpu_count']
+          assert env['native_competitors']['lagraph_bfs']['available'] is False
+          assert env['native_competitors']['gap_bfs']['available'] is False
+          assert env['native_competitors']['lagraph_bfs']['environment_variable'] == 'VELOGRAPHX_LAGRAPH_BFS_BIN'
+          assert env['native_competitors']['gap_bfs']['environment_variable'] == 'VELOGRAPHX_GAP_BFS_BIN'
+          PY
       - name: Validate publication result artifact builder
         run: |
           python tools/build_result_artifact.py \
