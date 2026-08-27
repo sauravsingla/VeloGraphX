@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "datasets": [
+    {
+      "name": "ca-GrQc",
+      "url": "https://raw.githubusercontent.com/CheemaMeshal/AstroPhysics-Network-Analysis/a2c89c74098ff191caa2379778c9c1dc00c011ba/CA-GrQc.txt",
+      "sha256": "513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5",
+      "format": "edge-list-text",
+      "directed": false,
+      "weighted": false
+    }
+  ]
+}
