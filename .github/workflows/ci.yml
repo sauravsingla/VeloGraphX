@@ -106,6 +106,22 @@ jobs:
           assert builtin['reachable_vertices'] == external['reachable_vertices'] == 3
           assert len(external['timings_seconds']) == 2
           PY
+      - name: Validate codec calibration tooling
+        run: |
+          python tools/calibrate_codec_policy.py \
+            --input benchmarks/fixtures/codec_calibration.csv \
+            --output build/codec-policy-calibration.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/codec-policy-calibration.json').read_text())
+          assert report['schema_version'] == 1
+          assert report['research_claim'] is False
+          assert report['observation_count'] == 3
+          assert abs(report['recommended_max_fixed_width_overhead'] - 1.1) < 1e-12
+          faster = [x for x in report['observations'] if x['fixed_width_faster']]
+          assert len(faster) == 2
+          PY
 
   python-bindings:
     runs-on: ubuntu-latest
