@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "research_claim": false,
+  "velographx": {
+    "git_revision": "REPLACE_WITH_FULL_COMMIT_SHA",
+    "compiler": {
+      "name": "REPLACE_WITH_COMPILER",
+      "version": "REPLACE_WITH_VERSION",
+      "build_type": "Release"
+    }
+  },
+  "competitors": {
+    "networkx": "REPLACE_WITH_VERSION",
+    "igraph": "REPLACE_WITH_VERSION",
+    "networkit": "REPLACE_WITH_VERSION",
+    "rustworkx": "REPLACE_WITH_VERSION",
+    "suitesparse_graphblas": "REPLACE_WITH_VERSION_OR_COMMIT",
+    "lagraph": "REPLACE_WITH_VERSION_OR_COMMIT",
+    "gap_benchmark_suite": "REPLACE_WITH_COMMIT"
+  },
+  "hardware": {
+    "machine": "REPLACE_WITH_MACHINE_MODEL",
+    "cpu_model": "REPLACE_WITH_CPU_MODEL",
+    "sockets": 0,
+    "cores_per_socket": 0,
+    "threads_per_core": 0,
+    "memory_bytes": 0,
+    "numa_nodes": 0,
+    "storage": "REPLACE_WITH_STORAGE_MODEL"
+  },
+  "operating_system": {
+    "name": "REPLACE_WITH_OS",
+    "version": "REPLACE_WITH_VERSION",
+    "kernel": "REPLACE_WITH_KERNEL"
+  },
+  "notes": "Template only. Populate from the actual benchmark machine before any research_claim=true artifact is produced."
+}
