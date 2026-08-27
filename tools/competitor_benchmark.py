@@ -100,7 +100,9 @@ def run_rustworkx(edges, vertices, source, directed):
     graph.add_nodes_from([None] * vertices)
     graph.add_edges_from([(u, v, None) for u, v in edges])
     lengths = rx.dijkstra_shortest_path_lengths(graph, source, lambda _: 1.0)
-    return [int(lengths[v]) if v in lengths else -1 for v in range(vertices)]
+    # rustworkx may omit the source node from the returned mapping.  BFS
+    # semantics require distance(source, source) == 0, so normalize it here.
+    return [0 if v == source else int(lengths[v]) if v in lengths else -1 for v in range(vertices)]
 
 
 def validate_distances(values, vertices):
