@@ -23,7 +23,7 @@ jobs:
           assert report['valid_plan'] is True
           assert report['execution_ready'] is False
           assert report['slot_count'] == 3
-          assert report['incomplete_slots'] == ['100m-plus-public', 'medium-public', 'small-public']
+          assert report['incomplete_slots'] == ['100m-plus-public', 'medium-public']
           PY
       - name: Fail closed when execution readiness is required
         run: |
