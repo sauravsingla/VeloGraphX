@@ -25,6 +25,8 @@ struct UpdateBatch {
   [[nodiscard]] bool empty() const noexcept { return updates.empty(); }
 };
 
+class IncrementalTriangleCount;
+
 class DynamicGraph {
  public:
   explicit DynamicGraph(std::size_t vertices = 0, bool directed = false)
@@ -56,11 +58,7 @@ class DynamicGraph {
   }
 
   void apply(const UpdateBatch& batch) {
-    for (const auto& op : batch.updates) {
-      ensure_vertex(std::max(op.src, op.dst));
-      apply_one(op.src, op.dst, op.add);
-      if (!directed_ && op.src != op.dst) apply_one(op.dst, op.src, op.add);
-    }
+    for (const auto& op : batch.updates) apply_unversioned(op);
     if (!batch.empty()) ++version_;
   }
 
@@ -111,6 +109,14 @@ class DynamicGraph {
   }
 
  private:
+  friend class IncrementalTriangleCount;
+
+  void apply_unversioned(const EdgeUpdate& op) {
+    ensure_vertex(std::max(op.src, op.dst));
+    apply_one(op.src, op.dst, op.add);
+    if (!directed_ && op.src != op.dst) apply_one(op.dst, op.src, op.add);
+  }
+
   void apply_one(VertexId u, VertexId v, bool add) {
     if (add) {
       delta_del_[u].erase(v);
