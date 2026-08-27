@@ -12,25 +12,23 @@ VeloGraphX is intentionally CPU-first. The project focuses on reducing unnecessa
 - Static CSR graph foundation with edge-list loading and native binary graph I/O.
 - Static BFS, connected components, PageRank, triangle counting, common neighbors, Jaccard similarity, k-core baseline, and SSSP support.
 - Versioned dynamic graph storage with batched insert/delete deltas, graph versions, threshold-based compaction, and weighted dynamic graph support.
-- Incremental triangle counting, insertion-optimized connected components, BFS, unweighted SSSP, weighted incremental SSSP, and localized PageRank repair with safe recomputation fallbacks where destructive updates can invalidate maintained state.
-- Incremental-versus-full-recompute execution planner with affected-work estimation and explain output baseline.
+- Incremental triangle counting, BFS/unweighted SSSP, weighted incremental SSSP, localized connected-components deletion repair, localized dynamic k-core repair, and residual-driven localized PageRank repair.
+- Incremental-versus-full-recompute execution planner with affected-work estimation, historical repair feedback, and explainable selection.
 - Adaptive neighbor intersection with scalar, galloping, bitmap, AVX2, AVX-512, and ARM NEON implementations plus runtime ISA detection and scalar-reference differential tests.
-- Sparse/dense frontier policies and push/pull selection helpers for traversal-oriented algorithms.
-- Portable multicore thread pool plus graph-oriented work-stealing runtime with per-worker queues, locality hints, adaptive grain sizing, parallel-for support, and runtime statistics.
-- Linux NUMA topology discovery and CPU-list parsing with portable fallback behavior.
-- Aligned allocation primitives and memory-budget abstraction.
-- Adjacency compression support including delta encoding, variable-byte encoding, and blocked compressed adjacency with correctness coverage.
+- Sparse/dense frontier policies, push/pull selection, degree/frontier-aware scheduling, work stealing, adaptive grain sizing, and concurrency stress coverage.
+- Linux NUMA topology discovery, CPU affinity, mmap-backed memory regions, first-touch support, mbind bind/interleave policy, graph partition placement, NUMA-local queue routing, and local/remote steal observability with portable fallbacks.
+- Adjacency compression support including reversible delta coding, variable-byte coding, blocked variable-byte coding, SIMD-friendly fixed-width 1/2/4-byte blocks, and architecture-specific vectorized decode with scalar fallback.
 - Timestamped temporal graph history with stable version snapshots, time-based snapshots, changes-between-version/time queries, and sliding-window reconstruction support.
-- Optional pybind11 Python module with NumPy edge-array ingestion and SciPy CSR ingestion without Python edge-tuple materialization.
-- Dynamic/static/intersection benchmark harnesses, research landscape, novelty ledger, ablation plan, benchmark methodology, limitations, and paper scaffold.
+- Optional pybind11 Python module with NumPy, SciPy CSR, and Apache Arrow ingestion plus incremental BFS, connected components, k-core, PageRank, weighted graph, and incremental weighted SSSP bindings with lifetime-safe ownership.
+- Out-of-core partition-file backend with mmap/fallback reads, async loading, bounded partition cache, Linux readahead hints, and optional liburing/io_uring prefetch with portable fallback.
+- Reproducible dataset manifest and checksum-verifying preparation tooling.
+- Dynamic/static/intersection/update-fraction benchmark harnesses, research landscape, novelty ledger, ablation plan, benchmark methodology, limitations, and paper scaffold.
 
 ## What remains experimental or incomplete
 
-VeloGraphX does **not** claim that every planned research milestone is complete. In particular, native NUMA-local allocation, first-touch placement, CPU affinity, node-local graph scheduling, and multi-socket locality measurements still require deeper platform-specific implementation and dedicated hardware validation. The current multicore runtime includes work stealing and adaptive grain sizing, but full degree/frontier-aware scheduling and large-scale scaling measurements remain research work.
+VeloGraphX does **not** claim that every planned research milestone is complete. The main remaining engineering and evaluation work is architecture-specific compression optimization beyond the current vectorized decoder, reproducible competitor adapters, and large benchmark campaigns on public datasets.
 
-Incremental connected-components deletions, destructive dynamic k-core updates, and PageRank repair still need stronger localized repair/propagation strategies before they can be described as fully optimized dynamic algorithms. Apache Arrow interoperability, broader Python exposure of dynamic/incremental state, ownership/lifetime documentation, and Python-specific CI coverage also remain incomplete.
-
-The out-of-core/NVMe milestone is not yet complete: a real partitioned backend with mmap, optional Linux io_uring prefetch, bounded resident cache/eviction, and memory-budget-driven residency control remains future engineering work. Large public-dataset evaluation, 100M+ edge experiments, full update-fraction crossover studies, competitor comparisons, hardware-counter measurements, and the complete ablation matrix are also **not measured yet** unless explicitly documented otherwise.
+True multi-socket NUMA locality, memory-bandwidth, and remote-traffic measurements remain environment-dependent. Large-scale 1/2/4/8/16/32+ thread scaling, 100M+ edge experiments, full update-fraction crossover studies, competitor comparisons, hardware-counter measurements, codec throughput/compression-ratio campaigns, NVMe/io_uring throughput studies, and the complete ablation matrix are **not measured yet** unless explicitly documented otherwise.
 
 VeloGraphX does not make unsupported performance or novelty claims. See `docs/prompt-coverage.md`, `docs/limitations.md`, and `docs/benchmark-methodology.md` for the current implementation and measurement status.
 
