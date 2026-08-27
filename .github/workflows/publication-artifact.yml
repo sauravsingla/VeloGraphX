@@ -12,17 +12,38 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Build and validate non-research publication artifact
+      - name: Build benchmark preflight fixture
         run: |
           mkdir -p build
+          python tools/prepare_dataset.py \
+            --manifest datasets/manifest.example.json \
+            --output-dir build/datasets \
+            --dataset example-local-edge-list > build/dataset-prepared.json
+          python tools/capture_benchmark_environment.py \
+            --label ci-publication-artifact \
+            --output build/benchmark-environment.json
+          python tools/validate_benchmark_preflight.py \
+            --environment build/benchmark-environment.json \
+            --dataset-report build/dataset-prepared.json > build/benchmark-preflight.json
+      - name: Build and validate non-research publication artifact
+        run: |
           python tools/build_result_artifact.py \
             --experiment fixture-publication-artifact \
             --dataset example-local-edge-list \
             --dataset-sha256 b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e \
             --result benchmarks/fixtures/publication-result.json \
+            --preflight-json build/benchmark-preflight.json \
             --notes 'CI fixture only; not a research measurement' \
             --output build/publication-artifact.json
           python tools/validate_result_bundle.py build/publication-artifact.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          artifact = json.loads(Path('build/publication-artifact.json').read_text())
+          assert artifact['preflight']['valid'] is True
+          assert artifact['preflight']['research_claim'] is False
+          assert len(artifact['preflight']['sha256']) == 64
+          PY
       - name: Reject tampered result artifact
         run: |
           cp benchmarks/fixtures/publication-result.json build/tampered-publication-result.json
@@ -31,6 +52,7 @@ jobs:
             --dataset example-local-edge-list \
             --dataset-sha256 b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e \
             --result build/tampered-publication-result.json \
+            --preflight-json build/benchmark-preflight.json \
             --notes 'CI fixture only; not a research measurement' \
             --output build/tampered-artifact.json
           printf '\n' >> build/tampered-publication-result.json
@@ -39,3 +61,20 @@ jobs:
             exit 1
           fi
           grep -Eqi 'byte-size mismatch|sha256 mismatch' build/tampered.err
+      - name: Reject tampered benchmark preflight
+        run: |
+          cp build/benchmark-preflight.json build/tampered-preflight.json
+          python tools/build_result_artifact.py \
+            --experiment fixture-preflight-integrity \
+            --dataset example-local-edge-list \
+            --dataset-sha256 b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e \
+            --result benchmarks/fixtures/publication-result.json \
+            --preflight-json build/tampered-preflight.json \
+            --notes 'CI fixture only; not a research measurement' \
+            --output build/preflight-bound-artifact.json
+          printf '\n' >> build/tampered-preflight.json
+          if python tools/validate_result_bundle.py build/preflight-bound-artifact.json 2> build/preflight-tampered.err; then
+            echo 'tampered benchmark preflight unexpectedly accepted' >&2
+            exit 1
+          fi
+          grep -Eqi 'preflight byte-size mismatch|preflight sha256 mismatch' build/preflight-tampered.err
