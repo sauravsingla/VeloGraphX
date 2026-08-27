@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -59,6 +58,23 @@ std::vector<Edge> load_edges(const std::string& path, std::size_t& vertex_count)
   return edges;
 }
 
+std::vector<double> parse_fractions(const std::string& value) {
+  std::vector<double> fractions;
+  std::istringstream input(value);
+  std::string token;
+  while (std::getline(input, token, ',')) {
+    if (token.empty()) throw std::runtime_error("update fraction list contains an empty value");
+    std::size_t parsed = 0;
+    const double fraction = std::stod(token, &parsed);
+    if (parsed != token.size() || !std::isfinite(fraction) || fraction <= 0.0) {
+      throw std::runtime_error("invalid update fraction: " + token);
+    }
+    fractions.push_back(fraction);
+  }
+  if (fractions.empty()) throw std::runtime_error("update fraction list must not be empty");
+  return fractions;
+}
+
 velographx::DynamicGraph make_graph(std::size_t vertex_count, const std::vector<Edge>& edges) {
   velographx::DynamicGraph graph(vertex_count, false);
   velographx::UpdateBatch seed;
@@ -109,17 +125,23 @@ velographx::UpdateBatch make_updates(
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 2 || argc > 3) {
-    std::cerr << "usage: velographx_public_update_fraction_benchmark <edge-list> [repeats]\n";
+  if (argc < 2 || argc > 4) {
+    std::cerr << "usage: velographx_public_update_fraction_benchmark <edge-list> [repeats] [fractions-csv]\n";
     return 2;
   }
 
   const std::string dataset = argv[1];
-  const int repeats = argc == 3 ? std::stoi(argv[2]) : 10;
+  const int repeats = argc >= 3 ? std::stoi(argv[2]) : 10;
   if (repeats <= 0) {
     std::cerr << "repeats must be positive\n";
     return 2;
   }
+
+  const std::vector<double> fractions = argc == 4
+      ? parse_fractions(argv[3])
+      : std::vector<double>{
+            0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.05, 0.10, 0.20, 0.50,
+            0.75, 1.00, 1.50, 2.00};
 
   std::size_t vertex_count = 0;
   const auto edges = load_edges(dataset, vertex_count);
@@ -128,9 +150,6 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  constexpr std::array<double, 13> fractions = {
-      0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.05, 0.10, 0.20, 0.50,
-      0.75, 1.00, 1.50, 2.00};
   using clock = std::chrono::steady_clock;
 
   std::cout << "dataset,algorithm,vertices,base_edges,update_fraction,requested_edges,changed_edges,repeat,incremental_ns,full_recompute_ns,speedup,incremental_triangles,recomputed_triangles,correct\n";
