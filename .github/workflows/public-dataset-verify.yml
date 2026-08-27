@@ -45,6 +45,48 @@ jobs:
       - name: Upload verification report
         uses: actions/upload-artifact@v4
         with:
-          name: velographx-public-dataset-verification
+          name: velographx-public-dataset-verification-ca-GrQc
+          path: build/public-dataset-verification/
+          retention-days: 30
+
+  verify-web-google:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify immutable web-Google candidate
+        run: |
+          mkdir -p build/public-dataset-verification
+          python tools/verify_public_dataset.py \
+            --name web-Google \
+            --canonical-source https://snap.stanford.edu/data/web-Google.html \
+            --source-revision 3737683c0a0bcff6469a4691c16f51425a6bbfd3 \
+            --url https://raw.githubusercontent.com/ease-lab/dbg/3737683c0a0bcff6469a4691c16f51425a6bbfd3/datasets/web-Google.txt \
+            --directed \
+            --output build/public-dataset-verification/web-Google.json
+
+      - name: Sanity-check web-Google metadata
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/public-dataset-verification/web-Google.json').read_text())
+          assert report['research_claim'] is False
+          assert report['directed'] is True
+          assert report['inspection']['malformed_rows'] == 0
+          assert 875000 <= report['inspection']['unique_vertices'] <= 876000
+          assert 5_000_000 <= report['inspection']['normalized_edge_count'] <= 5_200_000
+          assert len(report['sha256']) == 64
+          PY
+
+      - name: Upload web-Google verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-public-dataset-verification-web-Google
           path: build/public-dataset-verification/
           retention-days: 30
