@@ -9,6 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -68,6 +69,11 @@ velographx::DynamicGraph make_graph(std::size_t vertex_count, const std::vector<
   return graph;
 }
 
+std::uint64_t edge_key(velographx::VertexId u, velographx::VertexId v) {
+  if (u > v) std::swap(u, v);
+  return (static_cast<std::uint64_t>(u) << 32U) | static_cast<std::uint64_t>(v);
+}
+
 velographx::UpdateBatch make_updates(
     const velographx::DynamicGraph& graph,
     std::size_t requested,
@@ -75,6 +81,9 @@ velographx::UpdateBatch make_updates(
   velographx::UpdateBatch batch;
   batch.updates.reserve(requested);
   if (graph.vertex_count() < 2 || requested == 0) return batch;
+
+  std::unordered_set<std::uint64_t> selected;
+  selected.reserve(requested * 2 + 1);
 
   const auto n = static_cast<std::uint64_t>(graph.vertex_count());
   std::uint64_t state = seed | 1ULL;
@@ -87,14 +96,8 @@ velographx::UpdateBatch make_updates(
     const auto v = static_cast<velographx::VertexId>((state >> 17) % n);
     if (u == v || graph.has_edge(u, v)) continue;
 
-    bool duplicate = false;
-    for (const auto& op : batch.updates) {
-      if ((op.src == u && op.dst == v) || (op.src == v && op.dst == u)) {
-        duplicate = true;
-        break;
-      }
-    }
-    if (!duplicate) batch.add(u, v);
+    const auto key = edge_key(u, v);
+    if (selected.insert(key).second) batch.add(u, v);
   }
 
   if (batch.updates.size() != requested) {
@@ -125,8 +128,8 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  constexpr std::array<double, 7> fractions = {
-      0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.05, 0.10};
+  constexpr std::array<double, 9> fractions = {
+      0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.05, 0.10, 0.20, 0.50};
   using clock = std::chrono::steady_clock;
 
   std::cout << "dataset,algorithm,vertices,base_edges,update_fraction,requested_edges,changed_edges,repeat,incremental_ns,full_recompute_ns,speedup,incremental_triangles,recomputed_triangles,correct\n";
