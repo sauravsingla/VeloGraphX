@@ -43,7 +43,7 @@ These values are useful for smoke-level crossover behavior on this runner only. 
 
 ### Intersection-kernel behavior
 
-The runner reported AVX2 as the best available ISA. On the included synthetic intersection cases, the adaptive kernel was faster than scalar in five of six tested size pairs, with scalar/adaptive ratios ranging from roughly 1.47x to 5.40x in those cases. For the smallest 8x8 case, scalar was faster than adaptive.
+The runner reported AVX2 as the best available ISA. On the included synthetic intersection cases, the adaptive kernel was faster than scalar in five of six tested size pairs. For those five cases, the observed scalar/adaptive time ratios were approximately **1.22x, 1.63x, 5.51x, 2.95x and 2.06x**. For the smallest 8x8 case, scalar was faster than adaptive (about 0.68x scalar/adaptive).
 
 This is evidence that the adaptive dispatch is selecting useful optimized paths for several representative size regimes, while retaining an important small-input case where dispatch overhead can dominate.
 
@@ -53,8 +53,8 @@ For the fixed-width codec, the vectorized decoder was faster than the scalar dec
 
 | Family | Scalar/vectorized decode ratio |
 | --- | ---: |
-| dense | ~2.69x |
-| medium | ~3.66x |
+| dense | ~2.29x |
+| medium | ~4.46x |
 | sparse | ~2.93x |
 
 The same data also shows the expected compression trade-off: variable-byte coding produced substantially smaller encoded output than fixed-width coding on these fixtures, while fixed-width vectorization improved decode speed. These are engineering measurements, not a universal codec recommendation.
