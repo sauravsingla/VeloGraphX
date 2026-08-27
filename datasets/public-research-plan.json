@@ -17,15 +17,20 @@
     {
       "id": "small-public",
       "role": "correctness-and-tooling",
-      "canonical_source": null,
-      "license_or_terms": null,
-      "download_url": null,
-      "sha256": null,
-      "format": null,
-      "directed": null,
-      "vertex_count": null,
-      "edge_count": null,
-      "ready": false
+      "name": "ca-GrQc",
+      "canonical_source": "https://snap.stanford.edu/data/ca-GrQc.html",
+      "license_or_terms": "Publicly downloadable through the Stanford SNAP dataset collection; cite the SNAP/ca-GrQc source. No separate dataset-specific license is asserted by VeloGraphX.",
+      "download_url": "https://raw.githubusercontent.com/CheemaMeshal/AstroPhysics-Network-Analysis/a2c89c74098ff191caa2379778c9c1dc00c011ba/CA-GrQc.txt",
+      "source_revision": "a2c89c74098ff191caa2379778c9c1dc00c011ba",
+      "sha256": "513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5",
+      "format": "edge-list-text",
+      "directed": false,
+      "vertex_count": 5242,
+      "edge_count": 14484,
+      "raw_edge_rows": 28980,
+      "self_loop_rows": 12,
+      "ready": true,
+      "research_claim": false
     },
     {
       "id": "medium-public",
@@ -54,5 +59,5 @@
       "ready": false
     }
   ],
-  "notes": "Dataset identities and checksums are intentionally unresolved here. Populate only from verified canonical sources; do not infer or copy unverified hashes."
+  "notes": "The small-public ca-GrQc slot was populated only after the Public Dataset Verification workflow downloaded an immutable revision and measured its SHA-256/counts. Medium and 100M+ slots remain intentionally unresolved."
 }
