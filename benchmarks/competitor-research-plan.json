@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "artifact_type": "velographx-competitor-research-plan",
+  "research_claim": false,
+  "purpose": "Require immutable competitor identities and versions before publication-grade comparative benchmarks are executed.",
+  "required_before_execution": [
+    "name",
+    "kind",
+    "version_or_commit",
+    "source",
+    "install_or_build_recipe",
+    "ready"
+  ],
+  "competitors": [
+    {
+      "name": "NetworkX",
+      "kind": "python-package",
+      "version_or_commit": null,
+      "source": "https://github.com/networkx/networkx",
+      "install_or_build_recipe": null,
+      "ready": false
+    },
+    {
+      "name": "python-igraph",
+      "kind": "python-package",
+      "version_or_commit": null,
+      "source": "https://github.com/igraph/python-igraph",
+      "install_or_build_recipe": null,
+      "ready": false
+    },
+    {
+      "name": "NetworKit",
+      "kind": "python-package-native-core",
+      "version_or_commit": null,
+      "source": "https://github.com/networkit/networkit",
+      "install_or_build_recipe": null,
+      "ready": false
+    },
+    {
+      "name": "rustworkx",
+      "kind": "python-package-native-core",
+      "version_or_commit": null,
+      "source": "https://github.com/Qiskit/rustworkx",
+      "install_or_build_recipe": null,
+      "ready": false
+    },
+    {
+      "name": "SuiteSparse:GraphBLAS/LAGraph",
+      "kind": "native",
+      "version_or_commit": null,
+      "source": "https://github.com/DrTimothyAldenDavis/GraphBLAS + https://github.com/GraphBLAS/LAGraph",
+      "install_or_build_recipe": "docs/native-competitors.md",
+      "ready": false
+    },
+    {
+      "name": "GAP Benchmark Suite",
+      "kind": "native",
+      "version_or_commit": null,
+      "source": "https://github.com/sbeamer/gapbs",
+      "install_or_build_recipe": "docs/native-competitors.md",
+      "ready": false
+    }
+  ],
+  "rules": [
+    "Do not use floating labels such as latest, main, master or HEAD as publication pins.",
+    "Python competitors must record an exact package version and resolved distribution metadata.",
+    "Native competitors must record an immutable commit SHA or release tag plus compiler/build options.",
+    "A competitor may be marked ready only after its pinned identity is captured by the benchmark environment manifest.",
+    "Hosted CI contract fixtures are not comparative performance measurements."
+  ],
+  "notes": "Pins are intentionally unresolved until the dedicated benchmark environment is chosen. Populate from the exact installed/built versions used for measurements; do not invent or preselect versions merely to satisfy the schema."
+}
