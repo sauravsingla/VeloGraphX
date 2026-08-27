@@ -128,8 +128,9 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  constexpr std::array<double, 9> fractions = {
-      0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.05, 0.10, 0.20, 0.50};
+  constexpr std::array<double, 13> fractions = {
+      0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.05, 0.10, 0.20, 0.50,
+      0.75, 1.00, 1.50, 2.00};
   using clock = std::chrono::steady_clock;
 
   std::cout << "dataset,algorithm,vertices,base_edges,update_fraction,requested_edges,changed_edges,repeat,incremental_ns,full_recompute_ns,speedup,incremental_triangles,recomputed_triangles,correct\n";
