@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '.github/workflows/ci-scale-evidence.yml'
+      - 'tools/ablation_suite.py'
   workflow_dispatch:
 
 jobs:
