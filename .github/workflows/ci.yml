@@ -122,6 +122,30 @@ jobs:
           faster = [x for x in report['observations'] if x['fixed_width_faster']]
           assert len(faster) == 2
           PY
+      - name: Validate publication result artifact builder
+        run: |
+          python tools/build_result_artifact.py \
+            --experiment fixture-publication-artifact \
+            --dataset example-local-edge-list \
+            --dataset-sha256 b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e \
+            --result benchmarks/fixtures/publication-result.json \
+            --notes 'CI fixture only; not a research measurement' \
+            --output build/publication-artifact.json
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          artifact = json.loads(Path('build/publication-artifact.json').read_text())
+          fixture = Path('benchmarks/fixtures/publication-result.json')
+          assert artifact['schema_version'] == 1
+          assert artifact['artifact_type'] == 'velographx-experiment-results'
+          assert artifact['research_claim'] is False
+          assert artifact['dataset']['sha256'] == 'b2d516ac2fbfdf330a3807ea2448b0f4c0e9f82abd7a9eefdb1522aa364ec48e'
+          assert len(artifact['results']) == 1
+          assert artifact['results'][0]['sha256'] == hashlib.sha256(fixture.read_bytes()).hexdigest()
+          assert artifact['results'][0]['bytes'] == fixture.stat().st_size
+          assert artifact['provenance']['git_revision']
+          PY
 
   python-bindings:
     runs-on: ubuntu-latest
