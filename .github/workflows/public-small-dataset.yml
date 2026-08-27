@@ -113,7 +113,7 @@ jobs:
 
           path = Path('build/public-small/update-fraction-ca-GrQc.csv')
           rows = list(csv.DictReader(path.open()))
-          assert len(rows) == 70
+          assert len(rows) == 90
           assert {int(r['vertices']) for r in rows} == {5242}
           assert {int(r['base_edges']) for r in rows} == {14484}
           assert all(r['correct'] == '1' for r in rows)
@@ -124,7 +124,7 @@ jobs:
           grouped = defaultdict(list)
           for row in rows:
             grouped[row['update_fraction']].append(float(row['speedup']))
-          assert len(grouped) == 7
+          assert len(grouped) == 9
           assert all(len(values) == 10 for values in grouped.values())
 
           summary = {
@@ -192,7 +192,7 @@ jobs:
             --result build/public-small/update-fraction-ca-GrQc.csv \
             --result build/public-small/update-fraction-summary.json \
             --result build/public-small/competitor-summary.json \
-            --notes 'Real public ca-GrQc dataset on GitHub-hosted CI; incremental crossover and correctness evidence; research_claim=false; not publication-grade performance.' \
+            --notes 'Real public ca-GrQc dataset on GitHub-hosted CI; extended incremental crossover and correctness evidence through 50% updates; research_claim=false; not publication-grade performance.' \
             --output build/public-small/result-bundle.json
           python tools/validate_result_bundle.py build/public-small/result-bundle.json
 
