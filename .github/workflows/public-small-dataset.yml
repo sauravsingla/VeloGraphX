@@ -1,0 +1,153 @@
+name: Public Small Dataset Campaign
+
+on:
+  push:
+    paths:
+      - '.github/workflows/public-small-dataset.yml'
+      - 'datasets/manifest.public-small.json'
+      - 'datasets/public-research-plan.json'
+      - 'tools/normalize_edge_list.py'
+      - 'benchmarks/public_dataset_benchmark.cpp'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  ca-grqc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install competitor dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install networkx igraph networkit rustworkx
+
+      - name: Prepare checksum-pinned source dataset
+        run: |
+          mkdir -p build/public-small
+          python tools/prepare_dataset.py \
+            --manifest datasets/manifest.public-small.json \
+            --output-dir build/public-small/source \
+            --dataset ca-GrQc > build/public-small/dataset-prepared.json
+
+      - name: Normalize ca-GrQc deterministically
+        run: |
+          python tools/normalize_edge_list.py \
+            --input build/public-small/source/ca-GrQc.txt \
+            --output build/public-small/ca-GrQc-normalized.txt \
+            --report build/public-small/normalization.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('build/public-small/normalization.json').read_text())
+          assert r['source_sha256'] == '513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5'
+          assert r['vertex_count'] == 5242
+          assert r['edge_count'] == 14484
+          assert r['self_loop_rows_removed'] == 12
+          assert r['duplicate_or_reverse_rows_removed'] == 14484
+          assert r['research_claim'] is False
+          PY
+
+      - name: Configure and build VeloGraphX public-data benchmark
+        run: |
+          cmake -S . -B build/cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=ON \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake -j 2
+          ctest --test-dir build/cmake --output-on-failure --timeout 60
+
+      - name: Capture environment and preflight
+        run: |
+          python tools/capture_benchmark_environment.py \
+            --label github-hosted-ca-grqc-public-small \
+            --output build/public-small/environment.json
+          python tools/validate_benchmark_preflight.py \
+            --environment build/public-small/environment.json \
+            --dataset-report build/public-small/dataset-prepared.json \
+            > build/public-small/preflight.json
+
+      - name: Run VeloGraphX on real public graph
+        run: |
+          : > build/public-small/velographx-ca-GrQc.csv
+          for i in 1 2 3 4 5; do
+            build/cmake/velographx_public_dataset_benchmark \
+              build/public-small/ca-GrQc-normalized.txt 0 \
+              > build/public-small/run-${i}.csv
+            if [ "$i" = 1 ]; then
+              cat build/public-small/run-${i}.csv >> build/public-small/velographx-ca-GrQc.csv
+            else
+              tail -n 1 build/public-small/run-${i}.csv >> build/public-small/velographx-ca-GrQc.csv
+            fi
+          done
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          rows = list(csv.DictReader(Path('build/public-small/velographx-ca-GrQc.csv').open()))
+          assert len(rows) == 5
+          assert {int(r['vertices']) for r in rows} == {5242}
+          assert {int(r['edge_entries']) for r in rows} == {28968}
+          assert all(abs(float(r['pagerank_sum']) - 1.0) < 1e-6 for r in rows)
+          assert len({r['reachable_vertices'] for r in rows}) == 1
+          assert len({r['component_count'] for r in rows}) == 1
+          assert len({r['triangles'] for r in rows}) == 1
+          PY
+
+      - name: Run normalized BFS competitor correctness campaign
+        run: |
+          for framework in builtin networkx igraph networkit rustworkx; do
+            python tools/competitor_benchmark.py \
+              --dataset build/public-small/ca-GrQc-normalized.txt \
+              --framework "$framework" \
+              --repeat 3 \
+              --output "build/public-small/competitor-${framework}.json"
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          reports = [json.loads(p.read_text()) for p in sorted(Path('build/public-small').glob('competitor-*.json'))]
+          assert len(reports) == 5
+          assert len({r['result_digest'] for r in reports}) == 1, 'public-dataset BFS results disagree'
+          assert {r['vertices'] for r in reports} == {5242}
+          assert {r['edges'] for r in reports} == {14484}
+          summary = {
+              'schema_version': 1,
+              'artifact_type': 'velographx-public-small-competitor-summary',
+              'research_claim': False,
+              'frameworks': [r['framework'] for r in reports],
+              'versions': {r['framework']: r['framework_version'] for r in reports},
+              'dataset_sha256': reports[0]['dataset_sha256'],
+              'result_digest': reports[0]['result_digest'],
+              'reachable_vertices': reports[0]['reachable_vertices'],
+              'all_results_agree': True,
+          }
+          Path('build/public-small/competitor-summary.json').write_text(json.dumps(summary, sort_keys=True, indent=2) + '\n')
+          PY
+
+      - name: Build and validate provenance-rich public-data bundle
+        run: |
+          python tools/build_result_artifact.py \
+            --experiment public-small-ca-GrQc-hosted-ci \
+            --dataset ca-GrQc \
+            --dataset-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
+            --preflight-json build/public-small/preflight.json \
+            --hardware-json build/public-small/environment.json \
+            --software-json build/public-small/environment.json \
+            --result build/public-small/normalization.json \
+            --result build/public-small/velographx-ca-GrQc.csv \
+            --result build/public-small/competitor-summary.json \
+            --notes 'Real public ca-GrQc dataset on GitHub-hosted CI; engineering evidence only; research_claim=false.' \
+            --output build/public-small/result-bundle.json
+          python tools/validate_result_bundle.py build/public-small/result-bundle.json
+
+      - name: Upload public small-dataset evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-public-small-ca-GrQc
+          path: build/public-small/
+          retention-days: 30
