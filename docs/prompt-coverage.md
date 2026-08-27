@@ -14,36 +14,43 @@ This document maps the repository against the original VeloGraphX implementation
 - Sparse/dense frontier policy, push/pull policy, partition helper, graph-specific work stealing, adaptive grain size, degree/frontier-aware scheduling and concurrency stress coverage.
 - Linux NUMA topology discovery, CPU affinity, mmap-backed memory regions, first-touch support, mbind bind/interleave policy, graph partition placement, NUMA-local queue routing and local-first stealing observability, with portable fallback.
 - Compression codecs: reversible delta coding, variable-byte delta coding, blocked variable-byte coding and SIMD-friendly fixed-width 1/2/4-byte delta blocks with metadata and round-trip/error coverage.
+- Architecture-specific fixed-width decode paths using AVX2 and NEON with scalar fallback and runtime backend selection.
+- Adaptive compression codec recommendation based on exact encoded byte counts, available vector decode backend and configurable fixed-width size overhead, with correctness coverage.
 - Native binary graph format and Python bindings with NumPy, SciPy CSR and Apache Arrow ingestion; incremental BFS, connected components, k-core, PageRank and weighted dynamic SSSP bindings; lifetime-safe keep-alive ownership; and Python CI checks.
 - Timestamped graph history, snapshot/change-window APIs and sliding-window primitives.
 - Out-of-core partition-file backend with mmap/fallback reads, async loading, bounded partition cache, Linux kernel readahead hints and an opt-in Linux liburing/io_uring prefetch path with portable fallback.
 - Loader hardening, malformed-input regression coverage, randomized dynamic mutation campaigns and concurrent work-stealing stress tests.
-- CI on Ubuntu/macOS, ASan/UBSan, observability structures, ablation plan, paper scaffold and intersection/update-fraction benchmark tooling.
+- Checksum-verified dataset preparation tooling with local fixture coverage and explicit SHA-256 mismatch validation.
+- Competitor benchmark adapters for builtin reference, NetworkX, igraph, NetworKit and rustworkx, plus a normalized external/native command contract suitable for GraphBLAS/LAGraph/GAP wrappers.
+- Reproducible machine-readable experiment orchestration and campaign definitions for update-fraction crossover, thread scaling, NUMA placement, hardware counters and ablations.
+- Codec throughput/compression-ratio benchmark tooling across dense, medium and sparse graph-neighbor families, including scalar versus vectorized fixed-width decode measurements.
+- CI on Ubuntu/macOS, ASan/UBSan, observability structures, ablation suite, paper scaffold and benchmark tooling.
 
 ## Partial — implementation exists but original prompt requires deeper capability or validation
 
 - NUMA execution is implemented at policy/runtime level, but true multi-socket locality, bandwidth and remote-traffic experiments remain environment-dependent.
-- Compression has functional SIMD-friendly fixed-width block layout, but architecture-specific vectorized decode and comparative codec measurements remain.
-- Python interoperability now covers the major dynamic/incremental algorithms implemented by the engine; additional convenience APIs and future algorithms can still be exposed as they are added.
+- Adaptive compression selection is implemented, but the fixed-width crossover/overhead threshold still requires calibration from dedicated codec benchmark campaigns.
+- Python interoperability covers the major dynamic/incremental algorithms implemented by the engine; additional convenience APIs and future algorithms can still be exposed as they are added.
 - Out-of-core storage supports mmap, async loading, bounded caching, readahead and optional io_uring prefetch; research-scale NVMe evaluation remains environment-dependent.
 - Adaptive execution planning is implemented, but crossover thresholds still require large benchmark campaigns on public datasets.
+- Competitor adapter infrastructure is implemented, but SuiteSparse:GraphBLAS/LAGraph and GAP still require environment-specific native installations/wrappers for full campaign execution.
 
 ## Not measured / environment-dependent
 
 - True multi-socket NUMA locality/remote-traffic measurements.
 - Large-scale 1/2/4/8/16/32+ thread scaling on dedicated hardware.
 - 100M+ edge research prototype measurements.
-- Full update-fraction crossover campaign at 0.0001%, 0.001%, 0.01%, 0.1%, 1%, 5% and 10%.
-- Full competitor campaign against NetworkX, igraph, NetworKit, rustworkx, SuiteSparse:GraphBLAS/LAGraph and GAP.
-- Complete ablation matrix and hardware-counter campaign.
-- Codec throughput/compression-ratio campaign across graph families.
+- Full update-fraction crossover campaign at 0.0001%, 0.001%, 0.01%, 0.1%, 1%, 5% and 10% on public research-scale datasets.
+- Full competitor campaign against NetworkX, igraph, NetworKit, rustworkx, SuiteSparse:GraphBLAS/LAGraph and GAP on equivalent datasets/hardware.
+- Publication-grade ablation and hardware-counter measurements on dedicated hardware.
+- Research-scale codec throughput/compression-ratio campaign across public graph families.
 - Research-scale NVMe/io_uring throughput and overlap measurements.
 
 ## Future / genuinely remaining engineering milestones
 
-- Architecture-specific vectorized decode for the SIMD-friendly compression layout and codec-selection heuristics backed by measurements.
-- Reproducible public-dataset tooling and competitor adapters.
-- Full update-size crossover, scaling, NUMA, perf-counter and ablation campaigns on dedicated hardware.
-- Research-scale evaluation at 100M+ edges and publication-quality machine-readable reports.
+- Calibrate adaptive codec-selection thresholds from reproducible codec campaigns on representative public graph families.
+- Add concrete environment-specific wrappers/install recipes for SuiteSparse:GraphBLAS/LAGraph and GAP while preserving the normalized external adapter contract.
+- Execute the full update-size crossover, scaling, NUMA, perf-counter and ablation campaigns on dedicated hardware.
+- Research-scale evaluation at 100M+ edges and publication-quality machine-readable result artifacts.
 
 No unmeasured item is represented as completed, and no benchmark or novelty result is invented.
