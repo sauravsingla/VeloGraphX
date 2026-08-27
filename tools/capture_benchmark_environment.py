@@ -34,15 +34,27 @@ def command_version(command: str | None):
             proc = subprocess.run(args, text=True, capture_output=True, timeout=5, check=False)
             text = (proc.stdout or proc.stderr).strip()
             if text:
-                return {"configured": command, "resolved": str(Path(resolved).resolve()), "available": True, "version_output": text.splitlines()[0]}
+                return {
+                    "configured": command,
+                    "resolved": str(Path(resolved).resolve()),
+                    "available": True,
+                    "version_output": text.splitlines()[0],
+                }
         except Exception:
             pass
-    return {"configured": command, "resolved": str(Path(resolved).resolve()), "available": True, "version_output": None}
+    return {
+        "configured": command,
+        "resolved": str(Path(resolved).resolve()),
+        "available": True,
+        "version_output": None,
+    }
 
 
 def git_revision():
     try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
     except Exception:
         return None
 
@@ -60,17 +72,16 @@ def main() -> int:
     parser.add_argument("--label", default="benchmark-environment")
     args = parser.parse_args()
 
-    compilers = {}
-    for name in ("c++", "g++", "clang++"):
-        if name not in compilers:
-            compilers[name] = command_version(name)
+    compilers = {name: command_version(name) for name in ("c++", "g++", "clang++")}
 
     native = {}
     for name, env_name in NATIVE_ENV.items():
-        native[name] = command_version(os.environ.get(env_name))
-        native[name]["environment_variable"] = env_name if native[name] is not None else env_name
-        if native[name] is None:
-            native[name] = {"environment_variable": env_name, "configured": None, "available": False}
+        configured = os.environ.get(env_name)
+        details = command_version(configured)
+        if details is None:
+            details = {"configured": None, "available": False}
+        details["environment_variable"] = env_name
+        native[name] = details
 
     manifest = {
         "schema_version": SCHEMA_VERSION,
