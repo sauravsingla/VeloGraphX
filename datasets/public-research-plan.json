@@ -35,15 +35,21 @@
     {
       "id": "medium-public",
       "role": "crossover-and-scaling",
-      "canonical_source": null,
-      "license_or_terms": null,
-      "download_url": null,
-      "sha256": null,
-      "format": null,
-      "directed": null,
-      "vertex_count": null,
-      "edge_count": null,
-      "ready": false
+      "name": "web-Google",
+      "canonical_source": "https://snap.stanford.edu/data/web-Google.html",
+      "license_or_terms": "Publicly downloadable through the Stanford SNAP dataset collection; cite the SNAP/web-Google source. No separate dataset-specific license is asserted by VeloGraphX.",
+      "download_url": "https://raw.githubusercontent.com/ease-lab/dbg/3737683c0a0bcff6469a4691c16f51425a6bbfd3/datasets/web-Google.txt",
+      "source_revision": "3737683c0a0bcff6469a4691c16f51425a6bbfd3",
+      "sha256": "8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1",
+      "format": "edge-list-text",
+      "directed": true,
+      "vertex_count": 875713,
+      "edge_count": 5105039,
+      "raw_edge_rows": 5105039,
+      "self_loop_rows": 0,
+      "duplicate_or_reverse_rows": 0,
+      "ready": true,
+      "research_claim": false
     },
     {
       "id": "100m-plus-public",
@@ -59,5 +65,5 @@
       "ready": false
     }
   ],
-  "notes": "The small-public ca-GrQc slot was populated only after the Public Dataset Verification workflow downloaded an immutable revision and measured its SHA-256/counts. Medium and 100M+ slots remain intentionally unresolved."
+  "notes": "The ca-GrQc and web-Google slots were populated only after the Public Dataset Verification workflow downloaded immutable revisions and measured their SHA-256/counts. The 100M+ slot remains intentionally unresolved."
 }

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "datasets": [
+    {
+      "name": "web-Google",
+      "url": "https://raw.githubusercontent.com/ease-lab/dbg/3737683c0a0bcff6469a4691c16f51425a6bbfd3/datasets/web-Google.txt",
+      "sha256": "8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1",
+      "format": "edge-list-text",
+      "directed": true,
+      "weighted": false,
+      "vertex_count": 875713,
+      "edge_count": 5105039,
+      "research_claim": false
+    }
+  ]
+}
