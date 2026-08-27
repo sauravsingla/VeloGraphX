@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -23,18 +24,34 @@ std::vector<Edge> load_edges(const std::string& path, std::size_t& vertex_count)
   if (!in) throw std::runtime_error("failed to open edge list: " + path);
 
   std::vector<Edge> edges;
-  velographx::VertexId u = 0;
-  velographx::VertexId v = 0;
   velographx::VertexId max_vertex = 0;
   bool saw_edge = false;
-  while (in >> u >> v) {
+  std::string line;
+  std::size_t line_number = 0;
+  while (std::getline(in, line)) {
+    ++line_number;
+    const auto first = line.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos || line[first] == '#') continue;
+
+    std::istringstream row(line);
+    velographx::VertexId u = 0;
+    velographx::VertexId v = 0;
+    if (!(row >> u >> v)) {
+      throw std::runtime_error(
+          "malformed edge list row at line " + std::to_string(line_number) + ": " + path);
+    }
+    std::string trailing;
+    if (row >> trailing) {
+      throw std::runtime_error(
+          "unexpected trailing data at line " + std::to_string(line_number) + ": " + path);
+    }
     if (u == v) continue;
     if (u > v) std::swap(u, v);
     edges.emplace_back(u, v);
     max_vertex = std::max(max_vertex, std::max(u, v));
     saw_edge = true;
   }
-  if (!in.eof()) throw std::runtime_error("malformed edge list: " + path);
+
   std::sort(edges.begin(), edges.end());
   edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
   vertex_count = saw_edge ? static_cast<std::size_t>(max_vertex) + 1 : 0;
