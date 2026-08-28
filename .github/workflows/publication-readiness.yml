@@ -1,0 +1,50 @@
+name: Publication Readiness Contract
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publication-readiness.yml'
+      - 'benchmarks/publication-hardware-plan.json'
+      - 'tools/validate_publication_readiness.py'
+      - 'docs/publication-hardware-methodology.md'
+      - 'benchmarks/competitor-research-plan.json'
+      - 'datasets/public-research-plan.json'
+  pull_request:
+    paths:
+      - '.github/workflows/publication-readiness.yml'
+      - 'benchmarks/publication-hardware-plan.json'
+      - 'tools/validate_publication_readiness.py'
+      - 'docs/publication-hardware-methodology.md'
+      - 'benchmarks/competitor-research-plan.json'
+      - 'datasets/public-research-plan.json'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate publication hardware contract
+        run: |
+          python tools/validate_publication_readiness.py \
+            benchmarks/publication-hardware-plan.json \
+            > publication-readiness-validation.json
+      - name: Verify claim gate remains closed without controlled-hardware evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('publication-readiness-validation.json').read_text())
+          assert report['valid'] is True
+          assert report['publication_ready'] is False
+          assert report['allow_publication_claims'] is False
+          PY
+      - name: Upload contract validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-publication-readiness-contract
+          path: publication-readiness-validation.json
+          retention-days: 30
