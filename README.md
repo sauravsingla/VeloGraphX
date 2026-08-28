@@ -3,6 +3,7 @@
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
 [![Public Dataset Plan](https://github.com/sauravsingla/VeloGraphX/actions/workflows/public-dataset-plan.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/public-dataset-plan.yml)
 [![Publication Artifact Contract](https://github.com/sauravsingla/VeloGraphX/actions/workflows/publication-artifact.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/publication-artifact.yml)
+[![Hosted Native Competitors](https://github.com/sauravsingla/VeloGraphX/actions/workflows/hosted-native-competitors.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/hosted-native-competitors.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 
@@ -164,6 +165,8 @@ The repository contains:
 
 A hosted-CI engineering campaign exercises core benchmarks, update-fraction measurements, paired ablations, conservative thread checks and normalized BFS adapters. Its result bundle is provenance-captured and integrity-validated and remains explicitly marked `research_claim: false`.
 
+Hosted CI also now builds immutable pinned native stacks for SuiteSparse:GraphBLAS `v10.3.2`, LAGraph `v1.2.2` and GAP Benchmark Suite `v1.5` on the same runner. The workflow executes small 1/2/4-thread BFS engineering measurements, requires GAP verification and an enabled LAGraph BFS self-check, captures machine/build provenance and uploads a machine-readable evidence bundle. These measurements are deliberately marked `research_claim: false`, `publication_grade: false` and `normalized_cross_engine_claim: false` because the upstream LAGraph and GAP harnesses do not yet establish fully identical cross-engine source/output semantics.
+
 The repository also contains public-dataset incremental crossover engineering evidence, including ca-GrQc work, and ongoing work to extend that evidence across additional graph families. These measurements remain engineering evidence unless and until they are repeated under controlled, publication-grade experimental conditions.
 
 Hosted CI validates contracts, correctness and small-scale engineering behavior, **not publication-grade superiority or large-scale scalability**. Dedicated-hardware benchmark results should only be treated as project claims when dataset identity, environment, version pins, methodology and result artifacts are captured by the documented workflow.
@@ -171,6 +174,7 @@ Hosted CI validates contracts, correctness and small-scale engineering behavior,
 Useful references:
 
 - [`docs/ci-scale-evidence.md`](docs/ci-scale-evidence.md) — hosted-CI engineering evidence and caveats
+- [`docs/hosted-native-competitors.md`](docs/hosted-native-competitors.md) — pinned GraphBLAS/LAGraph/GAP hosted build and engineering evidence
 - [`docs/benchmark-methodology.md`](docs/benchmark-methodology.md) — experimental methodology
 - [`docs/prompt-coverage.md`](docs/prompt-coverage.md) — authoritative implemented / partial / unmeasured status matrix
 - [`docs/limitations.md`](docs/limitations.md) — known implementation and validation limitations
@@ -180,6 +184,8 @@ Useful references:
 ## What is validated today
 
 The repository has engineering evidence for correctness, cross-framework adapter normalization, incremental update behavior, optimized intersection paths, compression/decompression behavior, Python interoperability, reproducibility contracts and small hosted-CI execution campaigns.
+
+Hosted CI additionally verifies that pinned GraphBLAS/LAGraph and GAP native stacks build on the same runner and that their exercised BFS harnesses complete with upstream correctness checks across 1/2/4-thread engineering runs. This establishes native build/readiness and small-scale same-runner engineering evidence; it is not yet a normalized cross-engine performance comparison.
 
 Public-dataset incremental crossover work is also underway and already includes ca-GrQc evidence. This is useful evidence for development and hypothesis testing, but it is intentionally not presented as a universal performance result.
 
@@ -210,7 +216,7 @@ Some capabilities are intentionally conservative or environment-dependent:
 - NUMA execution policies are implemented on Linux, but genuine multi-socket benefits require suitable hardware to measure;
 - out-of-core infrastructure supports mmap, async loading, bounded caching, readahead and optional `io_uring`, but research-scale NVMe behavior has not yet been established;
 - adaptive execution and codec-selection thresholds require broader public-dataset calibration;
-- native LAGraph/GraphBLAS and GAP comparisons require those external systems to be built and version-pinned on the benchmark host.
+- hosted native LAGraph/GraphBLAS and GAP builds and upstream-harness correctness checks are available, but fully normalized same-source/output-digest cross-engine comparison and dedicated-hardware publication evidence remain outstanding.
 
 For status decisions, [`docs/prompt-coverage.md`](docs/prompt-coverage.md) is the authoritative capability matrix.
 
