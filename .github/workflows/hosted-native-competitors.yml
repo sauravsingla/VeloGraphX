@@ -1,0 +1,117 @@
+name: Hosted Native Competitor Evidence
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/hosted-native-competitors.yml'
+      - 'docs/hosted-native-competitors.md'
+  workflow_dispatch:
+
+jobs:
+  native-build-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GRAPHBLAS_TAG: v10.3.2
+      LAGRAPH_TAG: v1.2.2
+      GAPBS_TAG: v1.5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libomp-dev
+
+      - name: Capture hosted runner capacity
+        run: |
+          mkdir -p artifacts/native
+          python - <<'PY'
+          import json, os, platform, shutil, subprocess
+          def cmd(argv):
+              p = subprocess.run(argv, text=True, capture_output=True, check=False)
+              return {"returncode": p.returncode, "stdout": p.stdout.strip(), "stderr": p.stderr.strip()}
+          payload = {
+              "research_claim": False,
+              "publication_grade": False,
+              "cpu_count": os.cpu_count(),
+              "platform": platform.platform(),
+              "machine": platform.machine(),
+              "taskset": shutil.which("taskset"),
+              "numactl": shutil.which("numactl"),
+              "perf": shutil.which("perf"),
+              "lscpu": cmd(["lscpu"]),
+          }
+          open("artifacts/native/host-capacity.json", "w").write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Clone immutable native competitor tags
+        run: |
+          git clone --depth 1 --branch "$GRAPHBLAS_TAG" https://github.com/DrTimothyAldenDavis/GraphBLAS.git external/GraphBLAS
+          git clone --depth 1 --branch "$LAGRAPH_TAG" https://github.com/GraphBLAS/LAGraph.git external/LAGraph
+          git clone --depth 1 --branch "$GAPBS_TAG" https://github.com/sbeamer/gapbs.git external/gapbs
+          {
+            echo "GraphBLAS $GRAPHBLAS_TAG $(git -C external/GraphBLAS rev-parse HEAD)"
+            echo "LAGraph $LAGRAPH_TAG $(git -C external/LAGraph rev-parse HEAD)"
+            echo "GAPBS $GAPBS_TAG $(git -C external/gapbs rev-parse HEAD)"
+          } | tee artifacts/native/native-pins.txt
+
+      - name: Build SuiteSparse GraphBLAS
+        run: |
+          cmake -S external/GraphBLAS -B external/GraphBLAS/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/external/install"
+          cmake --build external/GraphBLAS/build --parallel 2
+          cmake --install external/GraphBLAS/build
+
+      - name: Build LAGraph against pinned GraphBLAS
+        run: |
+          cmake -S external/LAGraph -B external/LAGraph/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/external/install" \
+            -DCMAKE_INSTALL_PREFIX="$PWD/external/install"
+          cmake --build external/LAGraph/build --parallel 2
+          cmake --install external/LAGraph/build
+
+      - name: Build GAP Benchmark Suite BFS
+        run: |
+          make -C external/gapbs bfs -j2
+          test -x external/gapbs/bfs
+
+      - name: Record native build evidence
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          def rev(path):
+              return subprocess.check_output(["git", "-C", path, "rev-parse", "HEAD"], text=True).strip()
+          payload = {
+              "schema_version": 1,
+              "artifact_type": "velographx-hosted-native-competitor-build",
+              "research_claim": False,
+              "publication_grade": False,
+              "same_runner": True,
+              "pins": {
+                  "SuiteSparse:GraphBLAS": {"tag": os.environ["GRAPHBLAS_TAG"], "commit": rev("external/GraphBLAS")},
+                  "LAGraph": {"tag": os.environ["LAGRAPH_TAG"], "commit": rev("external/LAGraph")},
+                  "GAP Benchmark Suite": {"tag": os.environ["GAPBS_TAG"], "commit": rev("external/gapbs")},
+              },
+              "builds": {
+                  "graphblas_library_present": any(pathlib.Path("external/install").rglob("libgraphblas*")),
+                  "lagraph_library_present": any(pathlib.Path("external/install").rglob("liblagraph*")),
+                  "gap_bfs_present": pathlib.Path("external/gapbs/bfs").is_file(),
+              },
+              "claim_gate": {
+                  "publication_ready": False,
+                  "allowed_claim": "Hosted-CI native competitor build/readiness evidence only; no publication-grade timing claim."
+              }
+          }
+          assert all(payload["builds"].values())
+          pathlib.Path("artifacts/native/native-build.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Upload hosted native evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-hosted-native-competitor-evidence
+          path: artifacts/native
+          retention-days: 30
