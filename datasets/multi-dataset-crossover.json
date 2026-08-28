@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "artifact_type": "velographx-multi-dataset-crossover-manifest",
+  "research_claim": false,
+  "datasets": [
+    {
+      "name": "ca-HepTh",
+      "family": "collaboration",
+      "role": "larger-collaboration",
+      "canonical_source": "https://snap.stanford.edu/data/ca-HepTh.html",
+      "license_or_terms": "Publicly downloadable through the Stanford SNAP dataset collection; cite the SNAP/ca-HepTh source. No separate dataset-specific license is asserted by VeloGraphX.",
+      "url": "https://raw.githubusercontent.com/SaraSherinThomas/Triangle-Counting-in-Data-Streams/16e8af9fddcd661c632cd69c07464de939512c1b/CA_hep.txt",
+      "source_revision": "16e8af9fddcd661c632cd69c07464de939512c1b",
+      "git_blob_sha1": "9a54c32c1c12aee65674ad05f2bb966fb037445e",
+      "format": "edge-list-text",
+      "directed": false,
+      "weighted": false,
+      "research_claim": false
+    },
+    {
+      "name": "facebook-combined",
+      "family": "social",
+      "role": "denser-social",
+      "canonical_source": "https://snap.stanford.edu/data/ego-Facebook.html",
+      "license_or_terms": "Publicly downloadable through the Stanford SNAP dataset collection; cite the SNAP ego-Facebook source. No separate dataset-specific license is asserted by VeloGraphX.",
+      "url": "https://raw.githubusercontent.com/SaraSherinThomas/Triangle-Counting-in-Data-Streams/16e8af9fddcd661c632cd69c07464de939512c1b/facebook_combined.txt",
+      "source_revision": "16e8af9fddcd661c632cd69c07464de939512c1b",
+      "git_blob_sha1": "9a65fc5e22d64d298a3823d1569ae6740800c52f",
+      "format": "edge-list-text",
+      "directed": false,
+      "weighted": false,
+      "research_claim": false
+    },
+    {
+      "name": "p2p-Gnutella08",
+      "family": "peer-to-peer-network",
+      "role": "network-structure",
+      "canonical_source": "https://snap.stanford.edu/data/p2p-Gnutella08.html",
+      "license_or_terms": "Publicly downloadable through the Stanford SNAP dataset collection; cite the SNAP p2p-Gnutella08 source. No separate dataset-specific license is asserted by VeloGraphX.",
+      "url": "https://raw.githubusercontent.com/Zhuoang2/CS225-UIUC-Gnutella-P2P-Network_Visualization/72afb1909a643b867c1959f7cf0c6e1f9b74715a/Final_Project/tests/p2p-Gnutella08.txt",
+      "source_revision": "72afb1909a643b867c1959f7cf0c6e1f9b74715a",
+      "git_blob_sha1": "8f884f315aa0452e0ef7a87a61849f09e2bee014",
+      "format": "edge-list-text",
+      "directed": false,
+      "weighted": false,
+      "research_claim": false
+    }
+  ]
+}
