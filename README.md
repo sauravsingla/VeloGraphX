@@ -6,15 +6,15 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 
-**VeloGraphX is a CPU-native incremental graph analytics engine for large, continuously changing graphs.** It combines dynamic graph algorithms, adaptive recomputation, SIMD-aware kernels, multicore scheduling, NUMA-aware execution, compression, Python interoperability, and reproducible benchmarking in a modern C++20 codebase.
+**VeloGraphX is a CPU-native research and engineering platform for incremental graph analytics on continuously changing graphs.** It combines dynamic graph algorithms, adaptive recomputation, SIMD-aware kernels, multicore scheduling, NUMA-aware execution policies, compression, Python interoperability, out-of-core infrastructure, and reproducible benchmarking in a modern C++20 codebase.
 
-> **Guiding question:** when a massive graph changes only slightly, how little work can a modern CPU perform while still producing the correct updated answer?
+> **Guiding question:** when a large graph changes only slightly, how little work can a modern CPU perform while still producing the correct updated answer?
 
-VeloGraphX is designed for researchers and systems engineers working on **dynamic graph analytics**, **incremental graph processing**, **CPU graph engines**, **graph algorithm acceleration**, **SIMD graph processing**, **NUMA-aware graph systems**, and **large-scale graph benchmarking**.
+VeloGraphX is intended for researchers and systems engineers exploring **dynamic graph analytics**, **incremental graph processing**, **CPU graph engines**, **SIMD graph processing**, **NUMA-aware execution**, and **reproducible graph-system benchmarking**.
 
 ## Why VeloGraphX?
 
-Many graph workloads repeatedly recompute an answer from scratch even when only a small part of the graph changed. VeloGraphX explores a different execution model: identify the affected work, repair only what is necessary when that is safe, and fall back to full recomputation when it is not.
+Many graph workloads repeatedly recompute an answer from scratch even when only a small part of the graph has changed. VeloGraphX explores a different execution model: identify affected work, repair only what is necessary when correctness permits, and fall back to full recomputation when localized repair is unsafe or estimated to be unhelpful.
 
 The project is deliberately CPU-first. Its optimization order is:
 
@@ -23,22 +23,24 @@ The project is deliberately CPU-first. Its optimization order is:
 3. **Scale across CPU cores and NUMA domains.**
 4. **Optimize instructions with SIMD and compression-aware kernels.**
 
-Correctness comes before speed: incremental results are checked against full recomputation, optimized kernels are compared with scalar references, and benchmark claims are separated from CI fixtures and unmeasured research hypotheses.
+Correctness comes before speed: incremental results are checked against full recomputation, optimized kernels are compared with scalar references, and benchmark claims are explicitly separated from CI fixtures and unmeasured research hypotheses.
 
 ## Highlights
+
+The table below describes **implemented engineering capability**. It should not be read as a claim that every capability has already been validated at publication scale.
 
 | Area | Implemented capability |
 | --- | --- |
 | Dynamic graph storage | Versioned graph storage with batched insert/delete deltas, threshold compaction, weighted updates, temporal history and snapshots |
 | Incremental algorithms | BFS / unweighted SSSP, weighted SSSP, triangle counting, connected components, k-core and localized PageRank repair |
 | Adaptive execution | Affected-work estimates and explainable incremental-vs-full-recompute selection |
-| Graph kernels | Scalar, galloping, bitmap, AVX2, AVX-512 and ARM NEON neighbor intersection with runtime ISA detection |
+| Graph kernels | Scalar, galloping, bitmap and architecture-specific AVX2 / AVX-512 / ARM NEON paths with runtime ISA detection and scalar fallback |
 | Multicore execution | Sparse/dense frontiers, push/pull selection, work stealing, adaptive grain sizing and degree/frontier-aware scheduling |
-| NUMA | Linux topology discovery, affinity, first-touch, `mbind`, partition placement, local queues and local-first stealing observability |
-| Compression | Delta, variable-byte, blocked variable-byte and SIMD-friendly fixed-width adjacency coding with adaptive codec selection |
+| NUMA | Linux topology discovery, affinity, first-touch, `mbind`, partition placement, local queues and local-first stealing observability, with portable fallback |
+| Compression | Delta, variable-byte, blocked variable-byte and SIMD-friendly fixed-width adjacency coding with adaptive codec recommendation |
 | Python | Optional pybind11 bindings with NumPy, SciPy CSR and Apache Arrow ingestion plus dynamic/incremental APIs |
-| Out-of-core | Partition-file backend, mmap/fallback reads, async loading, bounded cache, readahead and optional `io_uring` prefetch |
-| Reproducibility | Checksum-verified datasets, competitor adapters, version-pin readiness contracts, environment capture, campaign orchestration and publication artifact validation |
+| Out-of-core | Partition-file backend, mmap/fallback reads, async loading, bounded cache, readahead and optional Linux `io_uring` prefetch |
+| Reproducibility | Checksum-verified datasets, competitor adapters, version-pin readiness contracts, environment capture, campaign orchestration and publication-artifact validation |
 
 ## Algorithms
 
@@ -53,7 +55,7 @@ VeloGraphX currently includes static or dynamic/incremental support for:
 - Common-neighbor and Jaccard-style neighborhood operations
 - Adaptive neighbor intersection
 
-The incremental engine uses localized repair where correctness conditions permit and explicit full-recompute fallback where a destructive update cannot be repaired safely.
+The incremental engine uses localized repair where correctness conditions permit and explicit full-recompute fallback where a destructive update cannot be safely or efficiently repaired.
 
 ## Quick start
 
@@ -126,6 +128,24 @@ Research / reproducibility layer
 
 This separation is intentional: algorithmic work reduction, memory locality, parallel scheduling and instruction-level optimization can be evaluated independently through ablations.
 
+## Testing and correctness
+
+VeloGraphX maintains broad native and interoperability coverage, including:
+
+- static and dynamic graph correctness tests;
+- incremental BFS, connected-components, k-core, PageRank, triangle and weighted-SSSP tests;
+- deletion and destructive-update fallback cases;
+- randomized dynamic mutation campaigns;
+- scalar-versus-optimized kernel differential checks;
+- NUMA policy, partitioning and scheduler tests;
+- work-stealing and concurrency stress coverage;
+- compression and codec-policy tests;
+- native I/O, partition-cache and async partition-loader tests;
+- Python NumPy, SciPy CSR and Apache Arrow interoperability checks;
+- Linux ASan/UBSan runs.
+
+CI-scale tests establish engineering correctness and portability for the exercised configurations. They do not substitute for research-scale hardware evaluation.
+
 ## Benchmarking and reproducibility
 
 VeloGraphX includes infrastructure for reproducible experiments rather than embedding unverified headline numbers in the README.
@@ -133,7 +153,7 @@ VeloGraphX includes infrastructure for reproducible experiments rather than embe
 The repository contains:
 
 - checksum-verified dataset preparation;
-- public-dataset readiness contracts;
+- public-dataset manifests and readiness contracts;
 - competitor adapters for builtin reference, NetworkX, igraph, NetworKit and rustworkx;
 - normalized external/native runner contracts for SuiteSparse:GraphBLAS/LAGraph and GAP;
 - immutable competitor version-pin readiness checks;
@@ -142,32 +162,61 @@ The repository contains:
 - codec throughput/compression-ratio tooling and codec-policy calibration;
 - provenance-rich publication artifact generation and integrity validation.
 
-A complete **hosted-CI engineering campaign** now runs core benchmarks, update-fraction measurements, paired ablations, conservative 1/2-thread checks and normalized BFS adapters for builtin, NetworkX, igraph, NetworKit and rustworkx. The resulting bundle is provenance-captured and integrity-validated, but remains explicitly `research_claim: false`.
+A hosted-CI engineering campaign exercises core benchmarks, update-fraction measurements, paired ablations, conservative thread checks and normalized BFS adapters. Its result bundle is provenance-captured and integrity-validated and remains explicitly marked `research_claim: false`.
 
-Hosted CI runs validate contracts, correctness and small-scale engineering behavior, **not publication-grade performance**. Dedicated-hardware benchmark results should only be treated as project claims when the corresponding dataset, environment, version pins and result artifacts are captured by the documented workflow.
+The repository also contains public-dataset incremental crossover engineering evidence, including ca-GrQc work, and ongoing work to extend that evidence across additional graph families. These measurements remain engineering evidence unless and until they are repeated under controlled, publication-grade experimental conditions.
+
+Hosted CI validates contracts, correctness and small-scale engineering behavior, **not publication-grade superiority or large-scale scalability**. Dedicated-hardware benchmark results should only be treated as project claims when dataset identity, environment, version pins, methodology and result artifacts are captured by the documented workflow.
 
 Useful references:
 
-- [`docs/ci-scale-evidence.md`](docs/ci-scale-evidence.md) — measured hosted-CI engineering evidence and limitations
+- [`docs/ci-scale-evidence.md`](docs/ci-scale-evidence.md) — hosted-CI engineering evidence and caveats
 - [`docs/benchmark-methodology.md`](docs/benchmark-methodology.md) — experimental methodology
-- [`docs/prompt-coverage.md`](docs/prompt-coverage.md) — implemented vs partial vs unmeasured work
-- [`docs/limitations.md`](docs/limitations.md) — known limitations
+- [`docs/prompt-coverage.md`](docs/prompt-coverage.md) — authoritative implemented / partial / unmeasured status matrix
+- [`docs/limitations.md`](docs/limitations.md) — known implementation and validation limitations
 - [`docs/native-competitors.md`](docs/native-competitors.md) — LAGraph/GraphBLAS and GAP execution contract
 - [`benchmarks/competitor-research-plan.json`](benchmarks/competitor-research-plan.json) — competitor version-pin readiness plan
 
+## What is validated today
+
+The repository has engineering evidence for correctness, cross-framework adapter normalization, incremental update behavior, optimized intersection paths, compression/decompression behavior, Python interoperability, reproducibility contracts and small hosted-CI execution campaigns.
+
+Public-dataset incremental crossover work is also underway and already includes ca-GrQc evidence. This is useful evidence for development and hypothesis testing, but it is intentionally not presented as a universal performance result.
+
 ## What is not claimed yet
 
-VeloGraphX does **not** currently claim publication-grade superiority over other graph engines. Several evaluation milestones require dedicated hardware and completed public-dataset runs.
+VeloGraphX does **not** currently claim publication-grade superiority over other graph engines.
 
-The hosted-CI campaign has already exercised the full configured update-fraction set, paired ablations, 1/2-thread affinity checks and five normalized Python/reference BFS adapters on a small fixture. Those results are documented as engineering evidence only.
+The following remain unmeasured at publication grade or materially environment-dependent:
 
-Still unmeasured at publication grade or environment-dependent are true multi-socket NUMA locality and remote-traffic behavior, large 1/2/4/8/16/32+ thread-scaling studies, 100M+ edge experiments, complete competitor comparisons on identical dedicated hardware including native LAGraph/GAP, publication-grade hardware-counter and ablation measurements, research-scale codec campaigns, public research datasets, and NVMe/`io_uring` throughput studies.
+- true multi-socket NUMA locality, bandwidth and remote-traffic behavior;
+- large 1/2/4/8/16/32+ thread-scaling studies on dedicated hardware;
+- 100M+ edge research-scale experiments;
+- broad multi-dataset crossover characterization across graph families;
+- complete like-for-like competitor comparisons on identical dedicated hardware, including native LAGraph/GraphBLAS and GAP;
+- publication-grade hardware-counter and ablation measurements;
+- research-scale codec throughput/compression-ratio campaigns;
+- calibrated production codec thresholds from representative public-dataset measurements;
+- research-scale NVMe / `io_uring` throughput and overlap studies.
 
-The engineering infrastructure for many of these experiments is already present; the remaining gap is execution and evidence, not permission to infer results.
+The engineering infrastructure for many of these experiments already exists. The remaining gap is controlled execution and evidence; results should not be inferred before those experiments are completed.
+
+## Current limitations
+
+Some capabilities are intentionally conservative or environment-dependent:
+
+- localized incremental algorithms may fall back to full recomputation for destructive or difficult updates;
+- architecture-specific SIMD paths retain scalar fallback and require representative hardware calibration before broad performance conclusions;
+- NUMA execution policies are implemented on Linux, but genuine multi-socket benefits require suitable hardware to measure;
+- out-of-core infrastructure supports mmap, async loading, bounded caching, readahead and optional `io_uring`, but research-scale NVMe behavior has not yet been established;
+- adaptive execution and codec-selection thresholds require broader public-dataset calibration;
+- native LAGraph/GraphBLAS and GAP comparisons require those external systems to be built and version-pinned on the benchmark host.
+
+For status decisions, [`docs/prompt-coverage.md`](docs/prompt-coverage.md) is the authoritative capability matrix.
 
 ## When VeloGraphX may be useful
 
-VeloGraphX is a good fit for exploring workloads such as continuously changing social, communication, transaction, infrastructure, cybersecurity or knowledge graphs where graph updates are frequent and repeated full recomputation is expensive.
+VeloGraphX is a good fit for exploring workloads such as continuously changing social, communication, transaction, infrastructure, cybersecurity or knowledge graphs where updates are frequent and repeated full recomputation can be expensive.
 
 It is also intended as a research platform for questions around dynamic graph algorithms, incremental computation, CPU graph analytics, SIMD graph kernels, NUMA scheduling, graph compression, temporal graphs, out-of-core graph processing and reproducible graph-system benchmarking.
 
@@ -188,11 +237,11 @@ docs/           architecture, methodology, limitations and research notes
 
 VeloGraphX is under active development. The authoritative status is maintained in [`docs/prompt-coverage.md`](docs/prompt-coverage.md), which distinguishes implemented functionality from partial, environment-dependent, unmeasured and future work.
 
-If you are evaluating the repository for research or systems work, start with the README, then review the benchmark methodology, hosted-CI evidence note and prompt-coverage matrix before interpreting any benchmark output.
+If you are evaluating the repository for research or systems work, start with this README, then review the benchmark methodology, hosted-CI evidence note and prompt-coverage matrix before interpreting benchmark output.
 
 ## Contributing
 
-Contributions that improve correctness, dynamic graph algorithms, CPU performance, SIMD/NUMA portability, dataset reproducibility, benchmarking discipline, documentation or interoperability are welcome. Please keep performance claims reproducible and accompany optimized paths with correctness coverage or reference comparisons where appropriate.
+Contributions that improve correctness, dynamic graph algorithms, CPU performance, SIMD/NUMA portability, dataset reproducibility, benchmarking discipline, documentation or interoperability are welcome. Performance-sensitive changes should include reproducible measurements where practical, and optimized execution paths should retain correctness coverage or comparison against a trusted reference.
 
 ## License
 
