@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "artifact_type": "velographx-publication-hardware-plan",
+  "research_claim": false,
+  "publication_ready": false,
+  "purpose": "Gate publication-grade performance claims on controlled hardware, immutable provenance, correctness, repeated measurements, and pinned competitors.",
+  "hardware": {
+    "dedicated_machine_required": true,
+    "linux_required": true,
+    "required_metadata": [
+      "cpu_model",
+      "sockets",
+      "physical_cores",
+      "logical_cpus",
+      "smt_state",
+      "numa_nodes",
+      "memory_bytes",
+      "memory_channels_or_platform_description",
+      "kernel",
+      "compiler",
+      "compiler_version",
+      "build_type",
+      "build_flags",
+      "cpu_governor_or_frequency_policy",
+      "affinity_policy"
+    ],
+    "genuine_numa_required_for_numa_claims": true
+  },
+  "experiments": {
+    "thread_scaling": {
+      "required": true,
+      "threads": [1, 2, 4, 8, 16, 32],
+      "extend_to_all_physical_cores_when_above_32": true,
+      "minimum_repeats": 10,
+      "warmup_runs": 2
+    },
+    "numa": {
+      "required_for_numa_claims": true,
+      "policies": ["local", "interleave", "cross-node"],
+      "minimum_repeats": 10,
+      "requires_at_least_two_numa_nodes": true
+    },
+    "hardware_counters": {
+      "required": true,
+      "preferred_events": [
+        "cycles",
+        "instructions",
+        "branches",
+        "branch-misses",
+        "cache-references",
+        "cache-misses",
+        "LLC-loads",
+        "LLC-load-misses"
+      ],
+      "memory_traffic_or_remote_numa_events_when_supported": true
+    },
+    "update_fraction": {
+      "required": true,
+      "minimum_repeats": 10,
+      "correctness_match_required_for_every_sample": true
+    },
+    "ablations": {
+      "required": true,
+      "dimensions": [
+        "incremental-vs-full",
+        "adaptive-vs-fixed-policy",
+        "scalar-vs-simd",
+        "compression-on-vs-off",
+        "work-stealing-on-vs-off",
+        "numa-policy"
+      ]
+    },
+    "competitors": {
+      "required": true,
+      "same_hardware_required": true,
+      "linked_plan": "benchmarks/competitor-research-plan.json",
+      "priority_native": ["SuiteSparse:GraphBLAS/LAGraph", "GAP Benchmark Suite"]
+    }
+  },
+  "datasets": {
+    "immutable_provenance_required": true,
+    "checksums_required": true,
+    "linked_plan": "datasets/public-research-plan.json",
+    "minimum_distinct_graph_families": 3
+  },
+  "statistics": {
+    "raw_samples_required": true,
+    "median_required": true,
+    "p95_required": true,
+    "uncertainty_summary_required": true,
+    "requested_vs_actual_work_required": true
+  },
+  "artifacts": {
+    "machine_readable_csv_or_json_required": true,
+    "environment_capture_required": true,
+    "validated_result_bundle_required": true
+  },
+  "claim_gate": {
+    "all_requirements_must_pass": true,
+    "hosted_ci_alone_is_publication_grade": false,
+    "unresolved_competitor_pins_block_comparative_claims": true,
+    "missing_genuine_numa_hardware_blocks_numa_claims": true,
+    "failed_correctness_blocks_performance_claims": true,
+    "allow_publication_claims": false
+  }
+}
