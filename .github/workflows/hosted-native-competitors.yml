@@ -71,6 +71,19 @@ jobs:
           cmake --build external/GraphBLAS/build --parallel 2
           cmake --install external/GraphBLAS/build
 
+      - name: Enable LAGraph benchmark self-check
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('external/LAGraph/src/benchmark/LAGraph_demo.h')
+          text = p.read_text()
+          old = '#define LG_CHECK_RESULT 0'
+          new = '#define LG_CHECK_RESULT 1'
+          if old not in text:
+              raise SystemExit('expected LAGraph self-check macro not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Build LAGraph against pinned GraphBLAS
         run: |
           cmake -S external/LAGraph -B external/LAGraph/build \
@@ -138,6 +151,10 @@ jobs:
           assert r['publication_grade'] is False
           assert r['normalized_cross_engine_claim'] is False
           assert r['claim_gate']['publication_ready'] is False
+          assert r['correctness_gate']['passed'] is True
+          assert r['correctness_gate']['gap_all_trials_verified'] is True
+          assert r['correctness_gate']['lagraph_self_check_present_all_threads'] is True
+          assert r['correctness_gate']['same_source_cross_engine_proven'] is False
           assert [x['threads'] for x in r['gap_bfs']] == [1,2,4]
           assert [x['threads'] for x in r['lagraph_bfs']] == [1,2,4]
           PY
