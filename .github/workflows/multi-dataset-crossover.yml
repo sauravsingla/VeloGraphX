@@ -1,0 +1,159 @@
+name: Multi-Dataset Incremental Crossover
+
+on:
+  push:
+    paths:
+      - '.github/workflows/multi-dataset-crossover.yml'
+      - 'datasets/multi-dataset-crossover.json'
+      - 'tools/prepare_pinned_public_dataset.py'
+      - 'tools/normalize_edge_list.py'
+      - 'tools/summarize_update_crossover.py'
+      - 'benchmarks/public_update_fraction_campaign.cpp'
+      - 'tools/build_result_artifact.py'
+      - 'tools/validate_result_bundle.py'
+      - 'CMakeLists.txt'
+  pull_request:
+    paths:
+      - '.github/workflows/multi-dataset-crossover.yml'
+      - 'datasets/multi-dataset-crossover.json'
+      - 'tools/prepare_pinned_public_dataset.py'
+      - 'tools/normalize_edge_list.py'
+      - 'tools/summarize_update_crossover.py'
+      - 'benchmarks/public_update_fraction_campaign.cpp'
+      - 'tools/build_result_artifact.py'
+      - 'tools/validate_result_bundle.py'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  crossover:
+    name: ${{ matrix.dataset }} crossover
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dataset: ca-HepTh
+            family: collaboration
+          - dataset: facebook-combined
+            family: social
+          - dataset: p2p-Gnutella08
+            family: peer-to-peer-network
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Acquire immutable public dataset
+        run: |
+          mkdir -p "build/multi/${{ matrix.dataset }}/source"
+          python tools/prepare_pinned_public_dataset.py \
+            --manifest datasets/multi-dataset-crossover.json \
+            --dataset '${{ matrix.dataset }}' \
+            --output-dir "build/multi/${{ matrix.dataset }}/source" \
+            > "build/multi/${{ matrix.dataset }}/dataset-prepared.json"
+
+      - name: Normalize to undirected simple graph
+        run: |
+          python tools/normalize_edge_list.py \
+            --input "build/multi/${{ matrix.dataset }}/source/${{ matrix.dataset }}.txt" \
+            --output "build/multi/${{ matrix.dataset }}/${{ matrix.dataset }}-normalized.txt" \
+            --report "build/multi/${{ matrix.dataset }}/normalization.json"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          base = Path('build/multi/${{ matrix.dataset }}')
+          prepared = json.loads((base / 'dataset-prepared.json').read_text())
+          normalized = json.loads((base / 'normalization.json').read_text())
+          assert prepared['research_claim'] is False
+          assert normalized['research_claim'] is False
+          assert normalized['vertex_count'] > 1
+          assert normalized['edge_count'] > 0
+          assert normalized['source_sha256'] == prepared['prepared'][0]['sha256']
+          PY
+
+      - name: Configure and build benchmark
+        run: |
+          cmake -S . -B build/cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=ON \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake -j 2
+          ctest --test-dir build/cmake --output-on-failure --timeout 60
+
+      - name: Capture environment and validate preflight
+        run: |
+          python tools/capture_benchmark_environment.py \
+            --label "github-hosted-${{ matrix.dataset }}-multi-crossover" \
+            --output "build/multi/${{ matrix.dataset }}/environment.json"
+          python tools/validate_benchmark_preflight.py \
+            --environment "build/multi/${{ matrix.dataset }}/environment.json" \
+            --dataset-report "build/multi/${{ matrix.dataset }}/dataset-prepared.json" \
+            > "build/multi/${{ matrix.dataset }}/preflight.json"
+
+      - name: Run repeated incremental crossover sweep
+        run: |
+          build/cmake/velographx_public_update_fraction_benchmark \
+            "build/multi/${{ matrix.dataset }}/${{ matrix.dataset }}-normalized.txt" \
+            5 \
+            '0.000001,0.00001,0.0001,0.001,0.01,0.05,0.10,0.20,0.50,0.75,1.00,1.50,2.00' \
+            > "build/multi/${{ matrix.dataset }}/update-fraction.csv"
+          python tools/summarize_update_crossover.py \
+            --input "build/multi/${{ matrix.dataset }}/update-fraction.csv" \
+            --dataset '${{ matrix.dataset }}' \
+            --family '${{ matrix.family }}' \
+            --output "build/multi/${{ matrix.dataset }}/update-fraction-summary.json"
+
+      - name: Validate measurement contract
+        run: |
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          base = Path('build/multi/${{ matrix.dataset }}')
+          rows = list(csv.DictReader((base / 'update-fraction.csv').open()))
+          summary = json.loads((base / 'update-fraction-summary.json').read_text())
+          assert len(rows) == 65
+          assert len(summary['fractions']) == 13
+          assert summary['repeats_per_fraction'] == 5
+          assert summary['all_incremental_results_match_full_recompute'] is True
+          assert all(row['correct'] == '1' for row in rows)
+          assert all(int(row['changed_edges']) == int(row['requested_edges']) for row in rows)
+          assert all(int(row['incremental_ns']) > 0 for row in rows)
+          assert all(int(row['full_recompute_ns']) > 0 for row in rows)
+          PY
+
+      - name: Build and validate provenance-rich result bundle
+        shell: bash
+        run: |
+          DATASET_SHA256=$(python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/multi/${{ matrix.dataset }}/dataset-prepared.json').read_text())
+          print(report['prepared'][0]['sha256'])
+          PY
+          )
+          python tools/build_result_artifact.py \
+            --experiment "multi-dataset-${{ matrix.dataset }}-hosted-ci" \
+            --dataset '${{ matrix.dataset }}' \
+            --dataset-sha256 "$DATASET_SHA256" \
+            --preflight-json "build/multi/${{ matrix.dataset }}/preflight.json" \
+            --hardware-json "build/multi/${{ matrix.dataset }}/environment.json" \
+            --software-json "build/multi/${{ matrix.dataset }}/environment.json" \
+            --result "build/multi/${{ matrix.dataset }}/dataset-prepared.json" \
+            --result "build/multi/${{ matrix.dataset }}/normalization.json" \
+            --result "build/multi/${{ matrix.dataset }}/update-fraction.csv" \
+            --result "build/multi/${{ matrix.dataset }}/update-fraction-summary.json" \
+            --notes 'GitHub-hosted multi-dataset incremental triangle crossover engineering evidence; exact correctness checked for every sample; research_claim=false; not publication-grade performance.' \
+            --output "build/multi/${{ matrix.dataset }}/result-bundle.json"
+          python tools/validate_result_bundle.py "build/multi/${{ matrix.dataset }}/result-bundle.json"
+
+      - name: Upload machine-readable evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-multi-crossover-${{ matrix.dataset }}
+          path: build/multi/${{ matrix.dataset }}/
+          retention-days: 30
