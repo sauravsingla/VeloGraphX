@@ -1,0 +1,77 @@
+name: Hosted CPU Baseline Evidence
+
+on:
+  pull_request:
+    paths:
+      - 'benchmarks/campaigns/hosted_ci_baseline.json'
+      - 'tools/run_hosted_ci_baseline.py'
+      - '.github/workflows/hosted-ci-baseline.yml'
+      - 'docs/hosted-ci-baseline.md'
+  workflow_dispatch:
+
+jobs:
+  hosted-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install competitor dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'networkx==3.4.2' 'igraph==0.11.8' 'networkit==11.1' 'rustworkx==0.16.0'
+      - name: Build benchmarks
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Create deterministic baseline graph
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          n = 1000
+          edges = set()
+          for u in range(n):
+              for delta in (1, 7, 31):
+                  v = (u + delta) % n
+                  edges.add((min(u, v), max(u, v)))
+          path = Path('artifacts/baseline')
+          path.mkdir(parents=True, exist_ok=True)
+          with (path / 'baseline.edgelist').open('w') as f:
+              for u, v in sorted(edges):
+                  f.write(f'{u} {v}\n')
+          PY
+      - name: Capture environment
+        run: |
+          mkdir -p artifacts/baseline
+          python tools/capture_benchmark_environment.py --output artifacts/baseline/environment.json
+      - name: Execute hosted baseline
+        run: |
+          python tools/run_hosted_ci_baseline.py \
+            --build-dir build \
+            --dataset artifacts/baseline/baseline.edgelist \
+            --output-dir artifacts/baseline
+      - name: Validate claim gate
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          plan = json.loads(Path('benchmarks/campaigns/hosted_ci_baseline.json').read_text())
+          report = json.loads(Path('artifacts/baseline/hosted-ci-baseline.json').read_text())
+          assert plan['research_claim'] is False
+          assert plan['publication_grade'] is False
+          assert plan['claim_gate']['publication_ready'] is False
+          assert report['research_claim'] is False
+          assert report['publication_grade'] is False
+          assert report['claim_gate']['publication_ready'] is False
+          assert report['competitors']
+          assert report['thread_scaling']
+          PY
+      - name: Upload hosted engineering evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-hosted-ci-baseline
+          path: artifacts/baseline
+          retention-days: 30
