@@ -1,4 +1,5 @@
 #include <LAGraph.h>
+#include <LAGraphX.h>
 #include <GraphBLAS.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -42,18 +43,17 @@ int main(int argc, char **argv) {
     LAGraph_Graph G = NULL;
     LAGraph_Kind kind = directed ? LAGraph_ADJACENCY_DIRECTED : LAGraph_ADJACENCY_UNDIRECTED;
     if (LAGraph_New(&G, &A, kind, msg) < 0) die(msg);
-    int cache_status = LAGraph_Cached_OutDegree(G, msg);
-    if (cache_status < 0) die(msg);
+    if (LAGraph_Cached_OutDegree(G, msg) < 0) die(msg);
 
     GrB_Vector level = NULL;
-    if (LAGr_BreadthFirstSearch(&level, NULL, G, source, msg) < 0) die(msg);
+    if (LAGr_BreadthFirstSearch(&level, NULL, G, (GrB_Index) source, msg) < 0) die(msg);
 
     printf("{\"framework_version\":\"LAGraph-1.2.2\",\"distances\":[");
     for (int64_t i = 0; i < vertices; i++) {
         int64_t d = -1;
         GrB_Info info = GrB_Vector_extractElement_INT64(&d, level, (GrB_Index) i);
         if (info == GrB_NO_VALUE) d = -1;
-        else if (info < 0) die("extract level failed");
+        else if (info != GrB_SUCCESS) die("extract level failed");
         if (i) putchar(',');
         printf("%lld", (long long) d);
     }
