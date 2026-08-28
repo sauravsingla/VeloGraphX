@@ -51,12 +51,16 @@ jobs:
 
       - name: Build normalized native runner binaries
         run: |
+          set -euxo pipefail
           mkdir -p build/native artifacts/normalized
-          cc -O3 -fopenmp \
+          cc -O3 -std=c11 -fopenmp \
             -Iexternal/install/include \
+            -Iexternal/LAGraph/include \
             tools/native_competitors/lagraph_bfs_json_runner.c \
             -Lexternal/install/lib -Lexternal/install/lib64 \
-            -llagraph -lgraphblas \
+            -Wl,-rpath,"$PWD/external/install/lib" \
+            -Wl,-rpath,"$PWD/external/install/lib64" \
+            -llagraph -lgraphblas -lm \
             -o build/native/lagraph_bfs_json_runner
           c++ -O3 -std=c++17 -fopenmp \
             -Iexternal/gapbs/src \
