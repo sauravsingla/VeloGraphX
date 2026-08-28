@@ -25,14 +25,13 @@ jobs:
           NETWORKIT_LIB_DIR="$(python - <<'PY'
           import site
           from pathlib import Path
-          candidates = []
-          for root in site.getsitepackages():
-              path = Path(root) / 'networkit'
-              if path.is_dir():
-                  candidates.append(path)
-          if not candidates:
-              raise SystemExit('networkit package directory not found')
-          print(candidates[0])
+          roots = [Path(p) for p in site.getsitepackages()]
+          matches = []
+          for root in roots:
+              matches.extend(root.rglob('libnetworkit.so'))
+          if not matches:
+              raise SystemExit('libnetworkit.so not found under site-packages')
+          print(matches[0].parent)
           PY
           )"
           echo "LD_LIBRARY_PATH=${NETWORKIT_LIB_DIR}:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
