@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 
 def build_command(args):
@@ -29,6 +28,10 @@ def build_command(args):
             wrappers += [numactl, f"--cpunodebind={args.numa_node}", f"--membind={args.numa_node}"]
         elif args.numa_policy == "interleave":
             wrappers += [numactl, "--interleave=all"]
+        elif args.numa_policy == "cross-node":
+            if args.numa_cpu_node == args.numa_mem_node:
+                raise ValueError("cross-node policy requires different CPU and memory nodes")
+            wrappers += [numactl, f"--cpunodebind={args.numa_cpu_node}", f"--membind={args.numa_mem_node}"]
 
     if args.perf:
         perf = shutil.which("perf")
@@ -43,8 +46,10 @@ def build_command(args):
 def main():
     parser = argparse.ArgumentParser(description="Run one VeloGraphX hardware-sensitive benchmark case reproducibly.")
     parser.add_argument("--threads", type=int, default=1)
-    parser.add_argument("--numa-policy", choices=("none", "local", "interleave"), default="none")
+    parser.add_argument("--numa-policy", choices=("none", "local", "interleave", "cross-node"), default="none")
     parser.add_argument("--numa-node", type=int, default=0)
+    parser.add_argument("--numa-cpu-node", type=int, default=0)
+    parser.add_argument("--numa-mem-node", type=int, default=1)
     parser.add_argument("--perf", action="store_true")
     parser.add_argument("--perf-events")
     parser.add_argument("--timeout-seconds", type=float, default=600)
@@ -64,14 +69,7 @@ def main():
     env["OMP_NUM_THREADS"] = str(args.threads)
 
     started = time.perf_counter()
-    completed = subprocess.run(
-        command,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=args.timeout_seconds,
-        check=False,
-    )
+    completed = subprocess.run(command, env=env, text=True, capture_output=True, timeout=args.timeout_seconds, check=False)
     elapsed = time.perf_counter() - started
 
     report = {
@@ -79,6 +77,8 @@ def main():
         "threads": args.threads,
         "numa_policy": args.numa_policy,
         "numa_node": args.numa_node if args.numa_policy == "local" else None,
+        "numa_cpu_node": args.numa_cpu_node if args.numa_policy == "cross-node" else None,
+        "numa_mem_node": args.numa_mem_node if args.numa_policy == "cross-node" else None,
         "perf_enabled": args.perf,
         "perf_events": args.perf_events,
         "argv": command,
