@@ -1,0 +1,121 @@
+name: Normalized Native BFS
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/normalized-native-bfs.yml'
+      - 'tools/validate_normalized_native_bfs.py'
+      - 'tools/competitor_benchmark.py'
+      - 'tools/native_competitors/**'
+      - 'docs/normalized-native-bfs.md'
+  workflow_dispatch:
+
+jobs:
+  normalized-bfs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GRAPHBLAS_TAG: v10.3.2
+      LAGRAPH_TAG: v1.2.2
+      GAPBS_TAG: v1.5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libomp-dev
+
+      - name: Clone immutable native competitors
+        run: |
+          git clone --depth 1 --branch "$GRAPHBLAS_TAG" https://github.com/DrTimothyAldenDavis/GraphBLAS.git external/GraphBLAS
+          git clone --depth 1 --branch "$LAGRAPH_TAG" https://github.com/GraphBLAS/LAGraph.git external/LAGraph
+          git clone --depth 1 --branch "$GAPBS_TAG" https://github.com/sbeamer/gapbs.git external/gapbs
+
+      - name: Build SuiteSparse GraphBLAS
+        run: |
+          cmake -S external/GraphBLAS -B external/GraphBLAS/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/external/install"
+          cmake --build external/GraphBLAS/build --parallel 2
+          cmake --install external/GraphBLAS/build
+
+      - name: Build LAGraph
+        run: |
+          cmake -S external/LAGraph -B external/LAGraph/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/external/install" \
+            -DCMAKE_INSTALL_PREFIX="$PWD/external/install"
+          cmake --build external/LAGraph/build --parallel 2
+          cmake --install external/LAGraph/build
+
+      - name: Build normalized native runner binaries
+        run: |
+          mkdir -p build/native artifacts/normalized
+          cc -O3 -fopenmp \
+            -Iexternal/install/include \
+            tools/native_competitors/lagraph_bfs_json_runner.c \
+            -Lexternal/install/lib -Lexternal/install/lib64 \
+            -llagraph -lgraphblas \
+            -o build/native/lagraph_bfs_json_runner
+          c++ -O3 -std=c++17 -fopenmp \
+            -Iexternal/gapbs/src \
+            tools/native_competitors/gap_bfs_json_runner.cc \
+            -o build/native/gap_bfs_json_runner
+          test -x build/native/lagraph_bfs_json_runner
+          test -x build/native/gap_bfs_json_runner
+
+      - name: Generate deterministic normalization graph
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          n = 4096
+          edges = set()
+          for u in range(n):
+              for delta in (1, 7, 31, 127):
+                  v = (u + delta) % n
+                  a, b = sorted((u, v))
+                  if a != b:
+                      edges.add((a, b))
+          Path('artifacts/normalized/hosted-native.el').write_text(
+              ''.join(f'{u} {v}\n' for u, v in sorted(edges))
+          )
+          PY
+
+      - name: Validate full-distance normalization
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/external/install/lib:${{ github.workspace }}/external/install/lib64
+          VELOGRAPHX_LAGRAPH_BFS_BIN: ${{ github.workspace }}/build/native/lagraph_bfs_json_runner
+          VELOGRAPHX_GAP_BFS_BIN: ${{ github.workspace }}/build/native/gap_bfs_json_runner
+        run: |
+          python tools/validate_normalized_native_bfs.py \
+            --dataset artifacts/normalized/hosted-native.el \
+            --source 0 \
+            --repeat 3 \
+            --lagraph-command "python tools/native_competitors/lagraph_wrapper.py" \
+            --gap-command "python tools/native_competitors/gap_wrapper.py" \
+            --output artifacts/normalized/normalized-native-bfs.json
+
+      - name: Validate claim gate
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('artifacts/normalized/normalized-native-bfs.json').read_text())
+          assert r['normalized_cross_engine_claim'] is True
+          assert r['correctness_gate']['passed'] is True
+          assert r['correctness_gate']['same_dataset'] is True
+          assert r['correctness_gate']['same_source'] is True
+          assert r['correctness_gate']['same_directedness'] is True
+          assert r['correctness_gate']['same_full_distance_digest'] is True
+          assert r['research_claim'] is False
+          assert r['publication_grade'] is False
+          assert r['claim_gate']['publication_ready'] is False
+          PY
+
+      - name: Upload normalized native BFS evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-normalized-native-bfs
+          path: artifacts/normalized
+          retention-days: 30
