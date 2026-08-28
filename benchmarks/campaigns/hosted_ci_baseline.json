@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "artifact_type": "velographx-hosted-ci-baseline-plan",
+  "research_claim": false,
+  "publication_grade": false,
+  "purpose": "Execute the subset of Issue #10 that is meaningful on GitHub-hosted CPU runners while preserving a strict separation from controlled-hardware publication claims.",
+  "thread_scaling": {
+    "requested_threads": [1, 2, 4],
+    "rule": "Run only thread counts not exceeding the logical CPUs exposed by the runner.",
+    "repeat": 5,
+    "benchmark": "velographx_benchmark"
+  },
+  "ablations": {
+    "suites": ["intersection", "compression", "incremental"],
+    "runner": "tools/ablation_suite.py"
+  },
+  "competitors": {
+    "algorithm": "bfs",
+    "frameworks": ["builtin", "networkx", "igraph", "networkit", "rustworkx"],
+    "repeat": 5,
+    "correctness_rule": "All normalized result digests must match builtin on the same dataset/source.",
+    "native_external_note": "LAGraph/GraphBLAS and GAP remain part of the controlled-hardware phase unless immutable native builds are explicitly provisioned on the same runner."
+  },
+  "perf_counters": {
+    "attempt": true,
+    "events": ["cycles", "instructions", "cache-misses", "branches", "branch-misses"],
+    "rule": "Counter collection is best-effort on hosted runners. Permission denial is recorded as evidence and must not fail the baseline campaign."
+  },
+  "evidence": {
+    "capture_environment": true,
+    "raw_machine_readable_outputs": true,
+    "exact_correctness_required": true,
+    "hosted_runner_caveat_required": true
+  },
+  "claim_gate": {
+    "publication_ready": false,
+    "allowed_claim": "Hosted-CI engineering baseline only.",
+    "forbidden_claims": [
+      "publication-grade scalability",
+      "multi-socket NUMA benefit",
+      "stable 8/16/32+ core scaling",
+      "controlled same-hardware superiority"
+    ]
+  }
+}
