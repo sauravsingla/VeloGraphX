@@ -44,21 +44,27 @@ def generate_graph(outdir: Path):
 def gap_measurements(gap_bfs: Path, dataset: Path):
     rows = []
     trial_re = re.compile(r"Trial Time:\s*([0-9.eE+-]+)")
+    verification_re = re.compile(r"^Verification:\s*(PASS|FAIL)\s*$", re.MULTILINE)
     for t in THREADS:
         env = os.environ.copy()
         env["OMP_NUM_THREADS"] = str(t)
         result = run([gap_bfs, "-sf", dataset, "-r", str(SOURCE), "-n", "5", "-v"], env=env)
         combined = result["stdout"] + "\n" + result["stderr"]
         samples = [float(x) for x in trial_re.findall(combined)]
-        verification_count = combined.count("Verification: PASS")
+        verification_results = verification_re.findall(combined)
+        pass_count = sum(x == "PASS" for x in verification_results)
+        fail_count = sum(x == "FAIL" for x in verification_results)
+        verification_passed = bool(samples) and pass_count == len(samples) and fail_count == 0
         rows.append({
             "threads": t,
             "source": SOURCE,
             "returncode": result["returncode"],
             "trial_seconds": samples,
             "median_seconds": statistics.median(samples) if samples else None,
-            "verification_passed": verification_count == 5,
-            "verification_pass_count": verification_count,
+            "verification_passed": verification_passed,
+            "verification_pass_count": pass_count,
+            "verification_fail_count": fail_count,
+            "verification_result_count": len(verification_results),
             "stdout_tail": result["stdout"][-4000:],
             "stderr_tail": result["stderr"][-4000:],
         })
@@ -142,7 +148,20 @@ def main():
     out = args.output_dir / "hosted-native-measurements.json"
     out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if not correctness_gate:
-        raise RuntimeError("native competitor correctness gate failed")
+        diagnostics = {
+            "gap": [{
+                "threads": x["threads"],
+                "trials": len(x["trial_seconds"]),
+                "passes": x["verification_pass_count"],
+                "fails": x["verification_fail_count"],
+            } for x in gap],
+            "lagraph": [{
+                "threads": x["threads"],
+                "timing_present": x["average_seconds"] is not None,
+                "self_check_present": x["benchmark_self_check_present"],
+            } for x in lagraph],
+        }
+        raise RuntimeError(f"native competitor correctness gate failed: {json.dumps(diagnostics, sort_keys=True)}")
     print(json.dumps({
         "ok": True,
         "correctness_gate": correctness_gate,
