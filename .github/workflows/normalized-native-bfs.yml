@@ -62,9 +62,19 @@ jobs:
             -Wl,-rpath,"$PWD/external/install/lib64" \
             -llagraph -lgraphblas -lm \
             -o build/native/lagraph_bfs_json_runner
+
+          # Compile the pinned GAP BFS implementation as its own translation
+          # unit. Rename only its CLI main so DOBFS/BFSVerifier remain native
+          # symbols that our thin JSON runner can call directly.
+          c++ -O3 -std=c++17 -fopenmp \
+            -Iexternal/gapbs/src \
+            -Dmain=gapbs_original_main \
+            -c external/gapbs/src/bfs.cc \
+            -o build/native/gap_bfs_kernel.o
           c++ -O3 -std=c++17 -fopenmp \
             -Iexternal/gapbs/src \
             tools/native_competitors/gap_bfs_json_runner.cc \
+            build/native/gap_bfs_kernel.o \
             -o build/native/gap_bfs_json_runner
           test -x build/native/lagraph_bfs_json_runner
           test -x build/native/gap_bfs_json_runner
