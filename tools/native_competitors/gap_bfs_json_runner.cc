@@ -3,11 +3,20 @@
 #include <string>
 #include <vector>
 
-#define main gapbs_original_main
-#include "bfs.cc"
-#undef main
+#include "builder.h"
+#include "command_line.h"
+#include "graph.h"
+#include "pvector.h"
 
-static void die(const std::string &msg) { std::cerr << msg << "\n"; std::exit(2); }
+// Implemented by the pinned GAP Benchmark Suite src/bfs.cc object that the
+// workflow compiles separately.  Keep this declaration in sync with GAP v1.5.
+pvector<NodeID> DOBFS(const Graph &g, NodeID source, bool logging_enabled,
+                      int alpha, int beta);
+
+static void die(const std::string &msg) {
+    std::cerr << msg << "\n";
+    std::exit(2);
+}
 
 int main(int argc, char **argv) {
     std::string dataset;
@@ -22,7 +31,9 @@ int main(int argc, char **argv) {
         else if (a == "--directed") directed = true;
         else die("invalid argument");
     }
-    if (dataset.empty() || source < 0 || vertices <= 0 || source >= vertices) die("invalid runner arguments");
+    if (dataset.empty() || source < 0 || vertices <= 0 || source >= vertices) {
+        die("invalid runner arguments");
+    }
 
     std::vector<std::string> args = {"gap-json-runner"};
     if (!directed) args.push_back("-s");
@@ -30,26 +41,33 @@ int main(int argc, char **argv) {
     args.push_back(dataset);
     args.push_back("-r");
     args.push_back(std::to_string(source));
-    std::vector<char*> cargs;
+    std::vector<char *> cargs;
+    cargs.reserve(args.size());
     for (auto &s : args) cargs.push_back(s.data());
 
-    CLApp cli(static_cast<int>(cargs.size()), cargs.data(), "normalized breadth-first search");
+    CLApp cli(static_cast<int>(cargs.size()), cargs.data(),
+              "normalized breadth-first search");
     if (!cli.ParseArgs()) die("GAP argument parsing failed");
     Builder b(cli);
     Graph g = b.MakeGraph();
     if (g.num_nodes() != vertices) die("GAP graph vertex count mismatch");
 
-    pvector<NodeID> parent = DOBFS(g, source, false);
+    pvector<NodeID> parent = DOBFS(g, static_cast<NodeID>(source), false, 15, 18);
+    if (!BFSVerifier(g, static_cast<NodeID>(source), parent)) {
+        die("GAP BFS verification failed");
+    }
+
     std::vector<int> dist(vertices, -1);
     dist[source] = 0;
     for (int v = 0; v < vertices; ++v) {
         if (v == source || parent[v] < 0) continue;
-        int cur = v;
+        NodeID cur = static_cast<NodeID>(v);
         int depth = 0;
-        std::vector<int> seen;
         while (cur != source) {
-            if (cur < 0 || cur >= vertices || parent[cur] < 0) { depth = -1; break; }
-            seen.push_back(cur);
+            if (cur < 0 || cur >= vertices || parent[cur] < 0) {
+                depth = -1;
+                break;
+            }
             cur = parent[cur];
             ++depth;
             if (depth > vertices) die("cycle detected in GAP BFS parent tree");
