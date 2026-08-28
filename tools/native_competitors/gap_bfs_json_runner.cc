@@ -9,9 +9,11 @@
 #include "pvector.h"
 
 // Implemented by the pinned GAP Benchmark Suite src/bfs.cc object that the
-// workflow compiles separately.  Keep this declaration in sync with GAP v1.5.
+// workflow compiles separately. Keep these declarations in sync with GAP v1.5.
 pvector<NodeID> DOBFS(const Graph &g, NodeID source, bool logging_enabled,
                       int alpha, int beta);
+bool BFSVerifier(const Graph &g, NodeID source,
+                 const pvector<NodeID> &parent);
 
 static void die(const std::string &msg) {
     std::cerr << msg << "\n";
