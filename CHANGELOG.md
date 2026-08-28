@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 - 2026-08-28
+
+- Added reproducible hosted-CI benchmark evidence with explicit non-publication claim gates.
+- Added multi-dataset incremental crossover campaigns with immutable dataset provenance, exact correctness checks, repeated statistics, and machine-readable artifacts.
+- Added publication-grade controlled-hardware campaign contracts covering thread scaling, genuine NUMA placement, hardware counters, ablations, competitor pinning, and readiness validation.
+- Added public-dataset verification and pinned benchmark metadata, including web-Google planning and smaller public graph campaigns.
+- Added configurable update-fraction sweeps for incremental-vs-recompute crossover analysis.
+- Expanded CI validation for benchmark contracts, publication readiness, public datasets, and hosted engineering evidence.
+- Aligned README and limitations documentation with currently implemented and validated capabilities.
+- Preserved a strict distinction between hosted-CI engineering evidence and future controlled-hardware publication claims.
+
 ## 0.3.0 - 2026-08-26
 
 - Added versioned CSR+delta dynamic graph storage with batch updates and compaction.
