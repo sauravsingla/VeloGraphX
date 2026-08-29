@@ -1,0 +1,198 @@
+name: External Baseline Evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, baseline-integration-temp]
+    paths:
+      - '.github/workflows/external-baseline-evidence.yml'
+      - 'benchmarks/risgraph_bfs_baseline.cpp'
+      - 'benchmarks/competitor-research-plan.json'
+      - 'docs/external-baselines.md'
+      - 'CMakeLists.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  risgraph-bfs:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      RISGRAPH_SHA: 4e77f774d4aa7cd0bf3011e713496573b70c91ab
+      TBB_TAG: v2020.3
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-11 g++-11 libaio-dev libboost-fiber-dev python3
+
+      - name: Build VeloGraphX baseline harness
+        run: |
+          cmake -S . -B build-baseline \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-11 \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_PYTHON=OFF
+          cmake --build build-baseline --target velographx_risgraph_bfs_baseline -j2
+
+      - name: Build pinned legacy TBB
+        run: |
+          git clone --quiet https://github.com/oneapi-src/oneTBB.git /tmp/tbb
+          git -C /tmp/tbb checkout --quiet "$TBB_TAG"
+          CC=gcc-11 CXX=g++-11 make -C /tmp/tbb -j2 tbb
+          release_dir=$(find /tmp/tbb/build -maxdepth 1 -type d -name '*_release' | head -n1)
+          test -n "$release_dir"
+          echo "TBB_ROOT=/tmp/tbb" >> "$GITHUB_ENV"
+          echo "TBB_BUILD_DIR=/tmp/tbb/build" >> "$GITHUB_ENV"
+          echo "TBB_BUILD_PREFIX=$(basename "$release_dir" | sed 's/_release$//')" >> "$GITHUB_ENV"
+          echo "$release_dir" > /tmp/tbb-release-dir.txt
+
+      - name: Build pinned RisGraph
+        run: |
+          git clone --quiet https://github.com/thu-pacman/RisGraph.git /tmp/risgraph
+          git -C /tmp/risgraph checkout --quiet "$RISGRAPH_SHA"
+          git -C /tmp/risgraph submodule update --init --recursive
+          cmake -S /tmp/risgraph -B /tmp/risgraph/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-11
+          cmake --build /tmp/risgraph/build --target convert_to_binary bfs_inc_batch -j2
+          test "$(git -C /tmp/risgraph rev-parse HEAD)" = "$RISGRAPH_SHA"
+
+      - name: Generate deterministic matched workload
+        run: |
+          mkdir -p baseline-artifact
+          python3 - <<'PY'
+          import random
+          n = 2000
+          target = 20000
+          edges = []
+          seen = set()
+          for u in range(n - 1):
+              e = (u, u + 1)
+              seen.add(e)
+              edges.append(e)
+          rng = random.Random(20260829)
+          while len(edges) < target:
+              u = rng.randrange(n)
+              v = rng.randrange(n)
+              if u == v or (u, v) in seen:
+                  continue
+              seen.add((u, v))
+              edges.append((u, v))
+          with open('baseline-artifact/workload.txt', 'w') as f:
+              for u, v in edges:
+                  f.write(f'{u} {v}\n')
+          PY
+          /tmp/risgraph/build/convert_to_binary < baseline-artifact/workload.txt > baseline-artifact/workload.bin
+          sha256sum baseline-artifact/workload.bin | tee baseline-artifact/workload.sha256
+
+      - name: Validate identical BFS semantics
+        run: |
+          ./build-baseline/velographx_risgraph_bfs_baseline \
+            baseline-artifact/workload.bin 0 0.8 128 \
+            > baseline-artifact/velographx-validation.json \
+            2> baseline-artifact/velographx-validation.stderr
+          /tmp/risgraph/build/bfs_inc_batch \
+            baseline-artifact/workload.bin 0 0.8 128 \
+            > baseline-artifact/risgraph-validation.stdout \
+            2> baseline-artifact/risgraph-validation.stderr
+          python3 - <<'PY'
+          import json, re
+          vx = json.load(open('baseline-artifact/velographx-validation.json'))
+          assert vx['correct'] is True
+          vxerr = open('baseline-artifact/velographx-validation.stderr').read()
+          initial = re.search(r'^initial_layers=(.*)$', vxerr, re.M).group(1).split()
+          final = re.search(r'^final_layers=(.*)$', vxerr, re.M).group(1).split()
+          rg = [line.split() for line in open('baseline-artifact/risgraph-validation.stdout') if line.strip()]
+          assert len(rg) >= 2, rg
+          assert rg[0] == initial, (rg[0], initial)
+          assert rg[-1] == final, (rg[-1], final)
+          json.dump({
+              'semantic_match': True,
+              'velographx_self_reference_match': True,
+              'initial_layers': initial,
+              'final_layers': final,
+          }, open('baseline-artifact/correctness.json', 'w'), indent=2)
+          PY
+
+      - name: Run five same-runner repetitions
+        run: |
+          : > baseline-artifact/velographx-times.txt
+          : > baseline-artifact/risgraph-times.txt
+          for rep in 1 2 3 4 5; do
+            ./build-baseline/velographx_risgraph_bfs_baseline \
+              baseline-artifact/workload.bin 0 0.8 128 \
+              > baseline-artifact/vx-$rep.json 2> baseline-artifact/vx-$rep.stderr
+            python3 - "$rep" <<'PY'
+          import json, sys
+          rep = sys.argv[1]
+          d = json.load(open(f'baseline-artifact/vx-{rep}.json'))
+          assert d['correct'] is True
+          with open('baseline-artifact/velographx-times.txt', 'a') as f:
+              f.write(str(d['wall_us']) + '\n')
+          PY
+            /tmp/risgraph/build/bfs_inc_batch \
+              baseline-artifact/workload.bin 0 0.8 128 \
+              > baseline-artifact/rg-$rep.stdout 2> baseline-artifact/rg-$rep.stderr
+            python3 - "$rep" <<'PY'
+          import re, sys
+          rep = sys.argv[1]
+          s = open(f'baseline-artifact/rg-{rep}.stderr').read()
+          m = re.search(r'wall_times = ([0-9.eE+-]+) us', s)
+          assert m, s
+          with open('baseline-artifact/risgraph-times.txt', 'a') as f:
+              f.write(m.group(1) + '\n')
+          PY
+          done
+
+      - name: Summarize evidence
+        run: |
+          python3 - <<'PY'
+          import json, statistics, subprocess
+          vx = [float(x) for x in open('baseline-artifact/velographx-times.txt')]
+          rg = [float(x) for x in open('baseline-artifact/risgraph-times.txt')]
+          assert len(vx) == 5 and len(rg) == 5
+          med_vx = statistics.median(vx)
+          med_rg = statistics.median(rg)
+          summary = {
+              'artifact_type': 'velographx-external-baseline-evidence',
+              'research_claim': False,
+              'baseline': 'RisGraph',
+              'baseline_commit': '4e77f774d4aa7cd0bf3011e713496573b70c91ab',
+              'baseline_license': 'Apache-2.0',
+              'workload': {
+                  'vertices': 2000,
+                  'edges': 20000,
+                  'root': 0,
+                  'imported_rate': 0.8,
+                  'batch_size': 128,
+                  'update_semantics': 'RisGraph sliding-window batch: add next batch, maintain BFS, delete oldest batch, maintain BFS',
+                  'threads': 1,
+              },
+              'correctness': json.load(open('baseline-artifact/correctness.json')),
+              'velographx_wall_us': vx,
+              'risgraph_wall_us': rg,
+              'velographx_median_wall_us': med_vx,
+              'risgraph_median_wall_us': med_rg,
+              'median_ratio_risgraph_over_velographx': med_rg / med_vx,
+              'note': 'Hosted-CI same-runner engineering evidence only; no universal superiority claim.'
+          }
+          json.dump(summary, open('baseline-artifact/summary.json', 'w'), indent=2)
+          print(json.dumps(summary, indent=2))
+          PY
+          uname -a > baseline-artifact/uname.txt
+          lscpu > baseline-artifact/lscpu.txt
+          g++-11 --version > baseline-artifact/compiler.txt
+          git -C /tmp/risgraph rev-parse HEAD > baseline-artifact/risgraph-commit.txt
+          git -C /tmp/tbb rev-parse HEAD > baseline-artifact/tbb-commit.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-external-baseline-risgraph
+          path: baseline-artifact/
+          retention-days: 90
