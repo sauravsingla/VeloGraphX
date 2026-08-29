@@ -11,6 +11,10 @@
 #include <thread>
 #include <vector>
 
+#ifdef __linux__
+#include <sched.h>
+#endif
+
 #include "velographx/algorithms.hpp"
 #include "velographx/io.hpp"
 
@@ -22,6 +26,18 @@ std::uint64_t digest(const std::vector<std::uint32_t>& distances) {
     h *= 1099511628211ULL;
   }
   return h;
+}
+
+unsigned available_cpu_count() {
+#ifdef __linux__
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  if (sched_getaffinity(0, sizeof(set), &set) == 0) {
+    const auto count = CPU_COUNT(&set);
+    if (count > 0) return static_cast<unsigned>(count);
+  }
+#endif
+  return std::max(1u, std::thread::hardware_concurrency());
 }
 
 std::vector<unsigned> parse_threads(const std::string& text) {
@@ -40,7 +56,7 @@ std::vector<unsigned> parse_threads(const std::string& text) {
 }
 
 std::vector<unsigned> default_threads() {
-  const auto available = std::max(1u, std::thread::hardware_concurrency());
+  const auto available = available_cpu_count();
   std::vector<unsigned> out;
   for (unsigned threads = 1; threads <= available && threads <= 64; threads *= 2) {
     out.push_back(threads);
@@ -102,7 +118,7 @@ int main(int argc, char** argv) {
     const std::filesystem::path path = argv[1];
     const std::size_t queries = argc >= 3 ? static_cast<std::size_t>(std::stoull(argv[2])) : 32;
     auto requested_threads = argc == 4 ? parse_threads(argv[3]) : default_threads();
-    const auto available = std::max(1u, std::thread::hardware_concurrency());
+    const auto available = available_cpu_count();
     requested_threads.erase(
         std::remove_if(requested_threads.begin(), requested_threads.end(),
                        [available](unsigned threads) { return threads > available; }),
