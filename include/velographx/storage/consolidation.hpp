@@ -50,10 +50,11 @@ inline ConsolidationSignal evaluate_consolidation(
 // Stateful steady-state controller layered on top of the raw threshold signal.
 // Storage growth remains an immediate safety trigger. Latency is noisier on
 // shared hardware, so it must breach the limit for several consecutive samples
-// and is suppressed for a short cooldown after a successful CSR cutover.
+// and is suppressed for a cooldown after a successful CSR cutover. The defaults
+// are intentionally conservative to avoid maintenance thrashing on noisy hosts.
 struct ConsolidationControllerConfig {
-  std::size_t min_epochs_between_consolidations{5};
-  std::size_t latency_breach_samples{3};
+  std::size_t min_epochs_between_consolidations{10};
+  std::size_t latency_breach_samples{5};
 };
 
 class ConsolidationController {
