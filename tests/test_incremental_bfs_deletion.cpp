@@ -39,10 +39,12 @@ static void assert_matches_full(DynamicGraph& graph, IncrementalBFS& bfs,
 int main() {
   // Removing one parent conservatively invalidates the downstream old-DAG
   // region, then reconstructs the same distances from the alternate parent.
+  // Use a permissive budget here so this micro-test exercises repair rather
+  // than the separate full-recompute fallback path.
   {
     DynamicGraph g(5, true);
     g.bulk_load_edges({{0,1},{0,2},{1,3},{2,3},{3,4}});
-    IncrementalBFS bfs(g, 0);
+    IncrementalBFS bfs(g, 0, 0.75);
     UpdateBatch b;
     b.remove(1,3);
     bfs.apply(b);
