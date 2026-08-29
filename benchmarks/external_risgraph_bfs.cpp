@@ -113,6 +113,9 @@ int main(int argc, char** argv) {
 
   std::size_t batches = 0;
   std::size_t operations = 0;
+  std::size_t deletion_candidates = 0;
+  std::size_t affected_vertices = 0;
+  std::size_t full_recompute_batches = 0;
   const auto begin = std::chrono::steady_clock::now();
   for (std::size_t local_begin = imported_edges; local_begin < edges.size();
        local_begin += batch_size) {
@@ -128,6 +131,9 @@ int main(int argc, char** argv) {
     }
     operations += updates.updates.size();
     bfs.apply(updates);
+    deletion_candidates += bfs.last_deletion_candidates();
+    affected_vertices += bfs.last_affected_vertices();
+    full_recompute_batches += bfs.last_used_full_recompute() ? 1 : 0;
     ++batches;
   }
   const auto end = std::chrono::steady_clock::now();
@@ -153,6 +159,9 @@ int main(int argc, char** argv) {
             << "\"batch_size\":" << batch_size << ','
             << "\"batches\":" << batches << ','
             << "\"update_operations\":" << operations << ','
+            << "\"deletion_candidates\":" << deletion_candidates << ','
+            << "\"affected_vertices\":" << affected_vertices << ','
+            << "\"full_recompute_batches\":" << full_recompute_batches << ','
             << "\"wall_us\":" << wall_us << ','
             << "\"wall_mean_us\":" << (batches ? wall_us / batches : 0.0) << ','
             << "\"visited_vertices\":" << visited << ','
