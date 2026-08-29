@@ -7,36 +7,43 @@ int main() {
 
   ConsolidationController controller;
   ConsolidationSignal quiet{1.05, 1.10, false, false, false};
-  ConsolidationSignal latency{1.08, 1.30, false, true, true};
+  ConsolidationSignal latency_noise{1.08, 1.30, false, true, true};
+  ConsolidationSignal latency_with_growth{1.12, 1.30, false, true, true};
   ConsolidationSignal storage{1.26, 1.05, true, false, true};
 
-  // Five consecutive latency breaches are required before the first cutover.
-  assert(!controller.observe(latency, 1));
-  assert(!controller.observe(latency, 2));
-  assert(!controller.observe(latency, 3));
-  assert(!controller.observe(latency, 4));
-  assert(controller.observe(latency, 5));
-  controller.mark_consolidated(5);
+  // Latency alone is insufficient when compact-patch growth is still small.
+  for (std::size_t epoch = 1; epoch <= 8; ++epoch) {
+    assert(!controller.observe(latency_noise, epoch));
+  }
   assert(controller.latency_breach_streak() == 0);
 
-  // Ten-epoch cooldown prevents noisy post-cutover samples from retriggering.
-  for (std::size_t epoch = 6; epoch < 15; ++epoch) {
-    assert(!controller.observe(latency, epoch));
+  // Five consecutive latency breaches with meaningful patch growth trigger.
+  assert(!controller.observe(latency_with_growth, 9));
+  assert(!controller.observe(latency_with_growth, 10));
+  assert(!controller.observe(latency_with_growth, 11));
+  assert(!controller.observe(latency_with_growth, 12));
+  assert(controller.observe(latency_with_growth, 13));
+  controller.mark_consolidated(13);
+  assert(controller.latency_breach_streak() == 0);
+
+  // The 1.25x storage safety limit bypasses latency cooldown immediately.
+  assert(controller.observe(storage, 14));
+  controller.mark_consolidated(14);
+
+  // Latency-driven work still observes the ten-epoch cooldown.
+  for (std::size_t epoch = 15; epoch < 24; ++epoch) {
+    assert(!controller.observe(latency_with_growth, epoch));
   }
 
-  // Once cooldown completes, storage remains an immediate safety trigger.
-  controller.observe(quiet, 15);
-  assert(controller.observe(storage, 15));
-  controller.mark_consolidated(15);
-
-  // Intermittent latency noise resets the persistence requirement.
-  assert(!controller.observe(latency, 25));
+  // Intermittent latency or low patch growth resets persistence.
+  assert(!controller.observe(latency_with_growth, 24));
+  assert(!controller.observe(latency_with_growth, 25));
   assert(!controller.observe(quiet, 26));
-  assert(!controller.observe(latency, 27));
-  assert(!controller.observe(latency, 28));
-  assert(!controller.observe(latency, 29));
-  assert(!controller.observe(latency, 30));
-  assert(controller.observe(latency, 31));
+  assert(!controller.observe(latency_with_growth, 27));
+  assert(!controller.observe(latency_with_growth, 28));
+  assert(!controller.observe(latency_with_growth, 29));
+  assert(!controller.observe(latency_with_growth, 30));
+  assert(controller.observe(latency_with_growth, 31));
 
   return 0;
 }
