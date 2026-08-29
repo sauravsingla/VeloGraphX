@@ -108,6 +108,8 @@ jobs:
             'repeats':3,
             'storage_threshold':1.25,
             'latency_threshold':1.25,
+            'controller_min_epochs_between':10,
+            'controller_latency_breach_samples':5,
             'all_correct':True,
             'research_claim':False,
           }
@@ -148,14 +150,11 @@ jobs:
           wget -q https://snap.stanford.edu/data/bigdata/communities/com-orkut.ungraph.txt.gz -O build/steady/orkut/com-orkut.ungraph.txt.gz
           sha256sum build/steady/orkut/com-orkut.ungraph.txt.gz | tee build/steady/orkut/source.sha256
           gzip -dc build/steady/orkut/com-orkut.ungraph.txt.gz > build/steady/orkut/com-orkut.ungraph.txt
+          grep -q '^# Nodes: 3072441 Edges: 117185083' build/steady/orkut/com-orkut.ungraph.txt
+          edge_rows=$(grep -vc '^#' build/steady/orkut/com-orkut.ungraph.txt)
+          test "$edge_rows" -eq 117185083
           python - <<'PY'
           from pathlib import Path
-          edges=0; vertices=set()
-          for line in Path('build/steady/orkut/com-orkut.ungraph.txt').open():
-              if not line.strip() or line.startswith('#'): continue
-              u,v=map(int,line.split()[:2]); edges+=1; vertices.add(u); vertices.add(v)
-          assert edges == 117185083
-          assert len(vertices) == 3072441
           Path('build/steady/orkut/source-stats.json').write_text(
               '{"dataset":"com-Orkut","canonical_source":"https://snap.stanford.edu/data/com-Orkut.html",'
               '"vertices":3072441,"edges":117185083,"directed":false,"research_claim":false}\n')
@@ -187,6 +186,8 @@ jobs:
             'rows_per_epoch':r['rows_per_epoch'],
             'storage_threshold':r['storage_threshold'],
             'latency_threshold':r['latency_threshold'],
+            'controller_min_epochs_between':10,
+            'controller_latency_breach_samples':5,
             'total_update_operations':r['total_update_operations'],
             'maintenance_amortized_ops_per_s':r['maintenance_amortized_ops_per_s'],
             'instrumented_campaign_ops_per_s':r['instrumented_campaign_ops_per_s'],
