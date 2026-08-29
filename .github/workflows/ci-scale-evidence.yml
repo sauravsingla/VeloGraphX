@@ -4,8 +4,20 @@ on:
   push:
     paths:
       - '.github/workflows/ci-scale-evidence.yml'
+      - 'CMakeLists.txt'
+      - 'include/**'
+      - 'src/**'
+      - 'benchmarks/**'
+      - 'datasets/**'
       - 'tools/ablation_suite.py'
       - 'tools/competitor_benchmark.py'
+      - 'tools/experiment_campaign.py'
+      - 'tools/hardware_campaign_driver.py'
+      - 'tools/prepare_dataset.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'tools/validate_benchmark_preflight.py'
+      - 'tools/build_result_artifact.py'
+      - 'tools/validate_result_bundle.py'
   workflow_dispatch:
 
 jobs:
