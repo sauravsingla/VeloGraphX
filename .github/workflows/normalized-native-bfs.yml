@@ -57,15 +57,22 @@ jobs:
       - name: Build LAGraph native BFS runner
         run: |
           set -euxo pipefail
-          cc -O3 -std=c11 -fopenmp \
-            -Iexternal/install/include \
-            -Iexternal/LAGraph/include \
-            tools/native_competitors/lagraph_bfs_json_runner.c \
-            -Lexternal/install/lib -Lexternal/install/lib64 \
-            -Wl,-rpath,"$PWD/external/install/lib" \
-            -Wl,-rpath,"$PWD/external/install/lib64" \
-            -llagraph -lgraphblas -lm \
-            -o build/native/lagraph_bfs_json_runner
+          cat > build/native/CMakeLists.txt <<'CMAKE'
+          cmake_minimum_required(VERSION 3.23)
+          project(velographx_lagraph_runner C)
+          find_package(LAGraph CONFIG REQUIRED)
+          add_executable(lagraph_bfs_json_runner
+            ${CMAKE_CURRENT_LIST_DIR}/../../tools/native_competitors/lagraph_bfs_json_runner.c)
+          target_compile_features(lagraph_bfs_json_runner PRIVATE c_std_11)
+          target_compile_options(lagraph_bfs_json_runner PRIVATE -O3)
+          target_link_libraries(lagraph_bfs_json_runner PRIVATE SuiteSparse::LAGraph)
+          set_target_properties(lagraph_bfs_json_runner PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
+          CMAKE
+          cmake -S build/native -B build/native/lagraph-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/external/install"
+          cmake --build build/native/lagraph-build --parallel 2
           test -x build/native/lagraph_bfs_json_runner
 
       - name: Build GAP native BFS runner
