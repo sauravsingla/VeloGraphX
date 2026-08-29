@@ -56,6 +56,8 @@ The 10M case uses three repetitions; the 100M case is one hosted execution and i
 
 The compaction result is a substantial improvement over the previous 65K dirty-segment implementation, whose historical-normalized compaction ratios were 9.629x at 10M and 11.989x at 100M. The current design retains the large contiguous CSR but materializes only touched rows into sparse compact patches, with forward and reverse rows maintained independently. Automatic row compaction is deferred while global delta density is below 1%, preserving the sparse-update path.
 
+Long-running real-graph evidence now covers checksum-pinned `ca-GrQc` and directed **web-Google (875,713 vertices / 5,105,039 edges)**. After 50 web-Google cycles, owned storage reached **1.332x** the pristine CSR baseline and sampled neighbor latency reached **1.719x**; validated CSR consolidation reduced storage to **0.751x of the accumulated footprint** and latency to **0.604x of its pre-consolidation value**. All 24 final consolidation repetitions across both real graphs passed full logical-digest, sampled-neighborhood and edge-count gates. [Full accumulation evidence](docs/row-patch-accumulation-evidence.md).
+
 For directed graphs, explicit reverse adjacency adds roughly the same compact CSR storage as the forward direction: about **42 MiB at 10M edges** and **420 MiB at 100M edges** in this degree-20 workload. Bulk loading remains slower than the historical layout because the current path sorts/deduplicates arcs and constructs the transpose.
 
 [Full storage A/B methodology, design history and evidence](docs/storage-ab-evidence.md).
@@ -71,7 +73,7 @@ The adaptive recomputation ablation places the incremental/full crossover around
 | Capability | Implementation |
 | --- | --- |
 | Incremental analytics | BFS / unweighted SSSP, weighted SSSP, exact triangle counting, connected components, k-core, localized iterative PageRank repair |
-| Dynamic storage | Segmented CSR base, shared packed sorted deltas, sparse row-level compact patches, insertion/deletion overlays, versioning and adaptive compaction |
+| Dynamic storage | Segmented CSR base, shared packed sorted deltas, sparse row-level compact patches, insertion/deletion overlays, adaptive row compaction and validated CSR snapshot consolidation |
 | Reverse traversal | Explicit transposed CSR plus synchronized reverse deltas/patches with `in_neighbors()` |
 | PageRank validation | Localized repair with convergence controls, L1/L∞ comparison against a full converged reference, and correctness fallback mode |
 | Adaptive execution | Affected-work estimation with incremental-vs-full fallback |
@@ -96,13 +98,13 @@ Performance evidence is reported only with an explicit validation contract. Exac
 
 CI covers Ubuntu and macOS builds, Linux ASan/UBSan, randomized dynamic mutations, storage forward/reverse consistency, destructive-update fallbacks, optimized-vs-scalar kernels, scheduler/NUMA behavior, compression, native I/O, Python interoperability, dataset checksums and publication-artifact contracts.
 
-**Evidence:** [storage A/B](docs/storage-ab-evidence.md) · [same-run published reference](docs/same-run-published-baseline.md) · [hosted scale/CPU evidence](docs/ci-scale-evidence.md) · [published baseline eligibility](docs/published-baseline-eligibility.md) · [benchmark methodology](docs/benchmark-methodology.md) · [limitations](docs/limitations.md)
+**Evidence:** [storage A/B](docs/storage-ab-evidence.md) · [row-patch accumulation](docs/row-patch-accumulation-evidence.md) · [same-run published reference](docs/same-run-published-baseline.md) · [hosted scale/CPU evidence](docs/ci-scale-evidence.md) · [published baseline eligibility](docs/published-baseline-eligibility.md) · [benchmark methodology](docs/benchmark-methodology.md) · [limitations](docs/limitations.md)
 
 ## Research boundary
 
-Current results establish reproducible hosted-CI execution, exact large-graph validation, a controlled same-run published reference comparison, and measured 10M/100M storage behavior. They do **not** establish universal superiority or full production maturity.
+Current results establish reproducible hosted-CI execution, exact large-graph validation, a controlled same-run published reference comparison, measured 10M/100M storage behavior, and real irregular-graph row-patch accumulation/consolidation evidence. They do **not** establish universal superiority or full production maturity.
 
-Publication-grade conclusions still require controlled dedicated hardware, repeated 100M+ edge runs, 8/16/32+ physical-core scaling, genuine multi-socket NUMA experiments, hardware counters, irregular real-graph storage campaigns, row-patch accumulation/consolidation studies, broader same-semantics system comparisons, and independent reproduction.
+Publication-grade conclusions still require controlled dedicated hardware, repeated 100M+ edge runs, 8/16/32+ physical-core scaling, genuine multi-socket NUMA experiments, hardware counters, broader irregular graph families and update-locality distributions, steady-state repeated consolidation, broader same-semantics system comparisons, and independent reproduction.
 
 ## Quick start
 
@@ -141,7 +143,7 @@ print(bfs.distances)
 
 Contributions are welcome across dynamic graph algorithms, storage, correctness, CPU performance, SIMD/NUMA portability, benchmarking, datasets and interoperability. Performance-sensitive changes should include reproducible measurements and preserve the relevant correctness contract.
 
-High-value areas include **row-patch consolidation under sustained updates, repeated controlled 100M+ storage campaigns, PageRank accuracy/runtime curves, 8/16/32+ physical-core scaling, and multi-socket NUMA evaluation**.
+High-value areas include **steady-state repeated CSR consolidation, broader real-graph/update-locality campaigns, repeated controlled 100M+ storage runs, PageRank accuracy/runtime curves, 8/16/32+ physical-core scaling, and multi-socket NUMA evaluation**.
 
 ## License
 
