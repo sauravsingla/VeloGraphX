@@ -9,6 +9,9 @@ namespace velographx {
 class IncrementalTriangleCount {
  public:
   explicit IncrementalTriangleCount(DynamicGraph& graph) : graph_(graph) { recompute(); }
+  IncrementalTriangleCount(DynamicGraph& graph, std::uint64_t trusted_initial_count)
+      : graph_(graph), triangles_(trusted_initial_count) {}
+
   [[nodiscard]] std::uint64_t value() const noexcept { return triangles_; }
 
   void apply(const UpdateBatch& batch) {
@@ -31,11 +34,14 @@ class IncrementalTriangleCount {
   }
 
   void recompute() {
+    // A compact representation permits zero-copy neighbor spans and avoids
+    // repeatedly allocating/sorting adjacency vectors during a full count.
+    graph_.compact();
     std::uint64_t triple = 0;
     for (VertexId u = 0; u < graph_.vertex_count(); ++u) {
-      auto nu = graph_.neighbors(u);
+      const auto nu = graph_.compact_neighbors(u);
       for (auto v : nu) if (u < v) {
-        auto nv = graph_.neighbors(v);
+        const auto nv = graph_.compact_neighbors(v);
         triple += kernels::adaptive_intersection(nu, nv);
       }
     }
