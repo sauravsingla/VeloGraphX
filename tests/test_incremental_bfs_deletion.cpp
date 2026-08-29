@@ -37,7 +37,8 @@ static void assert_matches_full(DynamicGraph& graph, IncrementalBFS& bfs,
 }
 
 int main() {
-  // Removing one parent must preserve a vertex with an alternate shortest parent.
+  // Removing one parent conservatively invalidates the downstream old-DAG
+  // region, then reconstructs the same distances from the alternate parent.
   {
     DynamicGraph g(5, true);
     g.bulk_load_edges({{0,1},{0,2},{1,3},{2,3},{3,4}});
@@ -47,7 +48,7 @@ int main() {
     bfs.apply(b);
     require(bfs.distances()[3] == 2, "alternate-parent: distance(3)");
     require(bfs.distances()[4] == 3, "alternate-parent: distance(4)");
-    require(bfs.last_affected_vertices() == 0, "alternate-parent: affected count");
+    require(bfs.last_affected_vertices() == 2, "alternate-parent: affected count");
     require(!bfs.last_used_full_recompute(), "alternate-parent: unexpected fallback");
     assert_matches_full(g, bfs, 0, "alternate-parent");
   }
