@@ -1,5 +1,6 @@
 #include <cassert>
 #include <cstdint>
+#include <iterator>
 #include <random>
 #include <set>
 #include <utility>
@@ -105,7 +106,8 @@ int main() {
       auto u = vertex(rng), v = vertex(rng);
       if (u != v) live.emplace(u,v);
     }
-    g.bulk_load_edges({live.begin(), live.end()});
+    std::vector<std::pair<VertexId,VertexId>> initial(live.begin(), live.end());
+    g.bulk_load_edges(initial);
     IncrementalBFS bfs(g, 0, 0.75);
 
     for (int epoch=0; epoch<250; ++epoch) {
