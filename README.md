@@ -6,7 +6,7 @@
 
 **VeloGraphX is a CPU-native C++20 research engine for incremental analytics on continuously changing graphs.** Instead of rerunning an entire graph algorithm after every change, it identifies and repairs affected work when the algorithm and update pattern permit, and can fall back to full recomputation when localized maintenance is no longer advantageous or appropriate.
 
-The project combines **dynamic graph storage, incremental BFS/SSSP, exact dynamic triangle counting, connected components, k-core, localized PageRank repair, graph compression, SIMD kernels, multicore execution, NUMA-aware policies, adaptive recomputation, and reproducible benchmarking**.
+The project combines **segmented CSR dynamic graph storage, packed update deltas, explicit reverse adjacency, incremental BFS/SSSP, exact dynamic triangle counting, connected components, k-core, localized PageRank repair, graph compression, SIMD kernels, multicore execution, NUMA-aware policies, adaptive recomputation, and reproducible benchmarking**.
 
 For algorithms with exact incremental maintenance in the exercised workloads, results are validated against full recomputation. Iterative algorithms such as PageRank use localized, tolerance- and iteration-controlled repair and should be interpreted separately from exact-maintenance results.
 
@@ -67,7 +67,8 @@ The repository therefore **does not manufacture cross-paper speedups from incomp
 | Capability | What is implemented |
 | --- | --- |
 | **Incremental analytics** | BFS / unweighted SSSP, weighted SSSP, exact triangle counting, connected components, k-core and localized iterative PageRank repair |
-| **Dynamic graph storage** | Batched insert/delete deltas, versioning, compaction, weighted updates, temporal history and snapshots |
+| **Dynamic graph storage** | Fixed-size segmented CSR base, shared packed sorted delta arenas, batched insert/delete overlays, reverse adjacency, versioning and adaptive compaction |
+| **Reverse traversal** | Explicit transposed CSR plus synchronized reverse deltas with `in_neighbors()` and zero-copy compact predecessor spans |
 | **Adaptive execution** | Affected-work estimation with explainable incremental-vs-full fallback |
 | **CPU acceleration** | Adaptive intersection plus AVX2, AVX-512, ARM NEON and scalar fallback |
 | **Multicore + NUMA** | Push/pull frontiers, work stealing, adaptive scheduling, topology discovery, affinity and locality-aware placement |
@@ -76,21 +77,25 @@ The repository therefore **does not manufacture cross-paper speedups from incomp
 | **Out-of-core infrastructure** | Partition files, mmap/fallback reads, bounded cache, async loading and optional Linux `io_uring` prefetch |
 | **Reproducible research** | Checksum-verified datasets, immutable competitor pins, environment capture, correctness gates and provenance-rich artifacts |
 
+[Dynamic storage architecture and invariants](docs/dynamic-storage.md).
+
 ## Research contribution
 
 VeloGraphX is not positioned as novel because it implements individual graph algorithms such as BFS, PageRank or triangle counting. Those algorithms are well established. The research question is the **architecture-aware integration of incremental maintenance with adaptive recomputation on modern CPUs**.
 
-The project studies when a changing graph should be repaired locally and when the affected region has grown enough that a full recomputation is preferable. It combines that decision with graph topology, update density, dynamic storage, compression, SIMD-friendly kernels, multicore scheduling and NUMA-aware execution.
+The project studies when a changing graph should be repaired locally and when the affected region has grown enough that a full recomputation is preferable. It combines that decision with graph topology, update density, segmented dynamic storage, packed mutable overlays, reverse dependency traversal, compression, SIMD-friendly kernels, multicore scheduling and NUMA-aware execution.
 
 A central experimental objective is therefore the **incremental-to-full crossover**: how the cost of localized maintenance changes as the update fraction and affected region grow, and whether an execution policy can select the lower-cost strategy without compromising the required result semantics.
 
 ## Implementation boundary
 
-VeloGraphX currently contains both scale-oriented systems components and simpler reference-oriented graph abstractions. The core dynamic adjacency representation uses a compact base plus insertion/deletion deltas and periodic compaction; several specialized paths add compression, partitioning, SIMD, NUMA and out-of-core behavior around that foundation.
+The core dynamic adjacency no longer uses one `std::vector` per base vertex or one `std::unordered_set` per delta direction. Compact adjacency is stored as fixed-size vertex segments with CSR offsets and contiguous sorted edges. Mutable divergence from that base is stored in shared packed arenas using sorted per-vertex slices, with geometric relocation and fragmentation repacking. Returning an edge to its base state removes its overlay entry instead of retaining redundant update history.
 
-The current implementation should therefore be read as a **research engine under active systems development**, not as a claim that every code path is already a production-optimized billion-edge representation. In particular, some localized algorithms may still perform globally expensive dependency discovery in their reference implementation. Improving reverse/in-neighbor access, compact dynamic adjacency, allocator behavior and cache-efficient update structures remains part of the scale roadmap.
+Directed reverse adjacency is maintained explicitly using a transposed segmented CSR plus synchronized packed reverse deltas. This removes the previous global predecessor-discovery scan from localized PageRank: an active destination now reads its actual `in_neighbors()` directly.
 
-For PageRank specifically, the localized repair implementation is iterative: it propagates material residual changes through an affected region, uses a configurable tolerance and local iteration budget, and can fall back to full recomputation when the repair region becomes large. PageRank results should therefore be described in terms of controlled iterative convergence/validation rather than the exact-maintenance language used for exact dynamic triangle counting.
+This is a meaningful scale-oriented storage upgrade, but VeloGraphX remains a **research engine under active systems development**. Publication-grade claims about billion-edge memory efficiency, update throughput or NUMA behavior still require controlled measurements. The new representation should therefore be evaluated with resident-memory measurements, update-heavy campaigns, compaction cost, 8/16/32+ core scaling, and multi-socket NUMA experiments rather than assumed to be optimal from structure alone.
+
+For PageRank specifically, localized repair remains iterative: it propagates material residual changes through an affected region, uses a configurable tolerance and local iteration budget, and can fall back to full recomputation when the repair region becomes large. PageRank results should therefore be described in terms of controlled iterative convergence/validation rather than the exact-maintenance language used for exact dynamic triangle counting.
 
 ## CPU engineering evidence
 
@@ -147,11 +152,13 @@ For **exact-maintenance experiments**, incremental output is compared with a tru
 
 For **iterative/localized algorithms** such as PageRank, exact equality is not implied merely by the word “incremental.” Validation must instead specify convergence tolerance, iteration limits and comparison methodology. This distinction is intentional so that exact-maintenance evidence is not generalized to algorithms with iterative semantics.
 
+The dynamic-storage tests additionally gate forward/reverse adjacency agreement, sorted unique bulk-load rows, packed insertion/deletion overlays, cancellation back to base state, compaction equivalence, edge counts and vertex growth across CSR segments.
+
 Hosted CI also builds pinned SuiteSparse:GraphBLAS `v10.3.2`, LAGraph `v1.2.2`, and GAP Benchmark Suite `v1.5`. A normalized BFS gate requires identical input metadata and identical full-distance output across builtin, LAGraph and GAP implementations.
 
 Benchmark infrastructure includes checksum-verified public datasets, deterministic update generation, environment capture, immutable competitor revisions, repeated measurements and validated result artifacts.
 
-**Evidence:** [same-run published reference](docs/same-run-published-baseline.md) · [published baseline eligibility](docs/published-baseline-eligibility.md) · [public multi-dataset results](docs/multi-dataset-crossover.md) · [hosted CPU evidence](docs/ci-scale-evidence.md) · [benchmark methodology](docs/benchmark-methodology.md) · [native competitors](docs/hosted-native-competitors.md) · [limitations](docs/limitations.md)
+**Evidence:** [same-run published reference](docs/same-run-published-baseline.md) · [published baseline eligibility](docs/published-baseline-eligibility.md) · [public multi-dataset results](docs/multi-dataset-crossover.md) · [hosted CPU evidence](docs/ci-scale-evidence.md) · [dynamic storage](docs/dynamic-storage.md) · [benchmark methodology](docs/benchmark-methodology.md) · [native competitors](docs/hosted-native-competitors.md) · [limitations](docs/limitations.md)
 
 ## Research boundary
 
@@ -171,7 +178,7 @@ VeloGraphX targets graphs that change continuously and where repeated full recom
 
 Contributions are welcome across dynamic graph algorithms, correctness, CPU performance, SIMD/NUMA portability, benchmarking, datasets, interoperability and reproducibility. Performance-sensitive changes should include reproducible measurements and retain correctness comparison against a trusted reference where exact semantics are expected.
 
-High-value areas include compact dynamic adjacency, efficient reverse/in-neighbor indexing, cache-conscious update structures, allocator/memory-footprint optimization, multi-socket NUMA experiments, and independent benchmark reproduction.
+High-value areas now include packed-delta microbenchmarks, memory-footprint characterization, compaction scheduling, reverse-adjacency performance, NUMA placement of CSR segments, 1B-edge-class experiments, multi-socket scaling, and independent benchmark reproduction.
 
 ## License
 
@@ -179,4 +186,4 @@ Apache-2.0. See [`LICENSE`](LICENSE).
 
 ---
 
-**Keywords:** dynamic graph algorithms · incremental graph analytics · dynamic graph processing · temporal graphs · streaming graphs · CPU graph analytics · C++20 graph library · graph systems · SIMD · AVX2 · AVX-512 · NUMA · graph compression · BFS · SSSP · PageRank · exact triangle counting · k-core · Python graph analytics · GraphBLAS · LAGraph · reproducible benchmarking
+**Keywords:** dynamic graph algorithms · incremental graph analytics · segmented CSR · packed graph deltas · reverse adjacency · dynamic graph processing · temporal graphs · streaming graphs · CPU graph analytics · C++20 graph library · graph systems · SIMD · AVX2 · AVX-512 · NUMA · graph compression · BFS · SSSP · PageRank · exact triangle counting · k-core · Python graph analytics · GraphBLAS · LAGraph · reproducible benchmarking
