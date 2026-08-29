@@ -25,6 +25,21 @@ def require_env(name: str) -> str:
     return value
 
 
+def parse_native_payload(stdout: str) -> dict:
+    """Extract the runner JSON while tolerating GAPBS timing output."""
+    for raw_line in reversed(stdout.splitlines()):
+        line = raw_line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and "distances" in payload:
+            return payload
+    raise RuntimeError("GAP BFS runner did not emit a valid JSON distances payload")
+
+
 def main() -> int:
     if os.environ.get("VELOGRAPHX_ALGORITHM") != "bfs":
         raise RuntimeError("GAP wrapper currently supports only bfs")
@@ -47,12 +62,7 @@ def main() -> int:
     if proc.returncode != 0:
         detail = proc.stderr.strip() or proc.stdout.strip() or f"exit code {proc.returncode}"
         raise RuntimeError(f"GAP BFS runner failed: {detail}")
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("GAP BFS runner must emit one JSON object") from exc
-    if not isinstance(payload, dict) or "distances" not in payload:
-        raise RuntimeError("GAP BFS runner JSON must contain distances")
+    payload = parse_native_payload(proc.stdout)
     if len(payload["distances"]) != vertices:
         raise RuntimeError("GAP BFS runner returned the wrong number of distances")
     payload.setdefault("framework_version", "GAP-local")
