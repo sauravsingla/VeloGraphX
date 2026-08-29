@@ -86,8 +86,8 @@ UpdateBatch make_mutation_round(const DynamicGraph& g, std::size_t round,
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 2 || argc > 5) {
-    std::cerr << "usage: velographx_row_patch_accumulation <edge-list> [cycles=20] [rows-per-cycle=64] [probes=1024]\n";
+  if (argc < 2 || argc > 6) {
+    std::cerr << "usage: velographx_row_patch_accumulation <edge-list> [cycles=20] [rows-per-cycle=64] [probes=1024] [directed=0]\n";
     return 2;
   }
   try {
@@ -95,11 +95,12 @@ int main(int argc, char** argv) {
     const std::size_t cycles = argc >= 3 ? std::stoull(argv[2]) : 20;
     const std::size_t rows_per_cycle = argc >= 4 ? std::stoull(argv[3]) : 64;
     const std::size_t probes = argc >= 5 ? std::stoull(argv[4]) : 1024;
+    const bool directed = argc >= 6 ? std::stoi(argv[5]) != 0 : false;
 
     auto edges = read_edges(path);
     VertexId max_v = 0;
     for (const auto& [u, v] : edges) max_v = std::max(max_v, std::max(u, v));
-    DynamicGraph graph(static_cast<std::size_t>(max_v) + 1, false);
+    DynamicGraph graph(static_cast<std::size_t>(max_v) + 1, directed);
     graph.bulk_load_edges(edges);
     const auto initial_storage = graph.storage_bytes();
     const auto initial_edges = graph.edge_count_directed();
@@ -145,8 +146,9 @@ int main(int argc, char** argv) {
           static_cast<double>(accumulated_storage);
 
     std::cout << "{"
-              << "\"artifact_type\":\"velographx-row-patch-accumulation\"," 
+              << "\"artifact_type\":\"velographx-row-patch-accumulation\","
               << "\"research_claim\":false,"
+              << "\"directed\":" << (directed ? "true" : "false") << ','
               << "\"vertices\":" << graph.vertex_count() << ','
               << "\"initial_directed_edges\":" << initial_edges << ','
               << "\"final_directed_edges\":" << before_edges << ','
