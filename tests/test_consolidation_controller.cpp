@@ -5,6 +5,16 @@
 int main() {
   using namespace velographx;
 
+  const auto small_policy = scale_aware_consolidation_policy(99'999'999);
+  assert(small_policy.max_storage_growth_ratio == 1.25);
+  assert(small_policy.max_neighbor_latency_ratio == 1.25);
+  const auto large_policy = scale_aware_consolidation_policy(100'000'000);
+  assert(large_policy.max_storage_growth_ratio == 1.50);
+  assert(large_policy.max_neighbor_latency_ratio == 1.25);
+  const auto custom_latency = scale_aware_consolidation_policy(250'000'000, 1.40);
+  assert(custom_latency.max_storage_growth_ratio == 1.50);
+  assert(custom_latency.max_neighbor_latency_ratio == 1.40);
+
   ConsolidationController controller;
   ConsolidationSignal quiet{1.05, 1.10, false, false, false};
   ConsolidationSignal latency_noise{1.08, 1.30, false, true, true};
@@ -26,7 +36,7 @@ int main() {
   controller.mark_consolidated(13);
   assert(controller.latency_breach_streak() == 0);
 
-  // The 1.25x storage safety limit bypasses latency cooldown immediately.
+  // The configured hard storage safety limit bypasses latency cooldown immediately.
   assert(controller.observe(storage, 14));
   controller.mark_consolidated(14);
 
