@@ -16,7 +16,7 @@ on:
 jobs:
   real-irregular:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -24,24 +24,45 @@ jobs:
           - dataset: ca-GrQc
             cycles: 5
             vertices: 5242
+            directed: 0
+            rows: 64
+            probes: 2048
+            repeats: 5
           - dataset: ca-GrQc
             cycles: 20
             vertices: 5242
+            directed: 0
+            rows: 64
+            probes: 2048
+            repeats: 5
           - dataset: ca-GrQc
             cycles: 50
             vertices: 5242
-          - dataset: ca-HepTh
+            directed: 0
+            rows: 64
+            probes: 2048
+            repeats: 5
+          - dataset: web-Google
+            cycles: 5
+            vertices: 875713
+            directed: 1
+            rows: 4096
+            probes: 4096
+            repeats: 3
+          - dataset: web-Google
             cycles: 20
-            vertices: 10219
-          - dataset: ca-HepTh
+            vertices: 875713
+            directed: 1
+            rows: 4096
+            probes: 4096
+            repeats: 3
+          - dataset: web-Google
             cycles: 50
-            vertices: 10219
-          - dataset: facebook-combined
-            cycles: 20
-            vertices: 4039
-          - dataset: facebook-combined
-            cycles: 50
-            vertices: 4039
+            vertices: 875713
+            directed: 1
+            rows: 4096
+            probes: 4096
+            repeats: 3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -54,10 +75,13 @@ jobs:
             --manifest datasets/manifest.public-small.json \
             --output-dir build/row-patch/source \
             --dataset '${{ matrix.dataset }}' > build/row-patch/dataset-prepared.json
+          directed_flag=''
+          if [ '${{ matrix.directed }}' = '1' ]; then directed_flag='--directed'; fi
           python tools/normalize_edge_list.py \
             --input 'build/row-patch/source/${{ matrix.dataset }}.txt' \
             --output 'build/row-patch/${{ matrix.dataset }}-normalized.txt' \
-            --report build/row-patch/normalization.json
+            --report build/row-patch/normalization.json \
+            $directed_flag
       - name: Build accumulation benchmark
         run: |
           cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
@@ -70,10 +94,10 @@ jobs:
             --label 'row-patch-${{ matrix.dataset }}-${{ matrix.cycles }}' \
             --output "$out/environment.json"
           : > "$out/runs.jsonl"
-          for i in 1 2 3 4 5; do
+          for i in $(seq 1 ${{ matrix.repeats }}); do
             build/cmake/velographx_row_patch_accumulation \
               'build/row-patch/${{ matrix.dataset }}-normalized.txt' \
-              ${{ matrix.cycles }} 64 2048 \
+              ${{ matrix.cycles }} ${{ matrix.rows }} ${{ matrix.probes }} ${{ matrix.directed }} \
               >> "$out/runs.jsonl"
           done
           python - <<'PY'
@@ -82,13 +106,17 @@ jobs:
           dataset = '${{ matrix.dataset }}'
           cycles = int('${{ matrix.cycles }}')
           expected_vertices = int('${{ matrix.vertices }}')
+          expected_directed = bool(int('${{ matrix.directed }}'))
+          expected_repeats = int('${{ matrix.repeats }}')
+          rows_per_cycle = int('${{ matrix.rows }}')
           out = Path(f'build/row-patch/{dataset}-{cycles}')
           rows = [json.loads(x) for x in (out / 'runs.jsonl').read_text().splitlines() if x.strip()]
           normalization = json.loads(Path('build/row-patch/normalization.json').read_text())
-          assert len(rows) == 5
+          assert len(rows) == expected_repeats
           assert all(r['correct'] for r in rows)
           assert {r['vertices'] for r in rows} == {expected_vertices}
-          assert normalization['directed'] is False
+          assert {r['directed'] for r in rows} == {expected_directed}
+          assert normalization['directed'] is expected_directed
           initial_ns = statistics.median(r['initial_neighbor_ns'] for r in rows)
           pre_ns = statistics.median(r['pre_consolidation_neighbor_ns'] for r in rows)
           post_ns = statistics.median(r['post_consolidation_neighbor_ns'] for r in rows)
@@ -98,10 +126,11 @@ jobs:
             'dataset': dataset,
             'dataset_sha256': normalization['source_sha256'],
             'normalized_sha256': normalization['output_sha256'],
+            'directed': expected_directed,
             'vertices': normalization['vertex_count'],
-            'undirected_edges': normalization['edge_count'],
+            'normalized_edges': normalization['edge_count'],
             'cycles': cycles,
-            'rows_per_cycle': 64,
+            'rows_per_cycle': rows_per_cycle,
             'repeats': len(rows),
             'research_claim': False,
             'all_correct': True,
@@ -115,6 +144,7 @@ jobs:
             'median_consolidation_ms': statistics.median(r['consolidation_ms'] for r in rows),
             'median_total_update_ms': statistics.median(r['total_update_ms'] for r in rows),
             'median_total_row_compaction_ms': statistics.median(r['total_row_compaction_ms'] for r in rows),
+            'median_applied_update_operations': statistics.median(r['applied_update_operations'] for r in rows),
           }
           (out / 'summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n')
           print(json.dumps(summary, sort_keys=True))
