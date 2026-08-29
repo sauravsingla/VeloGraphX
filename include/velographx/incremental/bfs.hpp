@@ -99,19 +99,6 @@ class IncrementalBFS {
   }
 
  private:
-  [[nodiscard]] bool has_valid_old_level_support(
-      VertexId v, std::uint32_t old_level,
-      const std::vector<std::uint32_t>& old_dist,
-      const std::vector<std::uint8_t>& affected) const {
-    if (v == source_) return old_level == 0;
-    if (old_level == unreachable || old_level == 0) return false;
-    for (auto p : g_.in_neighbors(v)) {
-      if (p >= old_dist.size() || p >= affected.size() || affected[p]) continue;
-      if (old_dist[p] != unreachable && old_dist[p] + 1 == old_level) return true;
-    }
-    return false;
-  }
-
   [[nodiscard]] std::uint32_t best_boundary_distance(
       VertexId v, const std::vector<std::uint8_t>& affected) const {
     std::uint32_t best = unreachable;
@@ -134,16 +121,20 @@ class IncrementalBFS {
     std::vector<std::uint8_t> affected(n, 0);
     std::queue<VertexId> invalidate;
 
-    auto invalidate_if_unsupported = [&](VertexId v) {
+    // Be conservative during invalidation: once a deleted edge belonged to the
+    // old shortest-path DAG, invalidate its child and the complete downstream
+    // old-DAG region. Alternate shortest paths are recovered in the boundary
+    // reconstruction below. This avoids order-dependent support decisions when
+    // several shortest-path parents are deleted or invalidated in one batch.
+    auto invalidate_vertex = [&](VertexId v) {
       if (v >= old_dist.size() || v == source_ || old_dist[v] == unreachable || affected[v]) return;
-      if (has_valid_old_level_support(v, old_dist[v], old_dist, affected)) return;
       affected[v] = 1;
       dist_[v] = unreachable;
       invalidate.push(v);
       ++last_affected_vertices_;
     };
 
-    for (auto v : candidates) invalidate_if_unsupported(v);
+    for (auto v : candidates) invalidate_vertex(v);
 
     while (!invalidate.empty()) {
       const auto u = invalidate.front();
@@ -154,20 +145,19 @@ class IncrementalBFS {
       // Surviving old-DAG dependencies are visible in current adjacency.
       for (auto v : g_.neighbors(u)) {
         if (v < old_dist.size() && old_dist[v] == old_dist[u] + 1) {
-          invalidate_if_unsupported(v);
+          invalidate_vertex(v);
         }
       }
 
-      // Deleted old-DAG dependencies are no longer visible above. Revisit them
-      // explicitly so a child cannot keep transient support from a parent that
-      // later becomes invalid in the same batch.
+      // Deleted old-DAG dependencies are not visible in current adjacency, so
+      // preserve and traverse them explicitly to close the old dependency DAG.
       const auto first = std::lower_bound(
           deleted_old_dag.begin(), deleted_old_dag.end(),
           std::pair<VertexId, VertexId>{u, 0});
       const auto last = std::upper_bound(
           deleted_old_dag.begin(), deleted_old_dag.end(),
           std::pair<VertexId, VertexId>{u, std::numeric_limits<VertexId>::max()});
-      for (auto it = first; it != last; ++it) invalidate_if_unsupported(it->second);
+      for (auto it = first; it != last; ++it) invalidate_vertex(it->second);
     }
 
     if (last_affected_vertices_ == 0) return true;
