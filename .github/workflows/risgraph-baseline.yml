@@ -17,6 +17,7 @@ jobs:
     env:
       RISGRAPH_REPO: https://github.com/thu-pacman/RisGraph.git
       RISGRAPH_COMMIT: 4e77f774d4aa7cd0bf3011e713496573b70c91ab
+      RISGRAPH_ABSEIL_COMMIT: f1dad1e9b277066d676034d8f2a982b9e64310de
       ROOT: 0
       IMPORTED_RATE: 0.5
       BATCH_SIZE: 256
@@ -34,14 +35,28 @@ jobs:
           git -C external/RisGraph checkout --detach "$RISGRAPH_COMMIT"
           git -C external/RisGraph submodule update --init --recursive
           test "$(git -C external/RisGraph rev-parse HEAD)" = "$RISGRAPH_COMMIT"
+          test "$(git -C external/RisGraph/deps/abseil-cpp rev-parse HEAD)" = "$RISGRAPH_ABSEIL_COMMIT"
           grep -q 'Apache License' external/RisGraph/LICENSE
+
+          # The pinned 2020 Abseil dependency relied on a transitive <limits>
+          # include that GCC 13 no longer supplies. Add only the missing C++
+          # standard header; no RisGraph algorithm or benchmark code is changed.
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('external/RisGraph/deps/abseil-cpp/absl/synchronization/internal/graphcycles.cc')
+          s=p.read_text()
+          needle='#include <algorithm>\n'
+          assert needle in s and '#include <limits>\n' not in s
+          p.write_text(s.replace(needle, needle + '#include <limits>\n', 1))
+          PY
+          git -C external/RisGraph/deps/abseil-cpp diff -- absl/synchronization/internal/graphcycles.cc > risgraph-compat.patch
+          grep -q '^+#include <limits>' risgraph-compat.patch
 
       - name: Build RisGraph batched BFS
         run: |
           # RisGraph's bundled FindTBB predates oneTBB and otherwise probes the
           # removed tbb/tbb_stddef.h header. Supplying the installed package
-          # version bypasses only that obsolete detector; upstream source and
-          # benchmark semantics remain unmodified.
+          # version bypasses only that obsolete detector.
           TBB_VERSION="$(dpkg-query -W -f='${Version}' libtbb-dev | sed 's/-.*//')"
           cmake -S external/RisGraph -B external/RisGraph/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -93,8 +108,11 @@ jobs:
           vx=json.loads(Path('vx.json').read_text())
           assert vx['correct'] is True
           lines=[x.strip() for x in Path('risgraph.layers').read_text().splitlines() if x.strip()]
-          rg_layers=[int(x) for x in lines[-1].split()] if lines else []
-          assert rg_layers == vx['layers'], (rg_layers, vx['layers'])
+          assert len(lines) >= 2, lines
+          rg_maintained=[int(x) for x in lines[-2].split()]
+          rg_rebuilt=[int(x) for x in lines[-1].split()]
+          assert rg_maintained == rg_rebuilt, (rg_maintained, rg_rebuilt)
+          assert rg_maintained == vx['layers'], (rg_maintained, vx['layers'])
           text=Path('risgraph.stderr').read_text()
           m=re.search(r'wall_mean\s*=\s*([0-9.]+)\s*us', text)
           if not m: raise SystemExit('RisGraph wall_mean not found')
@@ -105,6 +123,8 @@ jobs:
             'publication_grade':False,
             'baseline':'RisGraph',
             'baseline_commit':'4e77f774d4aa7cd0bf3011e713496573b70c91ab',
+            'baseline_abseil_commit':'f1dad1e9b277066d676034d8f2a982b9e64310de',
+            'compatibility_patch':'one missing standard include (<limits>) in pinned Abseil only',
             'paper':'RisGraph: A Real-Time Streaming System for Evolving Graphs to Support Sub-millisecond Per-update Analysis at Millions Ops/s',
             'venue':'SIGMOD 2021',
             'semantics':'directed unweighted BFS; 50% initial stream; each batch inserts the next edges and deletes the corresponding oldest edges; maintenance includes graph mutation and answer repair',
@@ -113,6 +133,7 @@ jobs:
             'same_root':True,
             'same_initial_fraction':True,
             'same_batch_size':True,
+            'risgraph_maintained_equals_rebuilt':True,
             'final_layer_histogram_equal':True,
             'velographx_full_recompute_on_deletion':True,
             'velographx_mean_batch_us':vx['mean_batch_us'],
@@ -144,4 +165,5 @@ jobs:
             risgraph.stderr
             stream.json
             environment.txt
+            risgraph-compat.patch
           retention-days: 30
