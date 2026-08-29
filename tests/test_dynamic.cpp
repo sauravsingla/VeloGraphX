@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <initializer_list>
+#include <utility>
 #include <vector>
 
 #include "velographx/incremental/connected_components.hpp"
@@ -29,7 +30,9 @@ int main() {
   assert(g.version() == 1);
   assert(g.has_edge(0, 1));
   assert(g.edge_count_directed() == 6);
-  assert(g.delta_edge_count() == 6);
+  // Automatic maintenance may compact a tiny high-density segment immediately.
+  assert(g.is_compact());
+  assert(g.delta_edge_count() == 0);
 
   IncrementalTriangleCount tc(g);
   assert(tc.value() == 1);
@@ -93,6 +96,43 @@ int main() {
   const auto incoming_after_growth = directed.in_neighbors(2);
   assert(std::binary_search(incoming_after_growth.begin(),
                             incoming_after_growth.end(), 100000));
+
+  // Exercise dirty-segment tracking below the automatic density threshold.
+  std::vector<std::pair<VertexId, VertexId>> seed;
+  seed.reserve(400);
+  for (VertexId i = 0; i < 200; ++i) {
+    seed.emplace_back(i, 1000 + i);
+    seed.emplace_back(65536 + i, 67000 + i);
+  }
+  DynamicGraph segmented(131072, true);
+  segmented.bulk_load_edges(seed);
+  assert(segmented.dirty_out_segment_count() == 0);
+  assert(segmented.dirty_in_segment_count() == 0);
+
+  UpdateBatch sparse;
+  sparse.add(10, 50000);
+  segmented.apply(sparse);
+  assert(!segmented.is_compact());
+  assert(segmented.dirty_out_segment_count() == 1);
+  assert(segmented.dirty_in_segment_count() == 1);
+  assert(segmented.has_edge(10, 50000));
+  assert(std::binary_search(segmented.in_neighbors(50000).begin(),
+                            segmented.in_neighbors(50000).end(), 10));
+
+  sparse = {};
+  sparse.add(65540, 120000);
+  segmented.apply(sparse);
+  assert(segmented.dirty_out_segment_count() == 2);
+  assert(segmented.dirty_in_segment_count() == 2);
+
+  const auto segmented_count = segmented.edge_count_directed();
+  segmented.compact();
+  assert(segmented.is_compact());
+  assert(segmented.dirty_out_segment_count() == 0);
+  assert(segmented.dirty_in_segment_count() == 0);
+  assert(segmented.edge_count_directed() == segmented_count);
+  assert(segmented.has_edge(10, 50000));
+  assert(segmented.has_edge(65540, 120000));
 
   assert(directed.storage_bytes() > 0);
   return 0;
