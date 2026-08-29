@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Apply reproducible build-only compatibility fixes to pinned RisGraph.
 
-This script intentionally does not modify RisGraph algorithm sources. It adapts
-legacy TBB discovery for modern oneTBB and adds a missing standard-library
-include to RisGraph's pinned Abseil dependency for modern GCC.
+This script intentionally does not modify RisGraph algorithm implementations.
+It adapts legacy TBB discovery/API usage for modern oneTBB and adds a missing
+standard-library include to RisGraph's pinned Abseil dependency for modern GCC.
 """
 
 from __future__ import annotations
@@ -54,6 +54,19 @@ def main() -> int:
     )
     (out / "FindTBB.compat.cmake").write_bytes(finder.read_bytes())
 
+    graph = repo / "core" / "graph.hpp"
+    graph_text = graph.read_text()
+    old_scheduler = "tbb::task_scheduler_init init(ncpus);"
+    new_scheduler = (
+        "tbb::global_control init(tbb::global_control::max_allowed_parallelism, "
+        "static_cast<std::size_t>(ncpus));"
+    )
+    if old_scheduler in graph_text:
+        graph_text = graph_text.replace(old_scheduler, new_scheduler, 1)
+        graph.write_text(graph_text)
+    elif new_scheduler not in graph_text:
+        raise RuntimeError("cannot locate pinned RisGraph task_scheduler_init call")
+
     graphcycles = abseil / "absl" / "synchronization" / "internal" / "graphcycles.cc"
     text = graphcycles.read_text()
     if "#include <limits>" not in text:
@@ -63,7 +76,9 @@ def main() -> int:
         text = text.replace(marker, marker + "#include <limits>\n", 1)
         graphcycles.write_text(text)
 
-    risgraph_patch = run("git", "diff", "--", "cmake/FindTBB.cmake", cwd=repo) + "\n"
+    risgraph_patch = run(
+        "git", "diff", "--", "cmake/FindTBB.cmake", "core/graph.hpp", cwd=repo
+    ) + "\n"
     abseil_patch = run(
         "git", "diff", "--", "absl/synchronization/internal/graphcycles.cc", cwd=abseil
     ) + "\n"
@@ -76,9 +91,7 @@ def main() -> int:
     abseil_patch_path.write_text(abseil_patch)
 
     changed_parent = run("git", "diff", "--name-only", cwd=repo).splitlines()
-    # The Abseil submodule is dirty after the include fix; no other parent-tree
-    # source file is allowed to change besides the TBB finder.
-    allowed_parent = {"cmake/FindTBB.cmake", "deps/abseil-cpp"}
+    allowed_parent = {"cmake/FindTBB.cmake", "core/graph.hpp", "deps/abseil-cpp"}
     if set(changed_parent) - allowed_parent:
         raise RuntimeError(f"unexpected RisGraph changes: {changed_parent}")
     changed_abseil = run("git", "diff", "--name-only", cwd=abseil).splitlines()
@@ -90,13 +103,18 @@ def main() -> int:
         "artifact_type": "risgraph-build-compatibility-manifest",
         "risgraph_revision": risgraph_head,
         "abseil_revision": abseil_head,
-        "algorithm_source_modified": False,
+        "algorithm_implementation_modified": False,
+        "compatibility_source_modified": True,
         "changes": [
             {
                 "scope": "RisGraph build system",
                 "path": "cmake/FindTBB.cmake",
                 "reason": "legacy finder requires tbb_stddef.h removed from modern oneTBB",
-                "patch_sha256": sha256(risgraph_patch_path),
+            },
+            {
+                "scope": "RisGraph runtime initialization compatibility",
+                "path": "core/graph.hpp",
+                "reason": "replace removed tbb::task_scheduler_init with oneTBB global_control while preserving requested parallelism during initialization",
             },
             {
                 "scope": "pinned Abseil dependency",
@@ -105,6 +123,7 @@ def main() -> int:
                 "patch_sha256": sha256(abseil_patch_path),
             },
         ],
+        "risgraph_compat_patch_sha256": sha256(risgraph_patch_path),
         "research_claim": False,
     }
     (out / "compatibility-manifest.json").write_text(
