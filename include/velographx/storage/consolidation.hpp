@@ -35,8 +35,10 @@ inline ConsolidationSnapshot consolidate_to_csr_snapshot(const DynamicGraph& sou
 
   DynamicGraph consolidated(source.vertex_count(), source.directed());
   consolidated.bulk_load_edges(edges);
-  return {std::move(consolidated), source.storage_bytes(),
-          consolidated.storage_bytes(), source.edge_count_directed()};
+  const auto source_bytes = source.storage_bytes();
+  const auto consolidated_bytes = consolidated.storage_bytes();
+  const auto directed_edges = source.edge_count_directed();
+  return {std::move(consolidated), source_bytes, consolidated_bytes, directed_edges};
 }
 
 }  // namespace velographx
