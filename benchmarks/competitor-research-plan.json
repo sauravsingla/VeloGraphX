@@ -19,7 +19,7 @@
       "version_or_commit": "4e77f774d4aa7cd0bf3011e713496573b70c91ab",
       "source": "https://github.com/thu-pacman/RisGraph",
       "license": "Apache-2.0",
-      "install_or_build_recipe": ".github/workflows/external-risgraph-baseline.yml",
+      "install_or_build_recipe": ".github/workflows/risgraph-baseline.yml",
       "comparison_scope": "Exact directed incremental BFS under the official sliding-window batch semantics: add the next edge batch, remove an equally sized oldest batch, and maintain BFS from the same root.",
       "official_program": "bfs_inc_batch",
       "ready": true
