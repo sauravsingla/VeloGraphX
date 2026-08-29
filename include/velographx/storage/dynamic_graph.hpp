@@ -511,7 +511,9 @@ class DynamicGraph {
   [[nodiscard]] std::size_t storage_bytes() const noexcept {
     return base_out_.storage_bytes() + base_in_.storage_bytes() +
            delta_out_.storage_bytes() + delta_in_.storage_bytes() +
-           dirty_out_segments_.capacity() + dirty_in_segments_.capacity();
+           dirty_out_segments_.capacity() + dirty_in_segments_.capacity() +
+           dirty_out_entries_.capacity() * sizeof(std::size_t) +
+           dirty_in_entries_.capacity() * sizeof(std::size_t);
   }
 
   [[nodiscard]] double delta_ratio() const noexcept {
@@ -529,9 +531,9 @@ class DynamicGraph {
 
   bool maybe_compact(double threshold = 0.25) {
     bool compacted = false;
-    compacted |= compact_dense_segments(base_out_, delta_out_, dirty_out_segments_, threshold,
+    compacted |= compact_dense_segments(base_out_, delta_out_, dirty_out_segments_, dirty_out_entries_, threshold,
                                         [this](VertexId u) { return neighbors(u); });
-    compacted |= compact_dense_segments(base_in_, delta_in_, dirty_in_segments_, threshold,
+    compacted |= compact_dense_segments(base_in_, delta_in_, dirty_in_segments_, dirty_in_entries_, threshold,
                                         [this](VertexId v) { return in_neighbors(v); });
     if (compacted) {
       delta_out_.repack();
@@ -542,9 +544,9 @@ class DynamicGraph {
 
   void compact() {
     if (is_compact()) return;
-    compact_marked_segments(base_out_, delta_out_, dirty_out_segments_,
+    compact_marked_segments(base_out_, delta_out_, dirty_out_segments_, dirty_out_entries_,
                             [this](VertexId u) { return neighbors(u); });
-    compact_marked_segments(base_in_, delta_in_, dirty_in_segments_,
+    compact_marked_segments(base_in_, delta_in_, dirty_in_segments_, dirty_in_entries_,
                             [this](VertexId v) { return in_neighbors(v); });
     delta_out_.repack();
     delta_in_.repack();
@@ -582,18 +584,22 @@ class DynamicGraph {
   void resize_dirty_maps() {
     dirty_out_segments_.resize(base_out_.segment_count(), 0);
     dirty_in_segments_.resize(base_in_.segment_count(), 0);
+    dirty_out_entries_.resize(base_out_.segment_count(), 0);
+    dirty_in_entries_.resize(base_in_.segment_count(), 0);
   }
 
   void clear_dirty_maps() {
     std::fill(dirty_out_segments_.begin(), dirty_out_segments_.end(), 0);
     std::fill(dirty_in_segments_.begin(), dirty_in_segments_.end(), 0);
+    std::fill(dirty_out_entries_.begin(), dirty_out_entries_.end(), 0);
+    std::fill(dirty_in_entries_.begin(), dirty_in_entries_.end(), 0);
   }
 
-  void mark_dirty(VertexId u, VertexId v) {
-    const auto out_segment = static_cast<std::size_t>(u) / storage_detail::SegmentedCsr::kVerticesPerSegment;
-    const auto in_segment = static_cast<std::size_t>(v) / storage_detail::SegmentedCsr::kVerticesPerSegment;
-    if (out_segment < dirty_out_segments_.size()) dirty_out_segments_[out_segment] = 1;
-    if (in_segment < dirty_in_segments_.size()) dirty_in_segments_[in_segment] = 1;
+  static void adjust_entry_count(std::vector<std::size_t>& counts, std::size_t segment,
+                                 std::size_t before, std::size_t after) {
+    if (segment >= counts.size()) return;
+    if (after >= before) counts[segment] += after - before;
+    else counts[segment] -= std::min(counts[segment], before - after);
   }
 
   void apply_unversioned(const EdgeUpdate& op) {
@@ -603,17 +609,28 @@ class DynamicGraph {
   }
 
   void apply_arc(VertexId u, VertexId v, bool present) {
-    const bool current = has_edge(u, v);
+    const auto out_segment = static_cast<std::size_t>(u) / storage_detail::SegmentedCsr::kVerticesPerSegment;
+    const auto in_segment = static_cast<std::size_t>(v) / storage_detail::SegmentedCsr::kVerticesPerSegment;
+    const auto base_present_out = base_out_.contains(u, v);
+    const auto overlay = delta_out_.override_for(u, v);
+    const bool current = overlay.has_value() ? *overlay : base_present_out;
     if (current == present) return;
-    delta_out_.set(u, v, present, base_out_.contains(u, v));
+
+    const auto out_before = delta_out_.row(u).size();
+    const auto in_before = delta_in_.row(v).size();
+    delta_out_.set(u, v, present, base_present_out);
     delta_in_.set(v, u, present, base_in_.contains(v, u));
-    mark_dirty(u, v);
+    adjust_entry_count(dirty_out_entries_, out_segment, out_before, delta_out_.row(u).size());
+    adjust_entry_count(dirty_in_entries_, in_segment, in_before, delta_in_.row(v).size());
+    if (out_segment < dirty_out_segments_.size()) dirty_out_segments_[out_segment] = 1;
+    if (in_segment < dirty_in_segments_.size()) dirty_in_segments_[in_segment] = 1;
   }
 
   template <class RowProvider>
   static void compact_marked_segments(storage_detail::SegmentedCsr& base,
                                       storage_detail::PackedDeltaStore& delta,
                                       std::vector<std::uint8_t>& dirty,
+                                      std::vector<std::size_t>& entries,
                                       RowProvider&& rows) {
     for (std::size_t segment = 0; segment < dirty.size(); ++segment) {
       if (!dirty[segment]) continue;
@@ -622,6 +639,7 @@ class DynamicGraph {
       base.rebuild_segment(segment, rows);
       delta.clear_range(begin, end);
       dirty[segment] = 0;
+      entries[segment] = 0;
     }
   }
 
@@ -629,20 +647,21 @@ class DynamicGraph {
   static bool compact_dense_segments(storage_detail::SegmentedCsr& base,
                                      storage_detail::PackedDeltaStore& delta,
                                      std::vector<std::uint8_t>& dirty,
+                                     std::vector<std::size_t>& entries,
                                      double threshold,
                                      RowProvider&& rows) {
     bool compacted = false;
     for (std::size_t segment = 0; segment < dirty.size(); ++segment) {
       if (!dirty[segment]) continue;
+      const auto base_edges = std::max<std::size_t>(1, base.segment_edge_count(segment));
+      const double density = static_cast<double>(entries[segment]) / static_cast<double>(base_edges);
+      if (density < threshold) continue;
       const auto begin = base.segment_begin(segment);
       const auto end = base.segment_end(segment);
-      const auto delta_entries = delta.count_range(begin, end);
-      const auto base_edges = std::max<std::size_t>(1, base.segment_edge_count(segment));
-      const double density = static_cast<double>(delta_entries) / static_cast<double>(base_edges);
-      if (density < threshold) continue;
       base.rebuild_segment(segment, rows);
       delta.clear_range(begin, end);
       dirty[segment] = 0;
+      entries[segment] = 0;
       compacted = true;
     }
     return compacted;
@@ -663,6 +682,8 @@ class DynamicGraph {
   storage_detail::PackedDeltaStore delta_in_;
   std::vector<std::uint8_t> dirty_out_segments_;
   std::vector<std::uint8_t> dirty_in_segments_;
+  std::vector<std::size_t> dirty_out_entries_;
+  std::vector<std::size_t> dirty_in_entries_;
   std::uint64_t version_{0};
 };
 
