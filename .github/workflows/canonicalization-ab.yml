@@ -16,10 +16,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Build benchmark
+      - name: Build benchmark and tests
         run: |
           cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
-          cmake --build build/cmake --target velographx_steady_state_storage velographx_tests -j 2
+          cmake --build build/cmake -j 2
           ctest --test-dir build/cmake --output-on-failure
       - name: Exercise compact-source snapshot path
         run: |
