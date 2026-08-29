@@ -1,0 +1,139 @@
+name: RisGraph Dynamic BFS Baseline
+
+on:
+  push:
+    branches: [external-dynamic-baseline-final]
+    paths:
+      - '.github/workflows/risgraph-baseline.yml'
+      - 'benchmarks/risgraph_bfs_baseline.cpp'
+      - 'include/**'
+      - 'src/**'
+  workflow_dispatch:
+
+jobs:
+  risgraph-bfs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RISGRAPH_REPO: https://github.com/thu-pacman/RisGraph.git
+      RISGRAPH_COMMIT: 4e77f774d4aa7cd0bf3011e713496573b70c91ab
+      ROOT: 0
+      IMPORTED_RATE: 0.5
+      BATCH_SIZE: 256
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libaio-dev libtbb-dev libboost-fiber-dev
+
+      - name: Acquire immutable RisGraph source
+        run: |
+          git clone --recursive "$RISGRAPH_REPO" external/RisGraph
+          git -C external/RisGraph checkout --detach "$RISGRAPH_COMMIT"
+          git -C external/RisGraph submodule update --init --recursive
+          test "$(git -C external/RisGraph rev-parse HEAD)" = "$RISGRAPH_COMMIT"
+          grep -q 'Apache License' external/RisGraph/LICENSE
+
+      - name: Build RisGraph batched BFS
+        run: |
+          cmake -S external/RisGraph -B external/RisGraph/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build external/RisGraph/build --target bfs_inc_batch -j 2
+
+      - name: Build VeloGraphX matched harness
+        run: |
+          g++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/risgraph_bfs_baseline.cpp -o risgraph_vx_bfs
+
+      - name: Generate deterministic unique-edge stream
+        run: |
+          python - <<'PY'
+          import random, struct
+          from pathlib import Path
+          rng = random.Random(8675309)
+          n = 4096
+          target = 32768
+          edges = []
+          seen = set()
+          for u in range(n-1):
+              e=(u,u+1); seen.add(e); edges.append(e)
+          while len(edges) < target:
+              u=rng.randrange(n); v=rng.randrange(n)
+              if u==v or (u,v) in seen: continue
+              seen.add((u,v)); edges.append((u,v))
+          p=Path('stream.bin')
+          with p.open('wb') as f:
+              for u,v in edges: f.write(struct.pack('=QQ',u,v))
+          Path('stream.json').write_text(__import__('json').dumps({'seed':8675309,'vertices':n,'edges':len(edges),'format':'native-endian uint64 pairs','sha256':__import__('hashlib').sha256(p.read_bytes()).hexdigest()},indent=2)+'\n')
+          PY
+
+      - name: Run VeloGraphX matched maintenance envelope
+        run: |
+          ./risgraph_vx_bfs stream.bin "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" | tee vx.json
+
+      - name: Run RisGraph original batched BFS benchmark
+        run: |
+          export OMP_NUM_THREADS=2
+          export OMP_PROC_BIND=true
+          external/RisGraph/build/bfs_inc_batch stream.bin "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" > risgraph.layers 2> risgraph.stderr
+          cat risgraph.stderr
+
+      - name: Validate semantics and summarize
+        run: |
+          python - <<'PY'
+          import json,re
+          from pathlib import Path
+          vx=json.loads(Path('vx.json').read_text())
+          assert vx['correct'] is True
+          lines=[x.strip() for x in Path('risgraph.layers').read_text().splitlines() if x.strip()]
+          rg_layers=[int(x) for x in lines[-1].split()] if lines else []
+          assert rg_layers == vx['layers'], (rg_layers, vx['layers'])
+          text=Path('risgraph.stderr').read_text()
+          m=re.search(r'wall_mean\s*=\s*([0-9.]+)\s*us', text)
+          if not m: raise SystemExit('RisGraph wall_mean not found')
+          rg=float(m.group(1))
+          summary={
+            'artifact_type':'velographx-risgraph-dynamic-bfs-baseline',
+            'research_claim':False,
+            'publication_grade':False,
+            'baseline':'RisGraph',
+            'baseline_commit':'4e77f774d4aa7cd0bf3011e713496573b70c91ab',
+            'paper':'RisGraph: A Real-Time Streaming System for Evolving Graphs to Support Sub-millisecond Per-update Analysis at Millions Ops/s',
+            'venue':'SIGMOD 2021',
+            'semantics':'directed unweighted BFS; 50% initial stream; each batch inserts the next edges and deletes the corresponding oldest edges; maintenance includes graph mutation and answer repair',
+            'same_runner':True,
+            'same_binary_edge_stream':True,
+            'same_root':True,
+            'same_initial_fraction':True,
+            'same_batch_size':True,
+            'final_layer_histogram_equal':True,
+            'velographx_full_recompute_on_deletion':True,
+            'velographx_mean_batch_us':vx['mean_batch_us'],
+            'risgraph_mean_batch_us':rg,
+            'ratio_risgraph_over_velographx':rg/vx['mean_batch_us'],
+            'interpretation':'Ratio is descriptive hosted-CI evidence only. It is not a universal superiority claim; VeloGraphX currently recomputes BFS after deletion-containing batches while RisGraph implements incremental deletion repair.'
+          }
+          Path('summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Capture environment
+        run: |
+          {
+            uname -a
+            g++ --version | head -1
+            lscpu
+          } > environment.txt
+
+      - name: Upload baseline evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-risgraph-dynamic-bfs-baseline
+          path: |
+            summary.json
+            vx.json
+            risgraph.layers
+            risgraph.stderr
+            stream.json
+            environment.txt
+          retention-days: 30
