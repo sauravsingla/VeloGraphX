@@ -165,6 +165,22 @@ The repository contains:
 
 A hosted-CI engineering campaign exercises core benchmarks, update-fraction measurements, paired ablations, conservative thread checks and normalized BFS adapters. Its result bundle is provenance-captured and integrity-validated and remains explicitly marked `research_claim: false`.
 
+### Hosted-CI engineering snapshot
+
+A fresh CI-scale evidence campaign on commit `3c894df099b8cf21ad0b017087f3a02779d0914b` completed successfully on a GitHub-hosted Ubuntu x86_64 runner with 4 logical CPUs and GCC 13.3.0. The benchmark preflight and provenance-rich result-bundle validators both passed. These numbers are **fixture/synthetic-workload engineering measurements only**; they are not publication-grade performance claims and should not be generalized across machines or datasets.
+
+| Exercised benchmark | Hosted-CI result |
+| --- | --- |
+| Incremental triangle count, 20k vertices / 60k base edges, 1% updates | **25.0x** median full-recompute / incremental time over 5 runs |
+| Same triangle workload, 5% updates | **5.72x** median |
+| Same triangle workload, 10% updates | **3.07x** median |
+| Adaptive neighbor intersection | Faster than scalar on **5 of 6** exercised synthetic size pairs; scalar remained faster for the smallest 8x8 case |
+| Fixed-width vectorized decode vs fixed-width scalar decode | **2.82x dense**, **4.40x medium**, **3.25x sparse** on the exercised 100k-value synthetic families |
+| BFS adapter correctness | builtin, NetworkX 3.6.1, igraph 1.0.0, NetworKit 11.2.1 and rustworkx 0.18.1 produced the same normalized result digest on the identical fixture |
+| 1-vs-2-thread smoke check | Completed successfully; **no scaling claim** is made from the hosted runner |
+
+Very small update fractions are intentionally omitted from the README because microsecond-scale timing resolution can inflate ratios. Full raw results, environment metadata, dataset checksum, repetitions and validation artifacts are retained by the CI-scale evidence workflow.
+
 Hosted CI builds immutable pinned native stacks for SuiteSparse:GraphBLAS `v10.3.2`, LAGraph `v1.2.2` and GAP Benchmark Suite `v1.5` on the same runner. In addition to small native engineering runs, the normalized BFS correctness gate now requires builtin, LAGraph and GAP to use the same dataset, source and directedness and to produce the same full-distance-vector digest. This establishes a strict same-input/full-output correctness comparison for the exercised BFS fixture. It remains explicitly non-publication evidence: `research_claim: false`, `publication_grade: false` and `publication_ready: false`.
 
 The repository also contains public-dataset incremental crossover engineering evidence, including ca-GrQc work, and ongoing work to extend that evidence across additional graph families. These measurements remain engineering evidence unless and until they are repeated under controlled, publication-grade experimental conditions.
