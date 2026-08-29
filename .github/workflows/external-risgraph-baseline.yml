@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/external-risgraph-baseline.yml'
       - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'tools/prepare_risgraph_compat.py'
       - 'include/velographx/incremental/bfs.hpp'
       - 'include/velographx/storage/**'
       - 'tools/normalize_edge_list.py'
@@ -23,52 +24,35 @@ jobs:
       ROOT: '0'
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install RisGraph build dependencies
+      - name: Install pinned-system build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libaio-dev libboost-fiber-dev libtbb-dev pkg-config
+          sudo apt-get install -y --no-install-recommends libaio-dev libboost-fiber-dev libtbb-dev pkg-config
 
       - name: Build VeloGraphX matched harness
         run: |
-          cmake -S . -B build/cmake \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DVELOGRAPHX_BUILD_TESTS=OFF \
-            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build/cmake --target velographx_external_risgraph_bfs -j 2
 
-      - name: Checkout immutable RisGraph source
+      - name: Checkout immutable RisGraph and record build-only compatibility
         run: |
           git clone --filter=blob:none https://github.com/thu-pacman/RisGraph.git build/risgraph
           git -C build/risgraph checkout --detach "$RISGRAPH_SHA"
           git -C build/risgraph submodule update --init --recursive
           test "$(git -C build/risgraph rev-parse HEAD)" = "$RISGRAPH_SHA"
           grep -q 'Apache License' build/risgraph/LICENSE
-
-      - name: Adapt legacy RisGraph TBB discovery
-        run: |
-          mkdir -p build/external-risgraph
-          cp build/risgraph/cmake/FindTBB.cmake build/external-risgraph/FindTBB.upstream.cmake
-          cat > build/risgraph/cmake/FindTBB.cmake <<'CMAKE'
-          # CI compatibility shim for RisGraph's legacy FindTBB.cmake.
-          # It changes dependency discovery only; RisGraph source and algorithms remain untouched.
-          find_path(TBB_INCLUDE_DIRS NAMES tbb/parallel_sort.h)
-          find_library(TBB_LIBRARY NAMES tbb)
-          include(FindPackageHandleStandardArgs)
-          find_package_handle_standard_args(TBB REQUIRED_VARS TBB_INCLUDE_DIRS TBB_LIBRARY)
-          set(TBB_LIBRARIES "${TBB_LIBRARY}")
-          get_filename_component(TBB_LIBRARY_DIRS "${TBB_LIBRARY}" DIRECTORY)
-          mark_as_advanced(TBB_INCLUDE_DIRS TBB_LIBRARY TBB_LIBRARY_DIRS)
-          CMAKE
-          cp build/risgraph/cmake/FindTBB.cmake build/external-risgraph/FindTBB.compat.cmake
-          git -C build/risgraph diff -- cmake/FindTBB.cmake > build/external-risgraph/risgraph-build-compat.patch
-          test -s build/external-risgraph/risgraph-build-compat.patch
-          test -z "$(git -C build/risgraph diff --name-only -- ':!cmake/FindTBB.cmake')"
+          python tools/prepare_risgraph_compat.py --risgraph build/risgraph --output-dir build/external-risgraph
+          python - <<'PY'
+          import json
+          m=json.load(open('build/external-risgraph/compatibility-manifest.json'))
+          assert m['risgraph_revision']=='4e77f774d4aa7cd0bf3011e713496573b70c91ab'
+          assert m['algorithm_source_modified'] is False
+          assert len(m['changes'])==2
+          PY
 
       - name: Build official RisGraph batch BFS
         run: |
@@ -77,38 +61,25 @@ jobs:
 
       - name: Acquire checksum-pinned web-Google
         run: |
-          python tools/prepare_dataset.py \
-            --manifest datasets/manifest.public-small.json \
-            --output-dir build/external-risgraph/source \
-            --dataset web-Google > build/external-risgraph/dataset-prepared.json
-          python tools/normalize_edge_list.py \
-            --input build/external-risgraph/source/web-Google.txt \
-            --output build/external-risgraph/web-Google-normalized.txt \
-            --report build/external-risgraph/normalization.json \
-            --directed
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/external-risgraph/source --dataset web-Google > build/external-risgraph/dataset-prepared.json
+          python tools/normalize_edge_list.py --input build/external-risgraph/source/web-Google.txt --output build/external-risgraph/web-Google-normalized.txt --report build/external-risgraph/normalization.json --directed
           python - <<'PY'
           import json
           n=json.load(open('build/external-risgraph/normalization.json'))
-          assert n['vertex_count'] == 875713
-          assert n['edge_count'] == 5105039
-          assert n['source_sha256'] == '8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1'
+          assert n['vertex_count']==875713
+          assert n['edge_count']==5105039
+          assert n['source_sha256']=='8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1'
           PY
-          build/risgraph-build/convert_to_binary \
-            < build/external-risgraph/web-Google-normalized.txt \
-            > build/external-risgraph/web-Google.bin
+          build/risgraph-build/convert_to_binary < build/external-risgraph/web-Google-normalized.txt > build/external-risgraph/web-Google.bin
 
       - name: Capture environment
         run: |
-          python tools/capture_benchmark_environment.py \
-            --label external-risgraph-web-google \
-            --output build/external-risgraph/environment.json
+          python tools/capture_benchmark_environment.py --label external-risgraph-web-google --output build/external-risgraph/environment.json
           lscpu > build/external-risgraph/lscpu.txt
-          sha256sum build/external-risgraph/risgraph-build-compat.patch \
-            > build/external-risgraph/risgraph-build-compat.sha256
           {
             echo "velographx_sha=$(git rev-parse HEAD)"
             echo "risgraph_sha=$RISGRAPH_SHA"
-            echo "risgraph_source_modified=build-system-discovery-only"
+            echo "risgraph_algorithm_source_modified=false"
             echo "imported_rate=$IMPORTED_RATE"
             echo "batch_size=$BATCH_SIZE"
             echo "root=$ROOT"
@@ -116,85 +87,60 @@ jobs:
 
       - name: Run VeloGraphX
         run: |
-          build/cmake/velographx_external_risgraph_bfs \
-            build/external-risgraph/web-Google-normalized.txt \
-            "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" \
-            > build/external-risgraph/velographx.json
+          build/cmake/velographx_external_risgraph_bfs build/external-risgraph/web-Google-normalized.txt "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" > build/external-risgraph/velographx.json
           python - <<'PY'
           import json
           r=json.load(open('build/external-risgraph/velographx.json'))
           assert r['correct'] is True
-          assert r['vertices'] == 875713
-          assert r['source_edges'] == 5105039
-          assert r['final_edges'] == r['initial_edges']
-          assert r['batches'] > 0
+          assert r['vertices']==875713 and r['source_edges']==5105039
+          assert r['final_edges']==r['initial_edges'] and r['batches']>0
           PY
 
       - name: Run official RisGraph
         env:
           OMP_PROC_BIND: 'true'
         run: |
-          build/risgraph-build/bfs_inc_batch \
-            build/external-risgraph/web-Google.bin \
-            "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" \
-            > build/external-risgraph/risgraph.stdout \
-            2> build/external-risgraph/risgraph.stderr
+          build/risgraph-build/bfs_inc_batch build/external-risgraph/web-Google.bin "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" > build/external-risgraph/risgraph.stdout 2> build/external-risgraph/risgraph.stderr
           grep -q 'wall_mean =' build/external-risgraph/risgraph.stderr
 
-      - name: Validate matched semantics and summarize
+      - name: Validate exact cross-system result and summarize
         run: |
           python - <<'PY'
-          import json, re
+          import json,re
           from pathlib import Path
-
           vx=json.load(open('build/external-risgraph/velographx.json'))
-          stdout=[line.strip() for line in Path('build/external-risgraph/risgraph.stdout').read_text().splitlines() if line.strip()]
+          compat=json.load(open('build/external-risgraph/compatibility-manifest.json'))
+          stdout=[x.strip() for x in Path('build/external-risgraph/risgraph.stdout').read_text().splitlines() if x.strip()]
           stderr=Path('build/external-risgraph/risgraph.stderr').read_text()
-          assert len(stdout) >= 2, stdout
-          def layers(line): return [int(x) for x in line.split()]
-          rg_inc=layers(stdout[-2])
-          rg_full=layers(stdout[-1])
-          assert rg_inc == rg_full, (rg_inc, rg_full)
-          assert vx['layer_counts'] == rg_full, (vx['layer_counts'], rg_full)
-          mean_match=re.search(r'wall_mean = ([0-9.eE+-]+) us', stderr)
-          total_match=re.search(r'wall_times = ([0-9.eE+-]+) us', stderr)
-          visited=re.findall(r'0 visited vertices: ([0-9]+)', stderr)
-          assert mean_match and total_match and visited
-          rg_mean=float(mean_match.group(1))
-          rg_total=float(total_match.group(1))
-          summary={
-            'schema_version':1,
-            'artifact_type':'velographx-external-risgraph-baseline',
-            'dataset':'web-Google',
-            'dataset_vertices':875713,
-            'dataset_edges':5105039,
-            'directed':True,
-            'root':int(vx['root']),
-            'imported_rate':vx['imported_rate'],
-            'batch_size':vx['batch_size'],
-            'batches':vx['batches'],
-            'initial_edges':vx['initial_edges'],
-            'final_edges':vx['final_edges'],
+          assert len(stdout)>=2
+          layers=lambda line:[int(x) for x in line.split()]
+          rg_inc,rg_full=layers(stdout[-2]),layers(stdout[-1])
+          assert rg_inc==rg_full
+          assert vx['layer_counts']==rg_full
+          mean=re.search(r'wall_mean = ([0-9.eE+-]+) us',stderr)
+          total=re.search(r'wall_times = ([0-9.eE+-]+) us',stderr)
+          visited=re.findall(r'0 visited vertices: ([0-9]+)',stderr)
+          assert mean and total and visited
+          rg_mean=float(mean.group(1)); rg_total=float(total.group(1))
+          result={
+            'schema_version':1,'artifact_type':'velographx-external-risgraph-baseline',
+            'dataset':'web-Google','dataset_vertices':875713,'dataset_edges':5105039,'directed':True,
+            'root':int(vx['root']),'imported_rate':vx['imported_rate'],'batch_size':vx['batch_size'],'batches':vx['batches'],
+            'initial_edges':vx['initial_edges'],'final_edges':vx['final_edges'],
             'update_semantics':'per batch: add next window edges, remove equally many oldest window edges, then maintain exact BFS',
             'velographx_deletion_policy':'full BFS recomputation when a batch contains any deletion',
-            'risgraph_revision':'4e77f774d4aa7cd0bf3011e713496573b70c91ab',
-            'risgraph_program':'official bfs_inc_batch',
-            'risgraph_build_adaptation':'dependency discovery only: legacy FindTBB replaced by modern header/library finder; algorithm source unchanged',
-            'velographx_wall_mean_us':vx['wall_mean_us'],
-            'risgraph_wall_mean_us':rg_mean,
-            'velographx_wall_total_us':vx['wall_us'],
-            'risgraph_wall_total_us':rg_total,
+            'risgraph_revision':'4e77f774d4aa7cd0bf3011e713496573b70c91ab','risgraph_program':'official bfs_inc_batch',
+            'risgraph_algorithm_source_modified':False,'build_compatibility_manifest':compat,
+            'velographx_wall_mean_us':vx['wall_mean_us'],'risgraph_wall_mean_us':rg_mean,
+            'velographx_wall_total_us':vx['wall_us'],'risgraph_wall_total_us':rg_total,
             'latency_ratio_velographx_over_risgraph':vx['wall_mean_us']/rg_mean if rg_mean else None,
-            'visited_vertices':int(visited[-1]),
-            'layer_counts':rg_full,
+            'visited_vertices':int(visited[-1]),'layer_counts':rg_full,
             'velographx_correct_against_independent_full_bfs':True,
-            'risgraph_incremental_equals_risgraph_full_recompute':True,
-            'cross_system_layer_histogram_equal':True,
-            'research_claim':False,
-            'hosted_ci_single_execution':True,
+            'risgraph_incremental_equals_risgraph_full_recompute':True,'cross_system_layer_histogram_equal':True,
+            'research_claim':False,'hosted_ci_single_execution':True
           }
-          Path('build/external-risgraph/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
-          print(json.dumps(summary,sort_keys=True))
+          Path('build/external-risgraph/summary.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,sort_keys=True))
           PY
 
       - uses: actions/upload-artifact@v4
@@ -209,7 +155,8 @@ jobs:
             build/external-risgraph/FindTBB.upstream.cmake
             build/external-risgraph/FindTBB.compat.cmake
             build/external-risgraph/risgraph-build-compat.patch
-            build/external-risgraph/risgraph-build-compat.sha256
+            build/external-risgraph/abseil-gcc-compat.patch
+            build/external-risgraph/compatibility-manifest.json
             build/external-risgraph/velographx.json
             build/external-risgraph/risgraph.stdout
             build/external-risgraph/risgraph.stderr
