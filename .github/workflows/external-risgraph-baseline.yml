@@ -50,6 +50,26 @@ jobs:
           test "$(git -C build/risgraph rev-parse HEAD)" = "$RISGRAPH_SHA"
           grep -q 'Apache License' build/risgraph/LICENSE
 
+      - name: Adapt legacy RisGraph TBB discovery
+        run: |
+          mkdir -p build/external-risgraph
+          cp build/risgraph/cmake/FindTBB.cmake build/external-risgraph/FindTBB.upstream.cmake
+          cat > build/risgraph/cmake/FindTBB.cmake <<'CMAKE'
+          # CI compatibility shim for RisGraph's legacy FindTBB.cmake.
+          # It changes dependency discovery only; RisGraph source and algorithms remain untouched.
+          find_path(TBB_INCLUDE_DIRS NAMES tbb/parallel_sort.h)
+          find_library(TBB_LIBRARY NAMES tbb)
+          include(FindPackageHandleStandardArgs)
+          find_package_handle_standard_args(TBB REQUIRED_VARS TBB_INCLUDE_DIRS TBB_LIBRARY)
+          set(TBB_LIBRARIES "${TBB_LIBRARY}")
+          get_filename_component(TBB_LIBRARY_DIRS "${TBB_LIBRARY}" DIRECTORY)
+          mark_as_advanced(TBB_INCLUDE_DIRS TBB_LIBRARY TBB_LIBRARY_DIRS)
+          CMAKE
+          cp build/risgraph/cmake/FindTBB.cmake build/external-risgraph/FindTBB.compat.cmake
+          git -C build/risgraph diff -- cmake/FindTBB.cmake > build/external-risgraph/risgraph-build-compat.patch
+          test -s build/external-risgraph/risgraph-build-compat.patch
+          test -z "$(git -C build/risgraph diff --name-only -- ':!cmake/FindTBB.cmake')"
+
       - name: Build official RisGraph batch BFS
         run: |
           cmake -S build/risgraph -B build/risgraph-build -DCMAKE_BUILD_TYPE=Release
@@ -57,7 +77,6 @@ jobs:
 
       - name: Acquire checksum-pinned web-Google
         run: |
-          mkdir -p build/external-risgraph
           python tools/prepare_dataset.py \
             --manifest datasets/manifest.public-small.json \
             --output-dir build/external-risgraph/source \
@@ -84,9 +103,12 @@ jobs:
             --label external-risgraph-web-google \
             --output build/external-risgraph/environment.json
           lscpu > build/external-risgraph/lscpu.txt
+          sha256sum build/external-risgraph/risgraph-build-compat.patch \
+            > build/external-risgraph/risgraph-build-compat.sha256
           {
             echo "velographx_sha=$(git rev-parse HEAD)"
             echo "risgraph_sha=$RISGRAPH_SHA"
+            echo "risgraph_source_modified=build-system-discovery-only"
             echo "imported_rate=$IMPORTED_RATE"
             echo "batch_size=$BATCH_SIZE"
             echo "root=$ROOT"
@@ -157,6 +179,7 @@ jobs:
             'velographx_deletion_policy':'full BFS recomputation when a batch contains any deletion',
             'risgraph_revision':'4e77f774d4aa7cd0bf3011e713496573b70c91ab',
             'risgraph_program':'official bfs_inc_batch',
+            'risgraph_build_adaptation':'dependency discovery only: legacy FindTBB replaced by modern header/library finder; algorithm source unchanged',
             'velographx_wall_mean_us':vx['wall_mean_us'],
             'risgraph_wall_mean_us':rg_mean,
             'velographx_wall_total_us':vx['wall_us'],
@@ -183,6 +206,10 @@ jobs:
             build/external-risgraph/environment.json
             build/external-risgraph/lscpu.txt
             build/external-risgraph/pins.txt
+            build/external-risgraph/FindTBB.upstream.cmake
+            build/external-risgraph/FindTBB.compat.cmake
+            build/external-risgraph/risgraph-build-compat.patch
+            build/external-risgraph/risgraph-build-compat.sha256
             build/external-risgraph/velographx.json
             build/external-risgraph/risgraph.stdout
             build/external-risgraph/risgraph.stderr
