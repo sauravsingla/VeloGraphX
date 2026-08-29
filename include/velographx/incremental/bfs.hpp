@@ -29,17 +29,30 @@ class IncrementalBFS {
     last_used_full_recompute_ = false;
     if (batch.empty()) return;
 
+    // Freeze the old BFS labels and retain deleted edges that belonged to the
+    // old shortest-path DAG. Current adjacency cannot represent those removed
+    // dependencies after graph mutation, but invalidation still needs them.
     const auto old_dist = dist_;
-    std::vector<VertexId> deletion_candidates;
-    deletion_candidates.reserve(batch.updates.size());
+    std::vector<std::pair<VertexId, VertexId>> deleted_old_dag;
+    deleted_old_dag.reserve(batch.updates.size() * (g_.directed() ? 1 : 2));
     for (const auto& e : batch.updates) {
       if (e.add || e.src >= old_dist.size() || e.dst >= old_dist.size()) continue;
       if (old_dist[e.src] != unreachable && old_dist[e.src] + 1 == old_dist[e.dst]) {
-        deletion_candidates.push_back(e.dst);
+        deleted_old_dag.emplace_back(e.src, e.dst);
       }
       if (!g_.directed() && old_dist[e.dst] != unreachable && old_dist[e.dst] + 1 == old_dist[e.src]) {
-        deletion_candidates.push_back(e.src);
+        deleted_old_dag.emplace_back(e.dst, e.src);
       }
+    }
+    std::sort(deleted_old_dag.begin(), deleted_old_dag.end());
+    deleted_old_dag.erase(std::unique(deleted_old_dag.begin(), deleted_old_dag.end()),
+                          deleted_old_dag.end());
+
+    std::vector<VertexId> deletion_candidates;
+    deletion_candidates.reserve(deleted_old_dag.size());
+    for (const auto& [parent, child] : deleted_old_dag) {
+      (void)parent;
+      deletion_candidates.push_back(child);
     }
     std::sort(deletion_candidates.begin(), deletion_candidates.end());
     deletion_candidates.erase(std::unique(deletion_candidates.begin(), deletion_candidates.end()),
@@ -49,12 +62,15 @@ class IncrementalBFS {
     g_.apply(batch);
     if (dist_.size() < g_.vertex_count()) dist_.resize(g_.vertex_count(), unreachable);
 
-    if (!deletion_candidates.empty() && !repair_deletions(deletion_candidates, old_dist)) {
+    if (!deletion_candidates.empty() &&
+        !repair_deletions(deletion_candidates, deleted_old_dag, old_dist)) {
       recompute();
       last_used_full_recompute_ = true;
       return;
     }
 
+    // Additions can only decrease distances. This pass is intentionally after
+    // deletion repair so mixed batches converge from the repaired state.
     std::queue<VertexId> q;
     for (const auto& e : batch.updates) {
       if (!e.add) continue;
@@ -107,8 +123,10 @@ class IncrementalBFS {
     return best;
   }
 
-  bool repair_deletions(const std::vector<VertexId>& candidates,
-                        const std::vector<std::uint32_t>& old_dist) {
+  bool repair_deletions(
+      const std::vector<VertexId>& candidates,
+      const std::vector<std::pair<VertexId, VertexId>>& deleted_old_dag,
+      const std::vector<std::uint32_t>& old_dist) {
     const auto n = g_.vertex_count();
     const auto fallback_limit = std::max<std::size_t>(
         1, static_cast<std::size_t>(static_cast<double>(n) * deletion_fallback_fraction_));
@@ -132,15 +150,30 @@ class IncrementalBFS {
       invalidate.pop();
       if (last_affected_vertices_ > fallback_limit) return false;
       if (u >= old_dist.size() || old_dist[u] == unreachable) continue;
+
+      // Surviving old-DAG dependencies are visible in current adjacency.
       for (auto v : g_.neighbors(u)) {
         if (v < old_dist.size() && old_dist[v] == old_dist[u] + 1) {
           invalidate_if_unsupported(v);
         }
       }
+
+      // Deleted old-DAG dependencies are no longer visible above. Revisit them
+      // explicitly so a child cannot keep transient support from a parent that
+      // later becomes invalid in the same batch.
+      const auto first = std::lower_bound(
+          deleted_old_dag.begin(), deleted_old_dag.end(),
+          std::pair<VertexId, VertexId>{u, 0});
+      const auto last = std::upper_bound(
+          deleted_old_dag.begin(), deleted_old_dag.end(),
+          std::pair<VertexId, VertexId>{u, std::numeric_limits<VertexId>::max()});
+      for (auto it = first; it != last; ++it) invalidate_if_unsupported(it->second);
     }
 
     if (last_affected_vertices_ == 0) return true;
 
+    // Keep every affected vertex unreachable while computing boundary seeds so
+    // one not-yet-repaired affected vertex cannot become another's boundary.
     using Item = std::pair<std::uint32_t, VertexId>;
     std::priority_queue<Item, std::vector<Item>, std::greater<Item>> pq;
     for (VertexId v = 0; v < affected.size(); ++v) {
@@ -166,6 +199,8 @@ class IncrementalBFS {
       }
     }
 
+    // New edges in a mixed batch can make a repaired vertex shorter than its
+    // old level; propagate such decreases beyond the invalidated region.
     std::queue<VertexId> repaired_frontier;
     for (VertexId v = 0; v < affected.size(); ++v) {
       if (affected[v] && dist_[v] != unreachable &&
