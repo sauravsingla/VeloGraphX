@@ -38,7 +38,7 @@ static void assert_matches_full(DynamicGraph& graph, IncrementalBFS& bfs,
 
 int main() {
   // Repair-path microcases use a permissive threshold so tiny graph size does
-  // not turn conservative invalidation into an incidental fallback. The
+  // not turn localized invalidation into an incidental fallback. The
   // production default remains 0.35 and fallback has its own explicit test.
   {
     DynamicGraph g(5, true);
@@ -49,7 +49,7 @@ int main() {
     bfs.apply(b);
     require(bfs.distances()[3] == 2, "alternate-parent: distance(3)");
     require(bfs.distances()[4] == 3, "alternate-parent: distance(4)");
-    require(bfs.last_affected_vertices() == 2, "alternate-parent: affected count");
+    require(bfs.last_affected_vertices() == 0, "alternate-parent: affected count");
     require(!bfs.last_used_full_recompute(), "alternate-parent: unexpected fallback");
     assert_matches_full(g, bfs, 0, "alternate-parent");
   }
