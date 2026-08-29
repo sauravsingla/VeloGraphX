@@ -19,9 +19,23 @@ Traditional graph analytics often reruns an algorithm over the entire graph afte
 
 This makes the project relevant to **dynamic graph analytics, temporal graphs, streaming graph workloads, CPU graph processing, incremental BFS/SSSP, dynamic triangle counting, graph compression, SIMD graph kernels, NUMA graph processing, and reproducible graph systems research**.
 
+## Public graph evidence
+
+A fresh GitHub-hosted campaign completed successfully across three structurally different public graph families. Every run used immutable source identity, deterministic normalization, five repetitions per update fraction, exact incremental-vs-full triangle-count validation, environment capture, preflight validation, and provenance-rich result bundles.
+
+| Public dataset | Graph family | Normalized graph | **1% updates** | **5% updates** | **10% updates** |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `facebook-combined` | social | 4,039 vertices / 88,234 edges | **84.77x** | **17.90x** | **8.90x** |
+| `ca-HepTh` | collaboration | 9,877 vertices / 25,973 edges | **59.05x** | **12.20x** | **6.59x** |
+| `p2p-Gnutella08` | peer-to-peer network | 6,301 vertices / 20,777 edges | **55.23x** | **11.53x** | **6.27x** |
+
+The values are median `full recomputation / incremental` time over five repetitions. **Every measurement in all three complete 13-fraction sweeps matched full recomputation exactly.** No median crossover was observed within the configured sweep through a changed-edge batch equal to 200% of the original base-edge count.
+
+These are **hosted-CI engineering measurements, not publication-grade universal performance claims**. The headline table intentionally excludes tiny update fractions where extremely short incremental timings can exaggerate ratios. See [`docs/multi-dataset-crossover.md`](docs/multi-dataset-crossover.md) for the full methodology, caveats, and evidence contract.
+
 ## Hosted-CI engineering results
 
-A fresh evidence campaign on commit `3c894df099b8cf21ad0b017087f3a02779d0914b` completed successfully on a GitHub-hosted Ubuntu x86_64 runner with 4 logical CPUs and GCC 13.3.0. Benchmark preflight, correctness checks, provenance capture and the result-bundle validator all passed.
+A separate CI-scale evidence campaign completed successfully on a GitHub-hosted Ubuntu x86_64 runner with 4 logical CPUs and GCC 13.3.0. Benchmark preflight, correctness checks, provenance capture and the result-bundle validator all passed.
 
 | Exercised benchmark | Validated hosted-CI result |
 | --- | --- |
@@ -34,7 +48,7 @@ A fresh evidence campaign on commit `3c894df099b8cf21ad0b017087f3a02779d0914b` c
 | Native BFS correctness gate | builtin, pinned LAGraph and pinned GAP use the same dataset/source/directedness and must produce the **same full-distance-vector digest** |
 | 1-vs-2-thread smoke check | Completed successfully; **no scaling claim** is made from hosted CI |
 
-These are **small-scale engineering measurements**, not publication-grade claims of universal superiority. Very small update fractions are intentionally omitted because microsecond-scale timer resolution can inflate ratios. Full methodology and raw evidence are linked below.
+These are **small-scale engineering measurements**, not publication-grade claims of universal superiority. Very small update fractions are intentionally omitted because microsecond-scale timer resolution can inflate ratios.
 
 ## What is implemented
 
@@ -167,6 +181,7 @@ The repository includes infrastructure for repeatable graph-systems experiments:
 
 Useful references:
 
+- [`docs/multi-dataset-crossover.md`](docs/multi-dataset-crossover.md) — validated public multi-dataset incremental evidence
 - [`docs/ci-scale-evidence.md`](docs/ci-scale-evidence.md) — hosted-CI evidence and caveats
 - [`docs/hosted-native-competitors.md`](docs/hosted-native-competitors.md) — pinned GraphBLAS/LAGraph/GAP hosted evidence
 - [`docs/benchmark-methodology.md`](docs/benchmark-methodology.md) — experimental methodology
@@ -176,12 +191,12 @@ Useful references:
 
 ## Research boundary
 
-VeloGraphX does **not** currently claim publication-grade superiority over other graph engines. Dedicated hardware and broader public-dataset campaigns are still required for strong claims about:
+VeloGraphX does **not** currently claim publication-grade superiority over other graph engines. Dedicated hardware and larger controlled campaigns are still required for strong claims about:
 
 - multi-socket NUMA locality and remote-memory behavior;
 - 1/2/4/8/16/32+ thread scaling;
 - 100M+ edge workloads;
-- broad multi-dataset crossover behavior;
+- broader/larger public-dataset behavior under controlled hardware;
 - complete like-for-like native competitor performance;
 - hardware-counter conclusions;
 - research-scale codec throughput;
