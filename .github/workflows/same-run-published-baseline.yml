@@ -1,0 +1,168 @@
+name: Same-Run Published Triangle Baseline
+
+on:
+  push:
+    paths:
+      - '.github/workflows/same-run-published-baseline.yml'
+      - 'benchmarks/same_run_published_baseline.cpp'
+      - 'datasets/multi-dataset-crossover.json'
+      - 'tools/prepare_pinned_public_dataset.py'
+      - 'tools/normalize_edge_list.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'include/**'
+      - 'src/**'
+      - 'CMakeLists.txt'
+  pull_request:
+    paths:
+      - '.github/workflows/same-run-published-baseline.yml'
+      - 'benchmarks/same_run_published_baseline.cpp'
+      - 'datasets/multi-dataset-crossover.json'
+      - 'tools/prepare_pinned_public_dataset.py'
+      - 'tools/normalize_edge_list.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'include/**'
+      - 'src/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  facebook-same-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOLDEN_REPO: https://github.com/StreamingTriangleCounting/TriangleCounting.git
+      GOLDEN_COMMIT: 1085ba049bb94451661d119284d7cd9b68687a81
+      GOLDEN_INCLUDE: external/TriangleCounting/TKDE-triangle-code/Golden-triangle/undirected
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Acquire immutable facebook-combined dataset
+        run: |
+          mkdir -p build/same-run/source
+          python tools/prepare_pinned_public_dataset.py \
+            --manifest datasets/multi-dataset-crossover.json \
+            --dataset facebook-combined \
+            --output-dir build/same-run/source \
+            > build/same-run/dataset-prepared.json
+          python tools/normalize_edge_list.py \
+            --input build/same-run/source/facebook-combined.txt \
+            --output build/same-run/facebook-combined-normalized.txt \
+            --report build/same-run/normalization.json
+
+      - name: Acquire immutable published exact reference source
+        run: |
+          mkdir -p external
+          git clone --filter=blob:none --no-checkout "$GOLDEN_REPO" external/TriangleCounting
+          git -C external/TriangleCounting checkout --detach "$GOLDEN_COMMIT"
+          test "$(git -C external/TriangleCounting rev-parse HEAD)" = "$GOLDEN_COMMIT"
+          test -f "$GOLDEN_INCLUDE/GoldenCounter.h"
+          test -f "$GOLDEN_INCLUDE/Graph.h"
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('external/TriangleCounting/TKDE-triangle-code/Golden-triangle/undirected')
+          files = {}
+          for name in ('GoldenCounter.h', 'Graph.h'):
+              data = (root / name).read_bytes()
+              files[name] = hashlib.sha256(data).hexdigest()
+          report = {
+              'artifact_type': 'published-exact-reference-source',
+              'research_claim': False,
+              'repository': 'StreamingTriangleCounting/TriangleCounting',
+              'commit': '1085ba049bb94451661d119284d7cd9b68687a81',
+              'paper': 'Sliding Window-based Approximate Triangle Counting over Streaming Graphs with Duplicate Edges',
+              'venue': 'SIGMOD 2021',
+              'exact_reference_component': 'TKDE-triangle-code/Golden-triangle/undirected/GoldenCounter.h',
+              'semantics': 'GoldenCounter dynamically accepts edge insertions/expirations; exact triangle_count() is a graph scan, so answer-ready time is update time plus exact-query time.',
+              'sha256': files,
+          }
+          Path('build/same-run/published-baseline-source.json').write_text(json.dumps(report, indent=2) + '\n')
+          PY
+
+      - name: Build project tests and same-run comparator with the same GCC
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake -j 2
+          ctest --test-dir build/cmake --output-on-failure --timeout 60
+          g++ --version | head -1 | tee build/same-run/compiler.txt
+          g++ -O3 -DNDEBUG -std=c++20 \
+            -Iinclude -I"$GOLDEN_INCLUDE" \
+            benchmarks/same_run_published_baseline.cpp \
+            -o build/same-run/same_run_published_baseline
+
+      - name: Capture same-run environment
+        run: |
+          python tools/capture_benchmark_environment.py \
+            --label github-hosted-facebook-same-run-published-baseline \
+            --output build/same-run/environment.json
+
+      - name: Run identical 1%, 5%, and 10% insertion batches
+        run: |
+          build/same-run/same_run_published_baseline \
+            build/same-run/facebook-combined-normalized.txt 5 '0.01,0.05,0.10' \
+            > build/same-run/comparison.csv
+
+      - name: Validate exactness and summarize medians
+        run: |
+          python - <<'PY'
+          import csv, json, statistics
+          from pathlib import Path
+          rows = list(csv.DictReader(Path('build/same-run/comparison.csv').open()))
+          assert len(rows) == 15
+          assert all(r['correct'] == '1' for r in rows)
+          assert all(int(r['velographx_triangles']) == int(r['golden_triangles']) == int(r['recomputed_triangles']) for r in rows)
+          summary = {
+              'artifact_type': 'velographx-same-run-published-baseline',
+              'research_claim': False,
+              'publication_grade': False,
+              'dataset': 'facebook-combined',
+              'repeats': 5,
+              'fractions': {},
+              'all_exact_results_agree': True,
+              'comparison_contract': {
+                  'same_runner': True,
+                  'same_process_binary': True,
+                  'same_compiler': True,
+                  'same_normalized_dataset': True,
+                  'same_update_sequence': True,
+                  'same_batch_sizes': True,
+                  'exact_answer_checked_against_full_recompute': True,
+                  'baseline_answer_ready_definition': 'GoldenCounter insertion latency + exact triangle_count query latency',
+              },
+          }
+          for fraction in ('0.01', '0.05', '0.1'):
+              group = [r for r in rows if r['update_fraction'] == fraction]
+              requested = int(group[0]['requested_edges'])
+              def med(key): return statistics.median(float(r[key]) for r in group)
+              vx_ns = med('velographx_update_ns')
+              full_ns = med('velographx_full_recompute_ns')
+              golden_update_ns = med('golden_update_only_ns')
+              golden_query_ns = med('golden_exact_query_ns')
+              golden_ready_ns = med('golden_answer_ready_ns')
+              summary['fractions'][fraction] = {
+                  'requested_edges': requested,
+                  'velographx_update_median_ms': vx_ns / 1e6,
+                  'velographx_updates_per_s': requested * 1e9 / vx_ns,
+                  'velographx_full_recompute_median_ms': full_ns / 1e6,
+                  'velographx_incremental_vs_full': full_ns / vx_ns,
+                  'golden_update_only_median_ms': golden_update_ns / 1e6,
+                  'golden_exact_query_median_ms': golden_query_ns / 1e6,
+                  'golden_answer_ready_median_ms': golden_ready_ns / 1e6,
+                  'golden_answer_ready_updates_per_s': requested * 1e9 / golden_ready_ns,
+                  'answer_ready_ratio_golden_over_velographx': golden_ready_ns / vx_ns,
+                  'correctness_rate': 1.0,
+              }
+          Path('build/same-run/summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload comparison evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-same-run-published-baseline
+          path: build/same-run/
+          retention-days: 30
