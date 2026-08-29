@@ -45,6 +45,43 @@ class DynamicGraph {
     }
   }
 
+  // Build the compact base representation directly. This avoids routing a large
+  // initial graph through delta hash sets and is intended for immutable dataset
+  // seeding before dynamic updates begin.
+  void bulk_load_edges(const std::vector<std::pair<VertexId, VertexId>>& edges) {
+    VertexId max_vertex = 0;
+    bool saw_edge = false;
+    for (const auto& [u, v] : edges) {
+      if (u == v) continue;
+      max_vertex = std::max(max_vertex, std::max(u, v));
+      saw_edge = true;
+    }
+    if (saw_edge) ensure_vertex(max_vertex);
+
+    for (auto& row : base_) row.clear();
+    for (auto& row : delta_add_) row.clear();
+    for (auto& row : delta_del_) row.clear();
+
+    std::vector<std::size_t> degrees(base_.size(), 0);
+    for (const auto& [u, v] : edges) {
+      if (u == v) continue;
+      ++degrees[u];
+      if (!directed_) ++degrees[v];
+    }
+    for (std::size_t u = 0; u < base_.size(); ++u) base_[u].reserve(degrees[u]);
+
+    for (const auto& [u, v] : edges) {
+      if (u == v) continue;
+      base_[u].push_back(v);
+      if (!directed_) base_[v].push_back(u);
+    }
+    for (auto& row : base_) {
+      std::sort(row.begin(), row.end());
+      row.erase(std::unique(row.begin(), row.end()), row.end());
+    }
+    ++version_;
+  }
+
   void add_edge(VertexId u, VertexId v) {
     UpdateBatch b;
     b.add(u, v);
@@ -73,9 +110,23 @@ class DynamicGraph {
     return out;
   }
 
+  [[nodiscard]] bool is_compact() const noexcept {
+    for (std::size_t u = 0; u < base_.size(); ++u) {
+      if (!delta_add_[u].empty() || !delta_del_[u].empty()) return false;
+    }
+    return true;
+  }
+
+  [[nodiscard]] std::span<const VertexId> compact_neighbors(VertexId u) const noexcept {
+    if (u >= base_.size()) return {};
+    return base_[u];
+  }
+
   [[nodiscard]] bool has_edge(VertexId u, VertexId v) const {
-    const auto ns = neighbors(u);
-    return std::binary_search(ns.begin(), ns.end(), v);
+    if (u >= base_.size()) return false;
+    if (delta_del_[u].contains(v)) return false;
+    if (delta_add_[u].contains(v)) return true;
+    return std::binary_search(base_[u].begin(), base_[u].end(), v);
   }
 
   [[nodiscard]] std::size_t edge_count_directed() const {
@@ -101,6 +152,7 @@ class DynamicGraph {
 
   void compact() {
     for (VertexId u = 0; u < base_.size(); ++u) {
+      if (delta_add_[u].empty() && delta_del_[u].empty()) continue;
       auto merged = neighbors(u);
       base_[u] = std::move(merged);
       delta_add_[u].clear();
