@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <sys/resource.h>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -84,20 +85,37 @@ std::pair<double, std::uint64_t> probe_median(const DynamicGraph& g, std::size_t
   return {values[values.size() / 2], digest};
 }
 
+std::uint64_t mutation_key(VertexId u, VertexId v, bool directed) {
+  if (!directed && v < u) std::swap(u, v);
+  return (static_cast<std::uint64_t>(u) << 32) | static_cast<std::uint64_t>(v);
+}
+
 UpdateBatch make_mutation_round(const DynamicGraph& g, std::size_t round, std::size_t changed_rows) {
   UpdateBatch batch;
   batch.updates.reserve(changed_rows * 2);
+  std::unordered_set<std::uint64_t> reserved_edges;
+  reserved_edges.reserve(changed_rows * 3);
   const auto n = g.vertex_count();
   for (std::size_t i = 0; i < changed_rows; ++i) {
     const auto u = static_cast<VertexId>((round * 104729ULL + i * 8191ULL) % n);
     const auto row = g.neighbors(u);
     if (row.empty()) continue;
     const auto old_v = row[(round + i) % row.size()];
+    const auto old_key = mutation_key(u, old_v, g.directed());
+    if (reserved_edges.contains(old_key)) continue;
+
     auto new_v = static_cast<VertexId>((static_cast<std::uint64_t>(old_v) + 97 + round + i) % n);
-    for (std::size_t tries = 0; tries < 64 && (new_v == u || g.has_edge(u, new_v)); ++tries) {
+    std::uint64_t new_key = mutation_key(u, new_v, g.directed());
+    std::size_t tries = 0;
+    for (; tries < 64; ++tries) {
+      new_key = mutation_key(u, new_v, g.directed());
+      if (new_v != u && !g.has_edge(u, new_v) && !reserved_edges.contains(new_key)) break;
       new_v = static_cast<VertexId>((static_cast<std::uint64_t>(new_v) + 7919) % n);
     }
-    if (new_v == u || g.has_edge(u, new_v)) continue;
+    if (tries == 64 || new_v == u || g.has_edge(u, new_v) || reserved_edges.contains(new_key)) continue;
+
+    reserved_edges.insert(old_key);
+    reserved_edges.insert(new_key);
     batch.remove(u, old_v);
     batch.add(u, new_v);
   }
@@ -196,6 +214,7 @@ int main(int argc, char** argv) {
 
     const auto final_before_digest = digest_graph(graph);
     const auto final_before_edges = graph.edge_count_directed();
+    if (final_before_edges != initial_directed_edges) throw std::runtime_error("steady-state replacement workload changed edge count");
     const auto v0 = Clock::now(); auto final_snapshot = velographx::consolidate_to_csr_snapshot(graph); const auto v1 = Clock::now();
     high_water_rss_kib = std::max(high_water_rss_kib, peak_rss_kib());
     const auto final_after_digest = digest_graph(final_snapshot.graph);
