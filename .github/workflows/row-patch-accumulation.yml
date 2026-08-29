@@ -1,0 +1,88 @@
+name: Row Patch Accumulation Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/row-patch-accumulation.yml'
+      - 'include/velographx/storage/consolidation.hpp'
+      - 'include/velographx/storage/dynamic_graph.hpp'
+      - 'benchmarks/row_patch_accumulation.cpp'
+      - 'datasets/manifest.public-small.json'
+      - 'tools/prepare_dataset.py'
+      - 'tools/normalize_edge_list.py'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  real-irregular-ca-grqc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        cycles: [5, 20, 50]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare checksum-pinned real graph
+        run: |
+          mkdir -p build/row-patch/source
+          python tools/prepare_dataset.py \
+            --manifest datasets/manifest.public-small.json \
+            --output-dir build/row-patch/source \
+            --dataset ca-GrQc > build/row-patch/dataset-prepared.json
+          python tools/normalize_edge_list.py \
+            --input build/row-patch/source/ca-GrQc.txt \
+            --output build/row-patch/ca-GrQc-normalized.txt \
+            --report build/row-patch/normalization.json
+      - name: Build accumulation benchmark
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_row_patch_accumulation -j 2
+      - name: Run long-lived row-patch campaign
+        run: |
+          mkdir -p build/row-patch/cycles-${{ matrix.cycles }}
+          python tools/capture_benchmark_environment.py --label row-patch-ca-grqc-${{ matrix.cycles }} --output build/row-patch/cycles-${{ matrix.cycles }}/environment.json
+          : > build/row-patch/cycles-${{ matrix.cycles }}/runs.jsonl
+          for i in 1 2 3 4 5; do
+            build/cmake/velographx_row_patch_accumulation \
+              build/row-patch/ca-GrQc-normalized.txt \
+              ${{ matrix.cycles }} 64 2048 \
+              >> build/row-patch/cycles-${{ matrix.cycles }}/runs.jsonl
+          done
+          python - <<'PY'
+          import json, statistics
+          from pathlib import Path
+          cycles = '${{ matrix.cycles }}'
+          p = Path(f'build/row-patch/cycles-{cycles}/runs.jsonl')
+          rows = [json.loads(x) for x in p.read_text().splitlines() if x.strip()]
+          assert len(rows) == 5
+          assert all(r['correct'] for r in rows)
+          assert {r['vertices'] for r in rows} == {5242}
+          summary = {
+            'schema_version': 1,
+            'artifact_type': 'velographx-row-patch-accumulation-summary',
+            'dataset': 'ca-GrQc',
+            'dataset_sha256': '513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5',
+            'cycles': int(cycles),
+            'repeats': len(rows),
+            'research_claim': False,
+            'all_correct': True,
+            'median_storage_growth_ratio': statistics.median(r['storage_growth_ratio'] for r in rows),
+            'median_post_consolidation_storage_ratio': statistics.median(r['post_consolidation_storage_ratio'] for r in rows),
+            'median_pre_consolidation_neighbor_ns': statistics.median(r['pre_consolidation_neighbor_ns'] for r in rows),
+            'median_post_consolidation_neighbor_ns': statistics.median(r['post_consolidation_neighbor_ns'] for r in rows),
+            'median_consolidation_ms': statistics.median(r['consolidation_ms'] for r in rows),
+            'median_total_update_ms': statistics.median(r['total_update_ms'] for r in rows),
+            'median_total_row_compaction_ms': statistics.median(r['total_row_compaction_ms'] for r in rows),
+          }
+          Path(f'build/row-patch/cycles-{cycles}/summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(summary, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-row-patch-ca-grqc-${{ matrix.cycles }}
+          path: build/row-patch/cycles-${{ matrix.cycles }}/
+          retention-days: 90
