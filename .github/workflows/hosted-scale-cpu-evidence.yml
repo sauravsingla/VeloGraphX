@@ -1,0 +1,183 @@
+name: Hosted Scale CPU Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/hosted-scale-cpu-evidence.yml'
+      - 'benchmarks/large_scale_triangle_campaign.cpp'
+      - 'benchmarks/thread_scaling_bfs.cpp'
+      - 'benchmarks/public_update_fraction_campaign.cpp'
+      - 'benchmarks/intersection_benchmark.cpp'
+      - 'benchmarks/compression_benchmark.cpp'
+      - 'include/**'
+      - 'src/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  hosted-ablation-and-scaling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Acquire pinned facebook-combined fixture
+        run: |
+          mkdir -p build/hosted/source
+          python tools/prepare_pinned_public_dataset.py \
+            --manifest datasets/multi-dataset-crossover.json \
+            --dataset facebook-combined \
+            --output-dir build/hosted/source \
+            > build/hosted/dataset.json
+          python tools/normalize_edge_list.py \
+            --input build/hosted/source/facebook-combined.txt \
+            --output build/hosted/facebook-normalized.txt \
+            --report build/hosted/normalization.json
+
+      - name: Build benchmark targets
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake -j 4
+          ctest --test-dir build/cmake --output-on-failure --timeout 60
+
+      - name: Capture runner envelope
+        run: |
+          python tools/capture_benchmark_environment.py --label hosted-scale-cpu --output build/hosted/environment.json
+          lscpu > build/hosted/lscpu.txt
+
+      - name: Exact incremental versus full and adaptive-oracle ablation
+        run: |
+          build/cmake/velographx_public_update_fraction_benchmark \
+            build/hosted/facebook-normalized.txt 5 '0.01,0.05,0.10,0.20,0.50' \
+            > build/hosted/incremental-full.csv
+          python - <<'PY'
+          import csv, json, statistics
+          from collections import defaultdict
+          rows=list(csv.DictReader(open('build/hosted/incremental-full.csv')))
+          assert rows and all(r['correct']=='1' for r in rows)
+          groups=defaultdict(list)
+          for r in rows: groups[r['update_fraction']].append(r)
+          out={'research_claim':False,'policy':'oracle-lower-bound-not-production-policy','fractions':[]}
+          for frac, rs in groups.items():
+              inc=statistics.median(int(r['incremental_ns']) for r in rs)
+              full=statistics.median(int(r['full_recompute_ns']) for r in rs)
+              oracle=min(inc,full)
+              out['fractions'].append({'fraction':float(frac),'incremental_ns':inc,'full_ns':full,'oracle_ns':oracle,'chosen':'incremental' if inc<=full else 'full','oracle_vs_forced_full':full/oracle,'oracle_vs_forced_incremental':inc/oracle})
+          out['fractions'].sort(key=lambda x:x['fraction'])
+          json.dump(out,open('build/hosted/adaptive-oracle-ablation.json','w'),indent=2)
+          PY
+
+      - name: SIMD intersection ablation
+        run: build/cmake/velographx_intersection_benchmark > build/hosted/intersection.csv
+
+      - name: Compression and vectorized-decode ablation
+        run: build/cmake/velographx_compression_benchmark > build/hosted/compression.csv
+
+      - name: 1 2 4 thread independent-BFS throughput scaling
+        run: |
+          build/cmake/velographx_thread_scaling_bfs build/hosted/facebook-normalized.txt 24 > build/hosted/thread-scaling.csv
+          python - <<'PY'
+          import csv
+          rows=list(csv.DictReader(open('build/hosted/thread-scaling.csv')))
+          assert [int(r['threads']) for r in rows] == [1,2,4]
+          assert len({r['digest'] for r in rows}) == 1
+          assert all(float(r['queries_per_second']) > 0 for r in rows)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-hosted-cpu-ablation-scaling
+          path: build/hosted/
+          retention-days: 30
+
+  livejournal-exact-scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Acquire canonical SNAP LiveJournal snapshot
+        run: |
+          mkdir -p build/livejournal
+          wget -q --show-progress https://snap.stanford.edu/data/bigdata/communities/com-lj.ungraph.txt.gz -O build/livejournal/com-lj.ungraph.txt.gz
+          sha256sum build/livejournal/com-lj.ungraph.txt.gz | tee build/livejournal/source.sha256
+          gzip -dc build/livejournal/com-lj.ungraph.txt.gz > build/livejournal/com-lj.ungraph.txt
+          python - <<'PY'
+          from pathlib import Path
+          edges=0
+          vertices=set()
+          for line in Path('build/livejournal/com-lj.ungraph.txt').open():
+              if not line.strip() or line.startswith('#'): continue
+              u,v=map(int,line.split()[:2]); edges+=1; vertices.add(u); vertices.add(v)
+          assert edges == 34681189, edges
+          assert len(vertices) == 3997962, len(vertices)
+          Path('build/livejournal/source-stats.txt').write_text(f'vertices={len(vertices)}\nedges={edges}\nexpected_triangles=177820130\n')
+          PY
+      - name: Build scalable triangle target
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_large_scale_triangle_benchmark -j 4
+          python tools/capture_benchmark_environment.py --label livejournal-hosted-scale --output build/livejournal/environment.json
+      - name: Run exact LiveJournal incremental campaign
+        run: |
+          build/cmake/velographx_large_scale_triangle_benchmark \
+            build/livejournal/com-lj.ungraph.txt 177820130 1 '0.0001,0.001,0.01' \
+            > build/livejournal/results.csv
+          python - <<'PY'
+          import csv
+          rows=list(csv.DictReader(open('build/livejournal/results.csv')))
+          assert len(rows)==3 and all(r['correct']=='1' for r in rows)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: velographx-livejournal-exact-scale
+          path: build/livejournal/
+          retention-days: 30
+
+  orkut-exact-scale:
+    needs: livejournal-exact-scale
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Acquire canonical SNAP Orkut snapshot
+        run: |
+          mkdir -p build/orkut
+          wget -q --show-progress https://snap.stanford.edu/data/bigdata/communities/com-orkut.ungraph.txt.gz -O build/orkut/com-orkut.ungraph.txt.gz
+          sha256sum build/orkut/com-orkut.ungraph.txt.gz | tee build/orkut/source.sha256
+          gzip -dc build/orkut/com-orkut.ungraph.txt.gz > build/orkut/com-orkut.ungraph.txt
+          python - <<'PY'
+          from pathlib import Path
+          edges=0
+          vertices=set()
+          for line in Path('build/orkut/com-orkut.ungraph.txt').open():
+              if not line.strip() or line.startswith('#'): continue
+              u,v=map(int,line.split()[:2]); edges+=1; vertices.add(u); vertices.add(v)
+          assert edges == 117185083, edges
+          assert len(vertices) == 3072441, len(vertices)
+          Path('build/orkut/source-stats.txt').write_text(f'vertices={len(vertices)}\nedges={edges}\nexpected_triangles=627584181\n')
+          PY
+      - name: Build scalable triangle target
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_large_scale_triangle_benchmark -j 4
+          python tools/capture_benchmark_environment.py --label orkut-hosted-scale --output build/orkut/environment.json
+      - name: Run exact Orkut incremental campaign
+        run: |
+          build/cmake/velographx_large_scale_triangle_benchmark \
+            build/orkut/com-orkut.ungraph.txt 627584181 1 '0.0001,0.001' \
+            > build/orkut/results.csv
+          python - <<'PY'
+          import csv
+          rows=list(csv.DictReader(open('build/orkut/results.csv')))
+          assert len(rows)==2 and all(r['correct']=='1' for r in rows)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: velographx-orkut-exact-scale
+          path: build/orkut/
+          retention-days: 30
