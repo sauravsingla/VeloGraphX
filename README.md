@@ -33,6 +33,14 @@ The values are median `full recomputation / incremental` time over five repetiti
 
 These are **hosted-CI engineering measurements, not publication-grade universal performance claims**. The headline table intentionally excludes tiny update fractions where extremely short incremental timings can exaggerate ratios. See [`docs/multi-dataset-crossover.md`](docs/multi-dataset-crossover.md) for the full methodology, caveats, and evidence contract.
 
+### Peer-reviewed research context
+
+Dynamic triangle counting is an established research problem rather than a repository-specific benchmark. **Makkar, Bader and Green, HiPC 2017, _Exact and Parallel Triangle Counting in Dynamic Graphs_** studied exact batched triangle maintenance under graph insertions/deletions and emphasized avoiding recomputation from scratch by processing affected structure. Their published implementation targets GPU hardware and reports up to 32M analytic updates/s, or up to 11M updates/s when graph-structure maintenance is included. [Paper](https://doi.org/10.1109/HiPC.2017.00011) · [Author copy](https://davidbader.net/publication/2017-mbg/)
+
+**De Stefani et al., KDD 2016, _TRIÈST_** studied fully dynamic insertion/deletion streams with fixed memory, using reservoir sampling to maintain high-quality **approximate** triangle counts. This is a related but different operating point from VeloGraphX, whose campaign above maintains an **exact** triangle count and validates every incremental result against full recomputation. [KDD paper](https://doi.org/10.1145/2939672.2939771) · [KDD overview](https://www.kdd.org/kdd2016/subtopic/view/triest-counting-local-and-global-triangles-in-fully-dynamic-streams-with-fi)
+
+The comparison is intentionally methodological rather than a cross-paper speed ranking: published systems use different hardware, graph scales, update models, memory constraints, and experimental setups. **VeloGraphX's 84.77x / 59.05x / 55.23x figures are speedups over its own exact full recomputation on the same hosted-CI run, not speedups over these papers.** A defensible system-vs-system performance table requires executing a published baseline on the same dataset, hardware, compiler/runtime, update sequence, and correctness contract.
+
 ## Hosted-CI engineering results
 
 A separate CI-scale evidence campaign completed successfully on a GitHub-hosted Ubuntu x86_64 runner with 4 logical CPUs and GCC 13.3.0. Benchmark preflight, correctness checks, provenance capture and the result-bundle validator all passed.
