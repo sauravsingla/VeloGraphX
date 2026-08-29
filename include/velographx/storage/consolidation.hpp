@@ -69,6 +69,17 @@ class ConsolidationController {
       return true;
     }
 
+    const bool cooldown_complete = last_consolidation_epoch_ == 0 ||
+        epoch >= last_consolidation_epoch_ + config_.min_epochs_between_consolidations;
+    if (!cooldown_complete) {
+      // Cooldown samples are deliberately excluded from the persistence window.
+      // A latency-driven cutover therefore needs a fresh run of qualifying
+      // samples after the cooldown, not evidence accumulated while cutover was
+      // forbidden.
+      latency_breach_streak_ = 0;
+      return false;
+    }
+
     const bool meaningful_patch_growth =
         signal.storage_growth_ratio >= config_.min_storage_growth_for_latency_trigger;
     if (signal.latency_limit_exceeded && meaningful_patch_growth) {
@@ -76,10 +87,6 @@ class ConsolidationController {
     } else {
       latency_breach_streak_ = 0;
     }
-
-    const bool cooldown_complete = last_consolidation_epoch_ == 0 ||
-        epoch >= last_consolidation_epoch_ + config_.min_epochs_between_consolidations;
-    if (!cooldown_complete) return false;
 
     return signal.latency_limit_exceeded && meaningful_patch_growth &&
         latency_breach_streak_ >= config_.latency_breach_samples;
