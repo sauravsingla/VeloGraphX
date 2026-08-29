@@ -58,4 +58,4 @@ jobs:
             echo 'floating competitor version unexpectedly accepted' >&2
             exit 1
           fi
-          grep -Fqi 'forbidden floating version label' build/bad-competitor-plan.err
+          grep -Fqi 'requires an immutable version_or_commit' build/bad-competitor-plan.err
