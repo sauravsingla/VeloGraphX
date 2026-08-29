@@ -20,6 +20,30 @@
       "reason": "published implementation and performance evaluation are GPU-based; a CPU port would be a new reimplementation"
     },
     {
+      "name": "SRDS-2024-DTC",
+      "workload": "approximate_distributed_fully_dynamic_triangle_counting",
+      "published_platform": "distributed_CPU",
+      "public_code": true,
+      "same_cpu_eligible": false,
+      "reason": "CPU and open source, but approximate/distributed semantics do not match VeloGraphX exact global triangle maintenance"
+    },
+    {
+      "name": "SIGMOD-2025-temporal-triangle-counting",
+      "workload": "exact_delta_temporal_triangle_querying",
+      "published_platform": "CPU",
+      "public_code_found_in_screen": false,
+      "same_cpu_eligible": false,
+      "reason": "exact CPU work at a top conference, but temporal-window query semantics differ from dynamic edge-update maintenance"
+    },
+    {
+      "name": "TACO-2025-Cheetah",
+      "workload": "dynamic_graph_pattern_mining_including_triangle_counting",
+      "published_platform": "CPU",
+      "public_code_found_in_screen": false,
+      "same_cpu_eligible": false,
+      "reason": "semantically relevant CPU work, but not a conference result and no public runnable source was found in the reproducibility screen"
+    },
+    {
       "name": "EDTC-TPDS-2026",
       "workload": "exact_dynamic_triangle_counting",
       "published_platform": "GPU",
