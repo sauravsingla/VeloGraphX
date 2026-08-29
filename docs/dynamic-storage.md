@@ -1,52 +1,60 @@
 # Dynamic storage architecture
 
-VeloGraphX stores a changing graph as an immutable, cache-friendly base plus a mutable overlay. The design is intended to avoid the per-vertex and per-edge allocation overhead of a `vector<vector<VertexId>>` base combined with `unordered_set` delta tables.
+VeloGraphX stores a changing graph as a cache-friendly compact base plus mutable overlays. The current design combines large segmented CSR for locality, packed deltas for fast sparse updates, and sparse row-level compact patches so explicit compaction does not rebuild whole 65K-row segments.
 
 ## Segmented CSR base
 
-The compact base is split into fixed-size vertex segments (65,536 vertices per segment). Each segment contains:
+The primary compact base is split into fixed-size vertex segments of 65,536 vertices. Each segment contains one contiguous CSR offset array and one contiguous sorted edge array. Untouched rows therefore retain the locality and zero-copy access of the original segmented CSR design.
 
-- one contiguous CSR offset array;
-- one contiguous sorted edge array;
-- zero-copy neighbor spans for compact algorithms.
-
-Segmenting the vertex space keeps CSR rows contiguous while allowing the graph to extend its vertex range without rebuilding all existing base segments merely to add empty vertices. Bulk loading sorts and deduplicates arcs once and constructs the segmented CSR directly.
+Bulk loading sorts and deduplicates arcs and constructs both the forward CSR and its transpose.
 
 ## Packed mutable deltas
 
-Updates are represented in a shared packed arena. Each vertex owns metadata describing a contiguous sorted slice of delta entries in that arena. An entry records a destination and the desired presence state relative to the compact base.
+Updates are represented in shared packed arenas. Each vertex owns metadata for a contiguous sorted slice of delta entries. An entry records a destination and the desired presence state relative to the current compact row.
 
-This removes one hash table per vertex and avoids hash-node allocation per changed edge. Lookup within a delta row uses binary search. When a row outgrows its slice it is relocated with geometric capacity growth; old arena space is reclaimed by lightweight delta repacking or by full graph compaction.
+This avoids one hash table per vertex and hash-node allocation per changed edge. Lookup within a delta row uses binary search. An update that restores an edge to its compact state removes the overlay entry, so `delta_ratio()` measures live divergence rather than update history.
 
-An update that returns an edge to its base state removes the overlay entry instead of retaining a redundant insertion or tombstone. The delta ratio therefore measures live divergence from the compact base rather than update history.
+## Row-level compact patches
+
+A compacted sparse row no longer requires rebuilding its full 65,536-vertex CSR segment. Instead, VeloGraphX materializes only the touched logical row and stores it in a sparse compact-row patch table. Subsequent reads use the patch for that row and the original CSR for untouched rows.
+
+Forward and reverse rows are patched independently. This preserves the large-CSR layout for the overwhelming majority of rows while making sparse explicit compaction proportional to the rows actually touched by updates.
+
+Patched rows remain mutable: later updates are represented as packed deltas relative to the patch, and later compaction replaces that row's patch with a newly materialized compact row.
 
 ## Reverse adjacency
 
-`DynamicGraph` maintains a transposed segmented CSR and a matching packed reverse delta overlay. Directed algorithms can call `in_neighbors(v)` without scanning every source vertex. The reverse view is updated in the same operation as the forward view, and graph compaction rebuilds the transpose from the newly compacted forward base.
+`DynamicGraph` maintains a transposed segmented CSR, reverse packed deltas, and reverse compact-row patches. Directed algorithms can call `in_neighbors(v)` without scanning every source vertex. Forward and reverse views are updated together.
 
-This is particularly important for localized PageRank repair: predecessor traversal becomes proportional to the actual incoming neighborhood instead of requiring a global vertex scan for every active destination.
+This is particularly important for localized PageRank repair because predecessor traversal becomes proportional to the actual incoming neighborhood rather than requiring global predecessor discovery.
 
-## Compaction
+## Adaptive maintenance
 
-`compact()` materializes each logical outgoing row once, rebuilds segmented CSR from those sorted rows, derives reverse CSR from the rebuilt base, and clears both packed delta arenas. Logical graph versioning remains tied to graph updates rather than representation-only compaction.
+`compact()` sorts and deduplicates the dirty-row identifiers, materializes only those forward and reverse rows, clears only their delta entries, and repacks the delta arenas.
 
-`maybe_compact(threshold)` retains the existing adaptive interface. Delta arenas can also repack themselves when relocation fragmentation becomes high, avoiding an unnecessary full graph rebuild.
+`maybe_compact(threshold)` can compact individual rows whose delta density crosses a row-local threshold. Automatic row compaction is additionally gated by a global delta ratio: while global divergence is below 1%, sparse batches remain on the packed-delta path rather than paying a dirty-row sort/scan after every batch. Delta arenas can repack independently when relocation fragmentation becomes high.
+
+This policy separates two concerns: cheap mutation for sparse changes and localized consolidation once enough divergence accumulates.
 
 ## Introspection
 
 The dynamic graph exposes:
 
-- `base_edge_count_directed()` — compact forward-base arcs;
+- `base_edge_count_directed()` — arcs represented by the logical compact layer, including row patches;
 - `delta_edge_count()` — live forward overlay entries;
-- `delta_ratio()` — live overlay / compact-base ratio;
-- `storage_bytes()` — approximate owned storage for forward/reverse base and delta structures;
-- `compact_neighbors()` and `compact_in_neighbors()` — zero-copy spans when callers know the graph is compact;
+- `delta_ratio()` — live overlay / compact-edge ratio;
+- `storage_bytes()` — approximate owned storage for forward/reverse CSR, patches and deltas;
+- `compact_neighbors()` and `compact_in_neighbors()` — zero-copy spans from CSR or compact row patches;
 - `neighbors()` and `in_neighbors()` — logical adjacency with overlays applied.
+
+The existing dirty-count introspection names are retained for compatibility, but under the row-local design they count distinct dirty rows rather than physical CSR segments.
 
 ## Correctness contract
 
-Forward and reverse logical views must agree for every directed arc. Bulk-load duplicates are removed. Overlay entries are kept sorted and unique per vertex. Compaction must preserve logical outgoing and incoming rows exactly. Tests exercise insertion, deletion, cancellation back to base state, reverse traversal, compaction equivalence, edge counts, and vertex-space growth across storage segments.
+Forward and reverse logical views must agree for every directed arc. Bulk-load duplicates are removed. Overlay entries are sorted and unique per row. Row compaction must preserve outgoing and incoming neighborhoods, edge counts and later mutability. Tests cover insertion, deletion, cancellation back to compact state, reverse traversal, repeated mutation after compaction, explicit dirty-row cleanup and vertex-space growth.
 
-## Current boundary
+## Measured boundary
 
-The new layout substantially reduces allocation and hash overhead and removes the previous global predecessor scan from localized PageRank. It is still an in-memory research engine: publication-grade claims about billion-edge memory efficiency should be based on measured resident memory and update throughput on controlled hardware rather than inferred from the data structure alone.
+The retained 10M/100M storage A/B campaign shows why row patches replaced whole-segment compaction: on the exercised 0.1% mixed-update workload, explicit compaction is now about **1.657x** and **1.492x** the historical row-local implementation, versus **9.629x** and **11.989x** for the previous 65K dirty-segment design. The same final run retains lower neighbor latency and higher update throughput than the historical layout at both tested scales.
+
+These are hosted-CI engineering measurements on synthetic regular graphs, not universal claims. Long-running patch accumulation, consolidation back into CSR, irregular graph structure, update-density sweeps and controlled 100M+ hardware runs remain publication-quality follow-up work. See [storage A/B evidence](storage-ab-evidence.md).
