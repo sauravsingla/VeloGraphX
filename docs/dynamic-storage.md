@@ -1,6 +1,6 @@
 # Dynamic storage architecture
 
-VeloGraphX stores a changing graph as a cache-friendly compact base plus mutable overlays. The current design combines large segmented CSR for locality, packed deltas for fast sparse updates, and sparse row-level compact patches so explicit compaction does not rebuild whole 65K-row segments.
+VeloGraphX stores a changing graph as a cache-friendly compact base plus mutable overlays. The current design combines large segmented CSR for locality, packed deltas for fast sparse updates, sparse row-level compact patches so explicit compaction does not rebuild whole 65K-row segments, and an explicit canonical-CSR consolidation path for long-running patch accumulation.
 
 ## Segmented CSR base
 
@@ -34,7 +34,17 @@ This is particularly important for localized PageRank repair because predecessor
 
 `maybe_compact(threshold)` can compact individual rows whose delta density crosses a row-local threshold. Automatic row compaction is additionally gated by a global delta ratio: while global divergence is below 1%, sparse batches remain on the packed-delta path rather than paying a dirty-row sort/scan after every batch. Delta arenas can repack independently when relocation fragmentation becomes high.
 
-This policy separates two concerns: cheap mutation for sparse changes and localized consolidation once enough divergence accumulates.
+This policy separates cheap mutation for sparse changes from localized row maintenance. It deliberately does not perform a global CSR rebuild inside the update path.
+
+## Canonical CSR consolidation
+
+Long-running row-local compaction can accumulate enough patched rows to increase owned storage and add a second compact-row lookup on a growing fraction of accesses. `include/velographx/storage/consolidation.hpp` provides `consolidate_to_csr_snapshot()`, which materializes the current logical graph into a fresh segmented CSR plus transpose.
+
+The source graph is left unchanged. The returned snapshot starts with no row patches and no pending deltas, so an application can validate the snapshot before an explicit maintenance-boundary cutover. Consolidation is O(E) and is intentionally separated from `DynamicGraph::apply()`.
+
+The same header provides `ConsolidationPolicy` and `evaluate_consolidation()`. The current engineering defaults signal consolidation when either owned storage or sampled neighbor latency reaches **1.25x** its canonical-CSR baseline. The helper only returns a signal; it never starts consolidation automatically.
+
+Those defaults come from the retained real-graph accumulation campaign, not from an assumption that one threshold is universally optimal. Applications can provide their own policy values.
 
 ## Introspection
 
@@ -51,10 +61,14 @@ The existing dirty-count introspection names are retained for compatibility, but
 
 ## Correctness contract
 
-Forward and reverse logical views must agree for every directed arc. Bulk-load duplicates are removed. Overlay entries are sorted and unique per row. Row compaction must preserve outgoing and incoming neighborhoods, edge counts and later mutability. Tests cover insertion, deletion, cancellation back to compact state, reverse traversal, repeated mutation after compaction, explicit dirty-row cleanup and vertex-space growth.
+Forward and reverse logical views must agree for every directed arc. Bulk-load duplicates are removed. Overlay entries are sorted and unique per row. Row compaction must preserve outgoing and incoming neighborhoods, edge counts and later mutability.
+
+CSR consolidation has an additional contract: the fresh snapshot must preserve the full logical adjacency, deterministic sampled-neighborhood digest, directed edge count and directed/undirected semantics before a caller cuts over. Tests cover snapshot preservation and consolidation-policy threshold behavior in addition to mutation, reverse traversal and row-patch maintenance.
 
 ## Measured boundary
 
-The retained 10M/100M storage A/B campaign shows why row patches replaced whole-segment compaction: on the exercised 0.1% mixed-update workload, explicit compaction is now about **1.657x** and **1.492x** the historical row-local implementation, versus **9.629x** and **11.989x** for the previous 65K dirty-segment design. The same final run retains lower neighbor latency and higher update throughput than the historical layout at both tested scales.
+The retained 10M/100M storage A/B campaign shows why row patches replaced whole-segment compaction: on the exercised 0.1% mixed-update workload, explicit compaction is about **1.657x** and **1.492x** the historical row-local implementation, versus **9.629x** and **11.989x** for the previous 65K dirty-segment design. The same final run retains lower neighbor latency and higher update throughput than the historical layout at both tested scales.
 
-These are hosted-CI engineering measurements on synthetic regular graphs, not universal claims. Long-running patch accumulation, consolidation back into CSR, irregular graph structure, update-density sweeps and controlled 100M+ hardware runs remain publication-quality follow-up work. See [storage A/B evidence](storage-ab-evidence.md).
+The follow-up real-graph campaign measures long-running accumulation on `ca-GrQc` and directed `web-Google`. On web-Google, 50 cycles raise sampled neighbor latency to **1.719x** the pristine CSR baseline while owned storage reaches **1.332x**; validated CSR consolidation reduces the sampled latency to **0.604x of the pre-consolidation value** and the owned footprint to **0.751x of the accumulated value**. See [row-patch accumulation evidence](row-patch-accumulation-evidence.md).
+
+These are hosted-CI engineering measurements, not universal claims. Publication-quality follow-up still requires controlled hardware, broader graph families, mutation-locality sweeps, repeated steady-state consolidation cycles and maintenance-amortized application throughput.
