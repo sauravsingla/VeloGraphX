@@ -174,7 +174,8 @@ int main(int argc, char** argv) {
       if (should_consolidate) {
         if (signal.storage_limit_exceeded) ++storage_trigger_count;
         if (signal.latency_limit_exceeded) ++latency_trigger_count;
-        const auto before_digest = digest_graph(graph), before_edges = graph.edge_count_directed();
+        const auto before_digest = digest_graph(graph);
+        const auto before_edges = graph.edge_count_directed();
         const auto s0 = Clock::now(); auto snapshot = velographx::consolidate_to_csr_snapshot(graph); const auto s1 = Clock::now();
         const double consolidation_ms = std::chrono::duration<double, std::milli>(s1 - s0).count();
         high_water_rss_kib = std::max(high_water_rss_kib, peak_rss_kib());
@@ -193,7 +194,8 @@ int main(int argc, char** argv) {
     }
     const double campaign_wall_ms = std::chrono::duration<double, std::milli>(Clock::now() - campaign_begin).count();
 
-    const auto final_before_digest = digest_graph(graph), final_before_edges = graph.edge_count_directed();
+    const auto final_before_digest = digest_graph(graph);
+    const auto final_before_edges = graph.edge_count_directed();
     const auto v0 = Clock::now(); auto final_snapshot = velographx::consolidate_to_csr_snapshot(graph); const auto v1 = Clock::now();
     high_water_rss_kib = std::max(high_water_rss_kib, peak_rss_kib());
     const auto final_after_digest = digest_graph(final_snapshot.graph);
