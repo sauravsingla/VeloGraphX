@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "artifact_type": "published-baseline-eligibility",
+  "research_claim": false,
+  "direct_comparison_requirements": [
+    "public_runnable_implementation",
+    "same_cpu_runner_compatible",
+    "matching_workload_semantics",
+    "identical_normalized_dataset",
+    "identical_deterministic_updates",
+    "exact_correctness_gate",
+    "captured_compiler_runtime_and_measurement_boundary"
+  ],
+  "candidates": [
+    {
+      "name": "HiPC-2017-Makkar-Bader-Green",
+      "workload": "exact_dynamic_triangle_counting",
+      "published_platform": "GPU-cuSTINGER-Hornet",
+      "same_cpu_eligible": false,
+      "reason": "published implementation and performance evaluation are GPU-based; a CPU port would be a new reimplementation"
+    },
+    {
+      "name": "EDTC-TPDS-2026",
+      "workload": "exact_dynamic_triangle_counting",
+      "published_platform": "GPU",
+      "same_cpu_eligible": false,
+      "reason": "EDTC is explicitly a GPU system; same-CPU execution would require a new port"
+    },
+    {
+      "name": "GraphDelta-JSA-2026",
+      "workload": "distributed_incremental_pagerank_cc_sssp",
+      "published_platform": "Spark-3.5.1-GraphX-distributed",
+      "same_cpu_eligible": false,
+      "reason": "different algorithms and distributed runtime; not eligible for an exact triangle-counting comparison"
+    },
+    {
+      "name": "SIGMOD-2021-GoldenCounter-exact-reference",
+      "workload": "exact_triangle_count_reference",
+      "published_platform": "CPU-compatible-C++",
+      "same_cpu_eligible": true,
+      "executed": true,
+      "pinned_revision": "1085ba049bb94451661d119284d7cd9b68687a81",
+      "evidence": "docs/same-run-published-baseline.md"
+    }
+  ]
+}
