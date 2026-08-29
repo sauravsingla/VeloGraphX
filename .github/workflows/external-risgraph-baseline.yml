@@ -6,9 +6,9 @@ on:
       - '.github/workflows/external-risgraph-baseline.yml'
       - 'benchmarks/external_risgraph_bfs.cpp'
       - 'tools/prepare_risgraph_compat.py'
+      - 'tools/prepare_pinned_edge_stream.py'
       - 'include/velographx/incremental/bfs.hpp'
       - 'include/velographx/storage/**'
-      - 'tools/normalize_edge_list.py'
       - 'datasets/manifest.public-small.json'
       - 'CMakeLists.txt'
   workflow_dispatch:
@@ -89,13 +89,20 @@ jobs:
           PY
           fi
           echo "$EXPECTED_SHA  $TARGET" | sha256sum -c -
-          python tools/normalize_edge_list.py --input "$TARGET" --output build/external-risgraph/web-Google-normalized.txt --report build/external-risgraph/normalization.json --directed
+          python tools/prepare_pinned_edge_stream.py \
+            --input "$TARGET" \
+            --output build/external-risgraph/web-Google-normalized.txt \
+            --report build/external-risgraph/normalization.json \
+            --expected-sha256 "$EXPECTED_SHA" \
+            --expected-vertices 875713 \
+            --expected-edges 5105039
           python - <<'PY'
           import json
           n=json.load(open('build/external-risgraph/normalization.json'))
           assert n['vertex_count']==875713
           assert n['edge_count']==5105039
           assert n['source_sha256']=='8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1'
+          assert n['preparation']=='checksum-pinned source order; comments stripped; no edge reordering'
           PY
           build/risgraph-build/convert_to_binary < build/external-risgraph/web-Google-normalized.txt > build/external-risgraph/web-Google.bin
 
@@ -159,7 +166,7 @@ jobs:
             'dataset':'web-Google','dataset_vertices':875713,'dataset_edges':5105039,'directed':True,
             'root':int(vx['root']),'imported_rate':vx['imported_rate'],'batch_size':vx['batch_size'],'batches':vx['batches'],
             'initial_edges':vx['initial_edges'],'final_edges':vx['final_edges'],
-            'update_semantics':'per batch: add next window edges, remove equally many oldest window edges, then maintain exact BFS',
+            'update_semantics':'per batch: add next source-order window edges, remove equally many oldest source-order window edges, then maintain exact BFS',
             'velographx_deletion_policy':'pre-batch shortest-path-DAG support invalidation, boundary repair, final-state insertion relaxation, and 35% affected-region fallback',
             'legacy_velographx_policy':'full BFS recomputation after every deletion-containing batch',
             'deletion_candidates':vx['deletion_candidates'],'affected_vertices':vx['affected_vertices'],
