@@ -94,7 +94,8 @@ int main() {
   directed.add_edge(0, 4);
   assert(!directed.has_edge(0, 2));
   assert(directed.has_edge(0, 4));
-  assert(!std::binary_search(directed.in_neighbors(2).begin(), directed.in_neighbors(2).end(), 0));
+  const auto in_two_after_repatch = directed.in_neighbors(2);
+  assert(!std::binary_search(in_two_after_repatch.begin(), in_two_after_repatch.end(), 0));
   const auto in_four = directed.in_neighbors(4);
   assert(std::binary_search(in_four.begin(), in_four.end(), 0));
   const auto repatch_count = directed.edge_count_directed();
