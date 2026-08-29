@@ -15,6 +15,38 @@ struct ConsolidationSnapshot {
   std::size_t directed_edges{0};
 };
 
+struct ConsolidationPolicy {
+  double max_storage_growth_ratio{1.25};
+  double max_neighbor_latency_ratio{1.25};
+};
+
+struct ConsolidationSignal {
+  double storage_growth_ratio{1.0};
+  double neighbor_latency_ratio{1.0};
+  bool storage_limit_exceeded{false};
+  bool latency_limit_exceeded{false};
+  bool should_consolidate{false};
+};
+
+inline ConsolidationSignal evaluate_consolidation(
+    std::size_t current_storage_bytes,
+    std::size_t canonical_storage_bytes,
+    double current_neighbor_latency,
+    double canonical_neighbor_latency,
+    ConsolidationPolicy policy = {}) noexcept {
+  const auto storage_ratio = canonical_storage_bytes == 0
+      ? 1.0
+      : static_cast<double>(current_storage_bytes) /
+            static_cast<double>(canonical_storage_bytes);
+  const auto latency_ratio = canonical_neighbor_latency <= 0.0
+      ? 1.0
+      : current_neighbor_latency / canonical_neighbor_latency;
+  const bool storage_exceeded = storage_ratio >= policy.max_storage_growth_ratio;
+  const bool latency_exceeded = latency_ratio >= policy.max_neighbor_latency_ratio;
+  return {storage_ratio, latency_ratio, storage_exceeded, latency_exceeded,
+          storage_exceeded || latency_exceeded};
+}
+
 // Rebuild the current logical graph into a canonical segmented-CSR snapshot.
 // This deliberately does not mutate the source graph: callers can validate the
 // snapshot before an application-level cutover. Row patches and delta arenas in
