@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <initializer_list>
 #include <vector>
 
 #include "velographx/incremental/connected_components.hpp"
@@ -95,8 +96,9 @@ int main() {
   directed.add_edge(100000, 2);
   assert(directed.vertex_count() == 100001);
   assert(directed.has_edge(100000, 2));
-  assert(std::binary_search(directed.in_neighbors(2).begin(),
-                            directed.in_neighbors(2).end(), 100000));
+  const auto incoming_after_growth = directed.in_neighbors(2);
+  assert(std::binary_search(incoming_after_growth.begin(),
+                            incoming_after_growth.end(), 100000));
 
   assert(directed.storage_bytes() > 0);
   return 0;
