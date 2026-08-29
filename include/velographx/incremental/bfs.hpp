@@ -29,17 +29,15 @@ class IncrementalBFS {
     last_used_full_recompute_ = false;
     if (batch.empty()) return;
 
-    // Record only deletions that can invalidate the current shortest-path DAG.
-    // The support test after mutation filters deletions that still have an
-    // alternate predecessor at the same BFS level.
+    const auto old_dist = dist_;
     std::vector<VertexId> deletion_candidates;
     deletion_candidates.reserve(batch.updates.size());
     for (const auto& e : batch.updates) {
-      if (e.add || e.src >= dist_.size() || e.dst >= dist_.size()) continue;
-      if (dist_[e.src] != unreachable && dist_[e.src] + 1 == dist_[e.dst]) {
+      if (e.add || e.src >= old_dist.size() || e.dst >= old_dist.size()) continue;
+      if (old_dist[e.src] != unreachable && old_dist[e.src] + 1 == old_dist[e.dst]) {
         deletion_candidates.push_back(e.dst);
       }
-      if (!g_.directed() && dist_[e.dst] != unreachable && dist_[e.dst] + 1 == dist_[e.src]) {
+      if (!g_.directed() && old_dist[e.dst] != unreachable && old_dist[e.dst] + 1 == old_dist[e.src]) {
         deletion_candidates.push_back(e.src);
       }
     }
@@ -51,14 +49,12 @@ class IncrementalBFS {
     g_.apply(batch);
     if (dist_.size() < g_.vertex_count()) dist_.resize(g_.vertex_count(), unreachable);
 
-    if (!deletion_candidates.empty() && !repair_deletions(deletion_candidates)) {
+    if (!deletion_candidates.empty() && !repair_deletions(deletion_candidates, old_dist)) {
       recompute();
       last_used_full_recompute_ = true;
       return;
     }
 
-    // Additions can only decrease distances. Run the normal incremental
-    // relaxation after deletion repair so mixed batches are handled exactly.
     std::queue<VertexId> q;
     for (const auto& e : batch.updates) {
       if (!e.add) continue;
@@ -87,66 +83,69 @@ class IncrementalBFS {
   }
 
  private:
-  [[nodiscard]] bool has_level_support(VertexId v, std::uint32_t level) const {
-    if (v == source_) return level == 0;
-    if (level == unreachable || level == 0) return false;
+  [[nodiscard]] bool has_valid_old_level_support(
+      VertexId v, std::uint32_t old_level,
+      const std::vector<std::uint32_t>& old_dist,
+      const std::vector<std::uint8_t>& affected) const {
+    if (v == source_) return old_level == 0;
+    if (old_level == unreachable || old_level == 0) return false;
     for (auto p : g_.in_neighbors(v)) {
-      if (p < dist_.size() && dist_[p] != unreachable && dist_[p] + 1 == level) return true;
+      if (p >= old_dist.size() || p >= affected.size() || affected[p]) continue;
+      if (old_dist[p] != unreachable && old_dist[p] + 1 == old_level) return true;
     }
     return false;
   }
 
-  [[nodiscard]] std::uint32_t best_boundary_distance(VertexId v) const {
+  [[nodiscard]] std::uint32_t best_boundary_distance(
+      VertexId v, const std::vector<std::uint8_t>& affected) const {
     std::uint32_t best = unreachable;
     for (auto p : g_.in_neighbors(v)) {
-      if (p >= dist_.size() || dist_[p] == unreachable) continue;
+      if (p >= dist_.size() || p >= affected.size() || affected[p] || dist_[p] == unreachable) continue;
       const auto candidate = dist_[p] + 1;
       if (candidate < best) best = candidate;
     }
     return best;
   }
 
-  bool repair_deletions(const std::vector<VertexId>& candidates) {
+  bool repair_deletions(const std::vector<VertexId>& candidates,
+                        const std::vector<std::uint32_t>& old_dist) {
     const auto n = g_.vertex_count();
     const auto fallback_limit = std::max<std::size_t>(
         1, static_cast<std::size_t>(static_cast<double>(n) * deletion_fallback_fraction_));
 
     std::vector<std::uint8_t> affected(n, 0);
-    std::queue<std::pair<VertexId, std::uint32_t>> invalidate;
+    std::queue<VertexId> invalidate;
 
     auto invalidate_if_unsupported = [&](VertexId v) {
-      if (v >= dist_.size() || v == source_ || dist_[v] == unreachable || affected[v]) return;
-      const auto old_level = dist_[v];
-      if (has_level_support(v, old_level)) return;
+      if (v >= old_dist.size() || v == source_ || old_dist[v] == unreachable || affected[v]) return;
+      if (has_valid_old_level_support(v, old_dist[v], old_dist, affected)) return;
       affected[v] = 1;
       dist_[v] = unreachable;
-      invalidate.emplace(v, old_level);
+      invalidate.push(v);
       ++last_affected_vertices_;
     };
 
     for (auto v : candidates) invalidate_if_unsupported(v);
 
-    // Invalidate descendants whose last predecessor at the previous level was
-    // removed. Alternate shortest-path parents keep a vertex valid.
     while (!invalidate.empty()) {
-      const auto [u, old_level] = invalidate.front();
+      const auto u = invalidate.front();
       invalidate.pop();
       if (last_affected_vertices_ > fallback_limit) return false;
+      if (u >= old_dist.size() || old_dist[u] == unreachable) continue;
       for (auto v : g_.neighbors(u)) {
-        if (v < dist_.size() && dist_[v] == old_level + 1) invalidate_if_unsupported(v);
+        if (v < old_dist.size() && old_dist[v] == old_dist[u] + 1) {
+          invalidate_if_unsupported(v);
+        }
       }
     }
 
     if (last_affected_vertices_ == 0) return true;
 
-    // All invalid vertices are now unreachable. Re-seed them only from
-    // surviving boundary predecessors, then rebuild shortest distances inside
-    // the affected region in increasing-distance order.
     using Item = std::pair<std::uint32_t, VertexId>;
     std::priority_queue<Item, std::vector<Item>, std::greater<Item>> pq;
     for (VertexId v = 0; v < affected.size(); ++v) {
       if (!affected[v]) continue;
-      const auto best = best_boundary_distance(v);
+      const auto best = best_boundary_distance(v, affected);
       if (best != unreachable) {
         dist_[v] = best;
         pq.emplace(best, v);
@@ -167,13 +166,12 @@ class IncrementalBFS {
       }
     }
 
-    // In a mixed batch, additions are already present while the deletion region
-    // is repaired. A repaired vertex can therefore emerge at a shorter level
-    // than before the batch. Propagate such decreases beyond the invalidated
-    // region before processing the explicit insertion-edge frontier below.
     std::queue<VertexId> repaired_frontier;
     for (VertexId v = 0; v < affected.size(); ++v) {
-      if (affected[v] && dist_[v] != unreachable) repaired_frontier.push(v);
+      if (affected[v] && dist_[v] != unreachable &&
+          (v >= old_dist.size() || dist_[v] < old_dist[v])) {
+        repaired_frontier.push(v);
+      }
     }
     propagate_decreases(repaired_frontier);
     return true;
