@@ -68,7 +68,7 @@ jobs:
           p.write_text(s.replace(needle, needle + '#include <limits>\n', 1))
           PY
           mkdir -p baseline-artifact
-          git -C /tmp/risgraph diff -- deps/abseil-cpp > baseline-artifact/risgraph-compatibility.patch
+          git -C /tmp/risgraph/deps/abseil-cpp diff > baseline-artifact/risgraph-compatibility.patch
           grep -q '^+#include <limits>$' baseline-artifact/risgraph-compatibility.patch
           cmake -S /tmp/risgraph -B /tmp/risgraph/build \
             -DCMAKE_BUILD_TYPE=Release \
