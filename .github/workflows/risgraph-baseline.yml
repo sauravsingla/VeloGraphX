@@ -38,25 +38,35 @@ jobs:
           test "$(git -C external/RisGraph/deps/abseil-cpp rev-parse HEAD)" = "$RISGRAPH_ABSEIL_COMMIT"
           grep -q 'Apache License' external/RisGraph/LICENSE
 
-          # The pinned 2020 Abseil dependency relied on a transitive <limits>
-          # include that GCC 13 no longer supplies. Add only the missing C++
-          # standard header; no RisGraph algorithm or benchmark code is changed.
+          # Build-only compatibility for the immutable 2022 source on the
+          # current Ubuntu runner. No graph algorithm or benchmark logic changes.
           python - <<'PY'
           from pathlib import Path
-          p=Path('external/RisGraph/deps/abseil-cpp/absl/synchronization/internal/graphcycles.cc')
-          s=p.read_text()
+
+          absl=Path('external/RisGraph/deps/abseil-cpp/absl/synchronization/internal/graphcycles.cc')
+          s=absl.read_text()
           needle='#include <algorithm>\n'
           assert needle in s and '#include <limits>\n' not in s
-          p.write_text(s.replace(needle, needle + '#include <limits>\n', 1))
+          absl.write_text(s.replace(needle, needle + '#include <limits>\n', 1))
+
+          graph=Path('external/RisGraph/core/graph.hpp')
+          s=graph.read_text()
+          assert '#include <tbb/tbb.h>\n' in s
+          assert 'tbb::task_scheduler_init init(ncpus);' in s
+          s=s.replace('#include <tbb/tbb.h>\n', '#include <tbb/tbb.h>\n#include <tbb/global_control.h>\n', 1)
+          s=s.replace('tbb::task_scheduler_init init(ncpus);',
+                      'tbb::global_control init(tbb::global_control::max_allowed_parallelism, ncpus);', 1)
+          graph.write_text(s)
           PY
-          git -C external/RisGraph/deps/abseil-cpp diff -- absl/synchronization/internal/graphcycles.cc > risgraph-compat.patch
-          grep -q '^+#include <limits>' risgraph-compat.patch
+          git -C external/RisGraph/deps/abseil-cpp diff -- absl/synchronization/internal/graphcycles.cc > risgraph-abseil-compat.patch
+          git -C external/RisGraph diff -- core/graph.hpp > risgraph-tbb-compat.patch
+          grep -q '^+#include <limits>' risgraph-abseil-compat.patch
+          grep -q 'global_control' risgraph-tbb-compat.patch
 
       - name: Build RisGraph batched BFS
         run: |
-          # RisGraph's bundled FindTBB predates oneTBB and otherwise probes the
-          # removed tbb/tbb_stddef.h header. Supplying the installed package
-          # version bypasses only that obsolete detector.
+          # Its bundled FindTBB predates oneTBB and probes a removed version
+          # header. Supplying the installed version bypasses only that detector.
           TBB_VERSION="$(dpkg-query -W -f='${Version}' libtbb-dev | sed 's/-.*//')"
           cmake -S external/RisGraph -B external/RisGraph/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -124,7 +134,7 @@ jobs:
             'baseline':'RisGraph',
             'baseline_commit':'4e77f774d4aa7cd0bf3011e713496573b70c91ab',
             'baseline_abseil_commit':'f1dad1e9b277066d676034d8f2a982b9e64310de',
-            'compatibility_patch':'one missing standard include (<limits>) in pinned Abseil only',
+            'compatibility_patches':['pinned Abseil: explicit <limits> include','RisGraph TBB scheduler API: task_scheduler_init -> global_control for oneTBB'],
             'paper':'RisGraph: A Real-Time Streaming System for Evolving Graphs to Support Sub-millisecond Per-update Analysis at Millions Ops/s',
             'venue':'SIGMOD 2021',
             'semantics':'directed unweighted BFS; 50% initial stream; each batch inserts the next edges and deletes the corresponding oldest edges; maintenance includes graph mutation and answer repair',
@@ -165,5 +175,6 @@ jobs:
             risgraph.stderr
             stream.json
             environment.txt
-            risgraph-compat.patch
+            risgraph-abseil-compat.patch
+            risgraph-tbb-compat.patch
           retention-days: 30
