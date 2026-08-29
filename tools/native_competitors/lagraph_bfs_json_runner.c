@@ -1,6 +1,4 @@
 #include <LAGraph.h>
-#include <LAGraphX.h>
-#include <GraphBLAS.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -58,7 +56,7 @@ int main(int argc, char **argv) {
     printf("{\"framework_version\":\"LAGraph-1.2.2\",\"distances\":[");
     for (int64_t i = 0; i < vertices; i++) {
         int64_t d = -1;
-        GrB_Info info = GrB_Vector_extractElement_INT64(&d, level, (GrB_Index) i);
+        GrB_Info info = GrB_Vector_extractElement(&d, level, (GrB_Index) i);
         if (info == GrB_NO_VALUE) d = -1;
         else if (info != GrB_SUCCESS) die("extract level failed");
         if (i) putchar(',');
