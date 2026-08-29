@@ -32,7 +32,7 @@ jobs:
             exit 1
           fi
           grep -Fqi 'not execution-ready' build/public-plan-ready.err
-      - name: Validate unresolved competitor pin plan
+      - name: Validate competitor pin plan
         run: |
           python tools/validate_competitor_research_plan.py benchmarks/competitor-research-plan.json > build/competitor-plan.json
           python - <<'PY'
@@ -40,9 +40,9 @@ jobs:
           from pathlib import Path
           report = json.loads(Path('build/competitor-plan.json').read_text())
           assert report['valid'] is True
-          assert report['competitor_count'] == 6
-          assert report['ready_count'] == 0
-          assert report['unresolved_count'] == 6
+          assert report['competitor_count'] == 8
+          assert report['ready_count'] == 1
+          assert report['unresolved_count'] == 7
           assert report['publication_ready'] is False
           PY
       - name: Reject floating competitor version pins
