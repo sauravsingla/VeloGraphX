@@ -36,6 +36,17 @@ VeloGraphX was compared in the same process and on the same hosted runner with t
 
 All **15/15 measured results agreed exactly** across VeloGraphX incremental maintenance, the published exact reference, and VeloGraphX full recomputation. The comparison is specifically with the pinned exact reference component at revision `1085ba049bb94451661d119284d7cd9b68687a81`; it is not a claim against the paper's approximate SWTC algorithm. [Full methodology](docs/same-run-published-baseline.md).
 
+### Same-semantics dynamic BFS baseline
+
+VeloGraphX was also compared with the pinned SIGMOD 2021 **RisGraph** implementation (`4e77f774d4aa7cd0bf3011e713496573b70c91ab`) under its sliding-window directed BFS workload: the same edge stream, root, 50% initial import, 256-edge batches, and answer-ready timing envelope for insertion, deletion, and BFS maintenance.
+
+| System | Mean answer-ready batch time |
+| --- | ---: |
+| VeloGraphX | **920.625 µs** |
+| RisGraph | **125.598 µs** |
+
+RisGraph was approximately **7.33x faster** on this deletion-heavy workload. The result is retained because the semantics and correctness gates match even though it is unfavorable to VeloGraphX. VeloGraphX currently falls back to full BFS recomputation on deletion-containing batches, while RisGraph implements incremental deletion repair. Both systems matched the same final BFS layer histogram, and each maintained answer was checked against full rebuilding before the timing ratio was accepted. [Methodology, compatibility notes, and evidence](docs/external-dynamic-baselines.md).
+
 ### Dynamic storage and steady-state maintenance
 
 The current segmented-CSR / packed-delta / sparse-row-patch layout was compared with the actual pre-upgrade storage reconstructed from commit `22d05c6b54b9199c852062395b3d6536abca02d9`.
@@ -81,13 +92,13 @@ Exact-maintenance experiments are checked against trusted exact results or full 
 
 CI covers Ubuntu and macOS builds, Linux ASan/UBSan, dynamic mutation correctness, forward/reverse storage consistency, optimized-vs-scalar kernels, scheduler/NUMA behavior, compression, native I/O, Python interoperability, dataset checksums, and benchmark artifact contracts.
 
-Detailed methodology: [benchmark methodology](docs/benchmark-methodology.md) · [published-baseline eligibility](docs/published-baseline-eligibility.md) · [limitations](docs/limitations.md)
+Detailed methodology: [benchmark methodology](docs/benchmark-methodology.md) · [published-baseline eligibility](docs/published-baseline-eligibility.md) · [external dynamic baselines](docs/external-dynamic-baselines.md) · [limitations](docs/limitations.md)
 
 ## Research boundary
 
-Current results establish reproducible hosted-CI execution, exact large-graph validation, a controlled same-run published exact-reference comparison, 10M/100M storage measurements, repeated steady-state consolidation, and a same-run 100M+-class canonicalization-policy A/B.
+Current results establish reproducible hosted-CI execution, exact large-graph validation, a controlled same-run published exact-reference comparison, a matched external dynamic-BFS comparison, 10M/100M storage measurements, repeated steady-state consolidation, and a same-run 100M+-class canonicalization-policy A/B.
 
-They do **not** establish universal superiority or full production maturity. Publication-grade conclusions still require controlled dedicated hardware, repeated 100M+ runs across multiple machines/seeds, 8/16/32+ physical-core scaling, genuine multi-socket NUMA experiments, hardware counters, broader irregular-graph and update-locality campaigns, structural incremental/segment-level canonicalization, broader same-semantics system comparisons, and independent reproduction.
+They do **not** establish universal superiority or full production maturity. Publication-grade conclusions still require controlled dedicated hardware, repeated external-system comparisons across public irregular graphs and seeds, 8/16/32+ physical-core scaling, genuine multi-socket NUMA experiments, hardware counters, broader update-locality campaigns, structural incremental/segment-level canonicalization, additional same-semantics dynamic-system comparisons where available, and independent reproduction.
 
 ## Quick start
 
