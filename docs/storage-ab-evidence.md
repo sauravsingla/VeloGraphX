@@ -1,70 +1,73 @@
 # Dynamic-storage A/B evidence
 
-This campaign compares the current VeloGraphX dynamic storage layer with the historical implementation that immediately preceded the segmented-storage upgrade.
+This campaign compares VeloGraphX dynamic storage with the implementation immediately preceding the segmented-storage upgrade.
 
 ## Compared designs
 
-**Historical baseline.** Reconstructed from commit `22d05c6b54b9199c852062395b3d6536abca02d9`: `std::vector<std::vector<VertexId>>` compact rows plus one `std::unordered_set<VertexId>` insertion delta and one deletion delta per vertex. It does not maintain reverse adjacency.
+**Historical baseline.** Reconstructed from commit `22d05c6b54b9199c852062395b3d6536abca02d9`: `std::vector<std::vector<VertexId>>` compact rows plus per-vertex `std::unordered_set<VertexId>` insertion and deletion deltas. It does not maintain reverse adjacency.
 
-**Current design.** Fixed-size segmented CSR, shared packed sorted delta arenas, and an explicit transposed CSR plus synchronized reverse deltas for directed graphs.
+**Current design.** Fixed-size segmented CSR, shared packed sorted delta arenas, explicit transposed CSR and synchronized reverse deltas. Updates mark outgoing segments by source vertex and reverse segments by destination vertex. Explicit compaction rebuilds only dirty segments in each direction. Automatic maintenance uses per-segment delta density and arena fragmentation rather than forcing a global rebuild.
 
-The baseline is benchmark-only code. Production code is not switched between implementations.
+The historical implementation exists only inside the benchmark harness; production code is not switched between implementations.
 
 ## Workload
 
-The hosted campaign constructs deterministic directed synthetic graphs with degree 20. The 10M-edge case contains 500,000 vertices; the 100M-edge case contains 5,000,000 vertices. Each campaign applies a deterministic mixed batch equal to 0.1% of the base edge count: alternating deletions of known base edges and insertions of known absent edges.
+The hosted campaign creates deterministic directed degree-20 graphs. The 10M-edge case contains 500,000 vertices; the 100M-edge case contains 5,000,000 vertices. Each run applies a deterministic mixed batch equal to 0.1% of base edges, alternating deletions of known edges and insertions of known-absent edges.
 
-Neighbor-access latency uses 8,192 deterministic vertex probes after the update batch and before compaction. A correctness gate requires identical sampled logical-neighborhood checksums and identical final directed edge counts between the two designs.
+Neighbor latency uses 8,192 deterministic probes after updates and before explicit compaction. A correctness gate requires identical sampled logical-neighborhood checksums and identical final directed edge counts. Linux RSS is sampled after releasing the generated input edge vector and requesting `malloc_trim(0)`. The 10M case uses three repetitions and medians; the 100M case is a single hosted execution.
 
-Linux RSS is sampled from `/proc/self/status` after the generated input edge vector is released and `malloc_trim(0)` is requested. This reduces, but does not eliminate, allocator and hosted-runner noise. The 10M case is repeated three times and reports medians. The 100M case is a single hosted execution and should therefore be treated as scale evidence rather than a low-noise publication result.
+## Baseline storage-upgrade result
 
-## Results
+The first complete A/B run (`33257865984`) measured the segmented/packed design before segment-local compaction was added.
 
-| Metric | 10M historical | 10M current | 100M historical | 100M current |
-|---|---:|---:|---:|---:|
-| Directed edges | 10,000,000 | 10,000,000 | 100,000,000 | 100,000,000 |
-| Vertices | 500,000 | 500,000 | 5,000,000 | 5,000,000 |
-| Resident memory after load | 114.2 MiB | 110.5 MiB | 1,109.7 MiB | 1,072.2 MiB |
-| Bulk-load time | 114.39 ms | 326.60 ms | 1,096.34 ms | 3,391.85 ms |
-| Mixed update throughput | 2.895M/s | 5.462M/s | 2.511M/s | 3.346M/s |
-| Neighbor materialization | 315.7 ns/probe | 247.4 ns/probe | 362.3 ns/probe | 312.7 ns/probe |
-| Full compaction | 5.92 ms | 66.97 ms | 56.40 ms | 911.37 ms |
-| Correctness gate | pass | pass | pass | pass |
+| Metric | 10M current vs historical | 100M current vs historical |
+|---|---:|---:|
+| Loaded RSS | **0.967x** | **0.966x** |
+| Mixed update throughput | **1.887x** | **1.332x** |
+| Neighbor materialization latency | **0.784x** | **0.863x** |
+| Bulk-load time | **2.855x** | **3.094x** |
+| Full compaction time | **11.313x** | **16.159x** |
+| Correctness | pass | pass |
 
-Derived ratios, current relative to historical:
+The original absolute measurements were 110.5 versus 114.2 MiB RSS at 10M edges and 1,072.2 versus 1,109.7 MiB at 100M edges. The current design therefore used slightly less observed total RSS despite carrying a full reverse index, but its original global compaction path was substantially slower.
 
-| Metric | 10M | 100M | Interpretation |
-|---|---:|---:|---|
-| Loaded RSS | **0.967x** | **0.966x** | about 3.3–3.4% lower total RSS |
-| Update throughput | **1.887x** | **1.332x** | higher is better |
-| Neighbor latency | **0.784x** | **0.863x** | about 21.6% / 13.7% lower latency |
-| Bulk-load time | **2.855x** | **3.094x** | current load is slower |
-| Full compaction time | **11.313x** | **16.159x** | current global rebuild is substantially slower |
+## Segment-local compaction follow-up
+
+The production compaction path was then changed to track dirty forward and reverse segments independently, rebuild only marked segments, clear only the corresponding delta-row ranges, and use an automatic policy based on local delta density plus packed-arena fragmentation. Per-segment delta counts are maintained incrementally so the policy does not scan every vertex row when deciding whether to compact.
+
+The identical A/B campaign was rerun at commit `984314b7647d442f2349d0d816c6331d7ef4e709` in workflow run `33259185211`.
+
+| Metric | 10M | 100M |
+|---|---:|---:|
+| Loaded RSS, current / historical | **0.967x** | **0.966x** |
+| Mixed update throughput, current / historical | **1.077x** | **1.278x** |
+| Neighbor latency, current / historical | **0.793x** | **0.794x** |
+| Compaction time, current / historical | **9.629x** | **11.989x** |
+| Correctness | pass | pass |
+
+Relative to the previous VeloGraphX compaction implementation, the historical-normalized compaction ratio fell from **11.313x to 9.629x at 10M edges** and from **16.159x to 11.989x at 100M edges**—about **14.9%** and **25.8%** lower respectively. This is a genuine improvement, but it does not eliminate the compaction disadvantage on this workload.
+
+The same follow-up also shows an important trade-off: dirty-segment bookkeeping reduces the update-throughput advantage versus the earlier packed-delta implementation, especially at 10M edges. The repository therefore does not replace the stronger update-throughput numbers in the main README with this follow-up as if every metric improved simultaneously.
 
 ## Reverse-adjacency cost
 
-The current directed design intentionally pays for predecessor access that the historical layout did not provide.
+For the regular degree-20 directed workload, reverse CSR contains the same number of arcs as forward CSR and therefore requires approximately the same compact base storage: about **42 MiB at 10M edges** and **420 MiB at 100M edges**. The first A/B campaign measured transpose construction at roughly 35 ms and 466 ms respectively.
 
-| Metric | 10M edges | 100M edges |
-|---|---:|---:|
-| Forward segmented CSR estimate | 42.0 MiB | 419.6 MiB |
-| Reverse segmented CSR estimate | 42.0 MiB | 419.6 MiB |
-| Reverse / forward base storage | 100% | 100% |
-| RSS increase after adding transpose | 42.1 MiB | 420.0 MiB |
-| Transpose construction time | 35.43 ms | 466.31 ms |
+This is an explicit functionality cost. It enables direct predecessor traversal for algorithms such as localized PageRank instead of global predecessor discovery.
 
-For this regular degree-20 graph, the transpose has the same number of arcs and therefore essentially the same compact CSR storage as the forward direction. This is an explicit functionality cost, not hidden overhead. The benefit is O(indegree)-style predecessor access for algorithms such as localized PageRank instead of global predecessor discovery.
+## Interpretation
 
-## What the experiment establishes
+The evidence supports four narrow conclusions for the exercised workload:
 
-The packed/segmented architecture improves the two dynamic-path metrics it was primarily intended to improve in this workload: mixed update throughput and logical neighbor access. It also slightly reduces observed total RSS even though the current directed representation carries a full reverse index that the historical design lacks.
-
-The experiment also exposes a real remaining weakness: `DynamicGraph::compact()` is a global rebuild of the outgoing CSR followed by reconstruction of the transpose. The historical implementation compacted only rows with deltas. Consequently, the new design's full-compaction cost is much higher in this sparse-update experiment. This result argues for incremental/segment-local compaction or a background amortized compaction policy rather than a claim that the current compaction path is already optimal.
-
-Bulk loading is also slower because the current path globally sorts/deduplicates arcs and builds the transpose. Load-time optimization is secondary to dynamic-update behavior, but the cost should be retained in any paper table rather than omitted.
+1. Segmented CSR plus packed deltas retains lower observed RSS and lower neighbor-materialization latency than the historical per-row/per-hash-set layout.
+2. The original packed-delta design produced the strongest update-throughput advantage in the baseline campaign.
+3. Dirty-segment forward/reverse compaction materially reduces the previous global-compaction penalty, especially at 100M edges, but compaction remains slower than the historical row-local implementation when sparse updates are distributed broadly enough to dirty many large segments.
+4. The remaining systems question is whether smaller/variable segments, row-level patching, or background amortized compaction can reduce that cost without giving back update throughput.
 
 ## Evidence boundary
 
-These are reproducible hosted-CI engineering measurements on synthetic regular graphs, not universal claims about graph structure, allocator behavior, or production hardware. Publication-quality evidence should add irregular real graphs, repeated 100M-edge measurements on controlled hardware, bytes-per-edge/RSS counters under the same allocator, update-density sweeps, degree-skew sweeps, and segment-local compaction experiments.
+These are hosted-CI engineering measurements on synthetic regular graphs, not universal or publication-grade claims. The 10M case is repeated; the 100M case is a single hosted execution. Runner CPU models can differ between workflow jobs, so comparisons are interpreted within each A/B job rather than as direct 10M-versus-100M scaling measurements.
 
-Workflow: `Storage A/B Evidence`. The first complete 10M/100M run is GitHub Actions run `33257865984` at commit `f2f221945d8d423e1c81b676e52367049d6e93b9`. Artifacts are retained as `velographx-storage-ab-10m` and `velographx-storage-ab-100m`.
+Publication-quality evidence should add irregular real graphs, repeated 100M-edge measurements on controlled hardware, update-density and degree-skew sweeps, allocator-normalized bytes-per-edge measurements, and controlled compaction-policy ablations.
+
+Artifacts are retained by the `Storage A/B Evidence` workflow as `velographx-storage-ab-10m` and `velographx-storage-ab-100m`.
