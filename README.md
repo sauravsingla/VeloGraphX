@@ -4,108 +4,105 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 
-**VeloGraphX is a CPU-native C++20 research engine for incremental analytics on continuously changing graphs.** Instead of rerunning an entire graph algorithm after every change, it identifies and repairs affected work when the algorithm and update pattern permit, and can fall back to full recomputation when localized maintenance is no longer advantageous or appropriate.
+**VeloGraphX is a CPU-native C++20 research engine for incremental analytics on continuously changing graphs.** It repairs affected work when localized maintenance is appropriate and can fall back to full recomputation when the affected region becomes too large or the algorithm requires global work.
 
-The project combines **segmented CSR dynamic graph storage, packed update deltas, explicit reverse adjacency, incremental BFS/SSSP, exact dynamic triangle counting, connected components, k-core, localized PageRank repair, graph compression, SIMD kernels, multicore execution, NUMA-aware policies, adaptive recomputation, and reproducible benchmarking**.
+The engine combines segmented CSR storage, packed mutable deltas, explicit reverse adjacency, incremental graph algorithms, adaptive recomputation, SIMD kernels, multicore/NUMA-aware execution, compression, Python interoperability, and reproducible benchmark tooling.
 
-For algorithms with exact incremental maintenance in the exercised workloads, results are validated against full recomputation. Iterative algorithms such as PageRank use localized, tolerance- and iteration-controlled repair and should be interpreted separately from exact-maintenance results.
+## Credible evidence
 
-> **Large-scale exact validation:** on the 34.68M-edge LiveJournal graph, exact incremental triangle maintenance matched full recomputation and was **33.99x faster at a 1% insertion batch**. The same hosted-CI campaign also completed exact validation on the **117.19M-edge Orkut graph**, demonstrating 100M-edge-class execution. On the same hosted runner, VeloGraphX also reaches **40.95x lower exact-answer-ready latency** than a pinned published exact reference on `facebook-combined` at a 1% update batch.
+The results below are reproducible **hosted-CI engineering measurements** with correctness gates. They are not presented as universal or publication-grade performance claims.
 
-## Large-scale exact results
+### Large-scale exact dynamic triangle maintenance
 
-The hosted scale campaign uses canonical SNAP graphs, deterministic missing-edge insertion batches, incremental maintenance followed by exact full recomputation, and an equality gate on every exercised batch. These are **hosted-CI engineering measurements**, not universal or publication-grade performance claims.
+On canonical SNAP graphs, deterministic insertion batches are applied incrementally and then checked against exact full recomputation.
 
-| Public dataset | Base graph | Update batch | Incremental | Full recomputation | **Speedup** | Exact |
+| Public dataset | Base graph | Update batch | Incremental | Full recomputation | Speedup | Exact |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `com-LiveJournal` | **34,681,189 edges** | 0.01% / 3,469 | **4.066 ms** | 13.126 s | **3,228.66x** | yes |
-| `com-LiveJournal` | **34,681,189 edges** | 0.1% / 34,682 | **34.709 ms** | 13.288 s | **382.85x** | yes |
-| `com-LiveJournal` | **34,681,189 edges** | 1% / 346,812 | **415.377 ms** | 14.119 s | **33.99x** | yes |
+| `com-LiveJournal` | 34,681,189 edges | 0.01% / 3,469 | 4.066 ms | 13.126 s | **3,228.66x** | yes |
+| `com-LiveJournal` | 34,681,189 edges | 0.1% / 34,682 | 34.709 ms | 13.288 s | **382.85x** | yes |
+| `com-LiveJournal` | 34,681,189 edges | 1% / 346,812 | 415.377 ms | 14.119 s | **33.99x** | yes |
 
-LiveJournal contains 3,997,962 unique SNAP vertices; the raw identifier space used by the benchmark extends to 4,036,538 because the source IDs are not densely remapped. The initial published triangle count is 177,820,130, and every exercised post-update count matched exact recomputation.
+The same hosted campaign completed exact validation on **Orkut: 3,072,441 vertices / 117,185,083 edges / 627,584,181 initial triangles**, establishing 100M-edge-class exact execution. The retained large-scale artifact is reported without inventing a speedup that was not extracted from the run.
 
-The same workflow also completed the canonical **Orkut exact-scale job** on **3,072,441 vertices / 117,185,083 edges / 627,584,181 initial triangles**. Its workflow artifact is retained as `velographx-orkut-exact-scale`. This README deliberately does not invent a speedup from the large artifact: the completed exact 100M-edge-class run is reported separately from the fully extracted LiveJournal timings.
+Methodology and artifacts: [hosted scale evidence](docs/ci-scale-evidence.md).
 
-Workflow evidence: `Hosted Scale CPU Evidence`, run `33249261192`, commit `15a13c425fa736d0062acfde7d44dd07a19b95b0`. The run produced separate retained artifacts for LiveJournal exact scale, Orkut exact scale, and hosted CPU ablation/scaling.
+### Same-run published exact reference
 
-## Results on smaller public graphs
+VeloGraphX is also evaluated against the unmodified exact `GoldenCounter` reference distributed with public SIGMOD 2021 triangle-counting source code. Both implementations run in the same process, on the same hosted runner, with the same normalized graph and deterministic update batches.
 
-The earlier repeated public-dataset campaign used immutable dataset identity, deterministic normalization, five repetitions per update fraction, and exact incremental-vs-full validation.
-
-| Public dataset | Graph family | Normalized graph | **1% updates** | **5% updates** | **10% updates** |
-| --- | --- | ---: | ---: | ---: | ---: |
-| `facebook-combined` | social | 4,039 vertices / 88,234 edges | **84.77x** | **17.90x** | **8.90x** |
-| `ca-HepTh` | collaboration | 9,877 vertices / 25,973 edges | **59.05x** | **12.20x** | **6.59x** |
-| `p2p-Gnutella08` | peer-to-peer | 6,301 vertices / 20,777 edges | **55.23x** | **11.53x** | **6.27x** |
-
-Values are median `full recomputation / incremental` time and every result matched exact full recomputation. These measurements predate the later full-recompute optimization used by the scale/ablation campaign, so they are retained as reproducible historical campaign results rather than mixed with the newer crossover measurements. [Full public-dataset methodology and evidence](docs/multi-dataset-crossover.md).
-
-## Same-run published exact reference
-
-To avoid misleading cross-paper comparisons, VeloGraphX also runs beside the **unmodified exact `GoldenCounter` reference distributed with public SIGMOD 2021 triangle-counting source code**. Both execute in the same process on the same GitHub-hosted runner with GCC 13.3.0, the identical normalized `facebook-combined` graph, identical deterministic insertion batches, and five repetitions.
-
-| Update batch | VeloGraphX exact-answer-ready | Published exact reference | **Latency ratio** | VeloGraphX throughput |
-| --- | ---: | ---: | ---: | ---: |
-| **1% / 883 edges** | **1.066 ms** | 43.657 ms | **40.95x lower** | **0.828M updates/s** |
-| **5% / 4,412 edges** | **6.782 ms** | 47.095 ms | **6.94x lower** | **0.651M updates/s** |
-| **10% / 8,824 edges** | **15.495 ms** | 53.931 ms | **3.48x lower** | **0.569M updates/s** |
+| Update batch | VeloGraphX exact-answer-ready | Published exact reference | Latency ratio |
+| --- | ---: | ---: | ---: |
+| 1% / 883 edges | 1.066 ms | 43.657 ms | **40.95x lower** |
+| 5% / 4,412 edges | 6.782 ms | 47.095 ms | **6.94x lower** |
+| 10% / 8,824 edges | 15.495 ms | 53.931 ms | **3.48x lower** |
 
 All **15/15 measured results agreed exactly** across VeloGraphX incremental maintenance, the published exact reference, and VeloGraphX full recomputation.
 
-`GoldenCounter` accepts updates dynamically but computes the exact global count when queried, so the comparison uses **exact-answer-ready latency**: insertion plus exact query. This is specifically a comparison with the paper repository's exact reference component at pinned revision `1085ba049bb94451661d119284d7cd9b68687a81`—**not a claim against the SIGMOD 2021 approximate SWTC algorithm itself**. [Methodology, provenance and raw metric definitions](docs/same-run-published-baseline.md).
+This comparison is specifically against the pinned exact reference component at revision `1085ba049bb94451661d119284d7cd9b68687a81`; it is not a claim against the paper's approximate SWTC algorithm. [Full methodology](docs/same-run-published-baseline.md).
 
-## Recent published-baseline screen
+### Dynamic-storage A/B evidence
 
-VeloGraphX applies a strict rule before placing another paper in a direct same-CPU performance table: the original implementation must be public, runnable on the same CPU environment, consume the same normalized graph and deterministic update stream, and produce matching exact semantics.
+The current segmented-CSR / packed-delta storage was compared with the actual pre-upgrade layout reconstructed from commit `22d05c6b54b9199c852062395b3d6536abca02d9` (`vector<vector<VertexId>>` plus per-vertex `unordered_set` insertion/deletion deltas). Both designs receive identical deterministic directed graphs and identical mixed updates.
 
-A post-2023 literature screen found strong related work, including **SRDS 2024 DTC**, **SIGMOD 2025 temporal triangle counting**, **TACO 2025 Cheetah**, and **IEEE TPDS 2026 EDTC**, but none currently satisfies every condition for a scientifically valid same-CPU exact dynamic-triangle comparison. DTC is approximate/distributed, the SIGMOD 2025 work targets temporal-window queries, Cheetah has no reproduced public implementation in the current screen, and EDTC is GPU-based.
+| Metric | 10M edges | 100M edges |
+| --- | ---: | ---: |
+| Loaded RSS, current vs historical | 110.5 vs 114.2 MiB | 1,072.2 vs 1,109.7 MiB |
+| RSS change | **3.3% lower** | **3.4% lower** |
+| Mixed update throughput | **1.89x higher** | **1.33x higher** |
+| Neighbor materialization latency | **21.6% lower** | **13.7% lower** |
+| Bulk-load time | 2.86x slower | 3.09x slower |
+| Full compaction time | **11.31x slower** | **16.16x slower** |
+| Correctness gate | pass | pass |
 
-The repository therefore **does not manufacture cross-paper speedups from incompatible hardware or semantics**. [Published baseline eligibility matrix](docs/published-baseline-eligibility.md).
+The 10M case uses three repetitions; the 100M case is one hosted execution and is therefore scale evidence rather than a low-noise publication result.
 
-## Why VeloGraphX
+For directed graphs, explicit reverse adjacency adds roughly the same compact CSR storage as the forward direction: about **42 MiB at 10M edges** and **420 MiB at 100M edges** in this degree-20 workload. That cost enables direct predecessor traversal instead of global predecessor discovery. The current global compaction path is the clearest remaining storage weakness and motivates segment-local or amortized compaction.
 
-| Capability | What is implemented |
+[Full storage A/B methodology and evidence](docs/storage-ab-evidence.md).
+
+### CPU engineering evidence
+
+On a recorded 4-logical-CPU hosted runner, independent-query BFS throughput increased from **5,215.62 queries/s at 1 thread** to **11,105.1 queries/s at 2 threads (2.13x)** and **10,930.3 queries/s at 4 threads**. The digest was identical across all thread counts, showing useful scaling to two threads and saturation on that hosted allocation.
+
+The adaptive recomputation ablation places the incremental/full crossover around **20%** on the exercised Facebook workload; at a 50% insertion batch, forcing incremental work was about **2.5x slower** than full recomputation. This is an oracle decision-boundary experiment, not a claim that the runtime policy always achieves oracle selection.
+
+## What is implemented
+
+| Capability | Implementation |
 | --- | --- |
-| **Incremental analytics** | BFS / unweighted SSSP, weighted SSSP, exact triangle counting, connected components, k-core and localized iterative PageRank repair |
-| **Dynamic graph storage** | Fixed-size segmented CSR base, shared packed sorted delta arenas, batched insert/delete overlays, reverse adjacency, versioning and adaptive compaction |
-| **Reverse traversal** | Explicit transposed CSR plus synchronized reverse deltas with `in_neighbors()` and zero-copy compact predecessor spans |
-| **Adaptive execution** | Affected-work estimation with explainable incremental-vs-full fallback |
-| **CPU acceleration** | Adaptive intersection plus AVX2, AVX-512, ARM NEON and scalar fallback |
-| **Multicore + NUMA** | Push/pull frontiers, work stealing, adaptive scheduling, topology discovery, affinity and locality-aware placement |
-| **Graph compression** | Delta, variable-byte, blocked variable-byte and SIMD-friendly fixed-width adjacency coding |
-| **Python interoperability** | pybind11 with NumPy, SciPy CSR and Apache Arrow ingestion |
-| **Out-of-core infrastructure** | Partition files, mmap/fallback reads, bounded cache, async loading and optional Linux `io_uring` prefetch |
-| **Reproducible research** | Checksum-verified datasets, immutable competitor pins, environment capture, correctness gates and provenance-rich artifacts |
+| Incremental analytics | BFS / unweighted SSSP, weighted SSSP, exact triangle counting, connected components, k-core, localized iterative PageRank repair |
+| Dynamic storage | Segmented CSR base, shared packed sorted delta arenas, insertion/deletion overlays, versioning and compaction |
+| Reverse traversal | Explicit transposed CSR plus synchronized reverse deltas with `in_neighbors()` |
+| PageRank validation | Localized repair with convergence controls, L1/L∞ comparison against a full converged reference, and correctness fallback mode |
+| Adaptive execution | Affected-work estimation with incremental-vs-full fallback |
+| CPU acceleration | Scalar, AVX2, AVX-512 and ARM NEON intersection paths |
+| Multicore / NUMA | Push/pull frontiers, work stealing, topology discovery, affinity and locality-aware policies |
+| Compression | Delta, variable-byte, blocked variable-byte and fixed-width adjacency coding |
+| Python | pybind11 with NumPy, SciPy CSR and Apache Arrow ingestion |
+| Out-of-core infrastructure | Partition files, mmap/fallback reads, bounded cache, async loading and optional Linux `io_uring` prefetch |
+| Reproducibility | Dataset checksums, immutable competitor pins, environment capture, correctness gates and retained artifacts |
 
-[Dynamic storage architecture and invariants](docs/dynamic-storage.md).
+[Dynamic storage architecture](docs/dynamic-storage.md).
 
 ## Research contribution
 
-VeloGraphX is not positioned as novel because it implements individual graph algorithms such as BFS, PageRank or triangle counting. Those algorithms are well established. The research question is the **architecture-aware integration of incremental maintenance with adaptive recomputation on modern CPUs**.
+VeloGraphX is not positioned as novel because it reimplements individual graph algorithms. Its research question is the **architecture-aware integration of incremental maintenance with adaptive recomputation on modern CPUs**: when should a changing graph be repaired locally, and when should the engine switch to full recomputation?
 
-The project studies when a changing graph should be repaired locally and when the affected region has grown enough that a full recomputation is preferable. It combines that decision with graph topology, update density, segmented dynamic storage, packed mutable overlays, reverse dependency traversal, compression, SIMD-friendly kernels, multicore scheduling and NUMA-aware execution.
+The experimental focus is therefore the **incremental-to-full crossover** as update density and affected work grow, together with storage layout, reverse dependency traversal, SIMD, multicore scheduling, NUMA placement and compression.
 
-A central experimental objective is therefore the **incremental-to-full crossover**: how the cost of localized maintenance changes as the update fraction and affected region grow, and whether an execution policy can select the lower-cost strategy without compromising the required result semantics.
+## Correctness and reproducibility
 
-## Implementation boundary
+Performance evidence is reported only with an explicit validation contract. Exact-maintenance experiments compare against a trusted exact result or full recomputation. Iterative algorithms such as PageRank use convergence tolerances and L1/L∞ error against a separately converged full reference rather than claiming exact equality.
 
-The core dynamic adjacency no longer uses one `std::vector` per base vertex or one `std::unordered_set` per delta direction. Compact adjacency is stored as fixed-size vertex segments with CSR offsets and contiguous sorted edges. Mutable divergence from that base is stored in shared packed arenas using sorted per-vertex slices, with geometric relocation and fragmentation repacking. Returning an edge to its base state removes its overlay entry instead of retaining redundant update history.
+CI covers Ubuntu and macOS builds, Linux ASan/UBSan, randomized dynamic mutations, storage forward/reverse consistency, destructive-update fallbacks, optimized-vs-scalar kernels, scheduler/NUMA behavior, compression, native I/O, Python interoperability, dataset checksums and publication-artifact contracts.
 
-Directed reverse adjacency is maintained explicitly using a transposed segmented CSR plus synchronized packed reverse deltas. This removes the previous global predecessor-discovery scan from localized PageRank: an active destination now reads its actual `in_neighbors()` directly.
+**Evidence:** [storage A/B](docs/storage-ab-evidence.md) · [same-run published reference](docs/same-run-published-baseline.md) · [hosted scale/CPU evidence](docs/ci-scale-evidence.md) · [published baseline eligibility](docs/published-baseline-eligibility.md) · [benchmark methodology](docs/benchmark-methodology.md) · [limitations](docs/limitations.md)
 
-This is a meaningful scale-oriented storage upgrade, but VeloGraphX remains a **research engine under active systems development**. Publication-grade claims about billion-edge memory efficiency, update throughput or NUMA behavior still require controlled measurements. The new representation should therefore be evaluated with resident-memory measurements, update-heavy campaigns, compaction cost, 8/16/32+ core scaling, and multi-socket NUMA experiments rather than assumed to be optimal from structure alone.
+## Research boundary
 
-For PageRank specifically, localized repair remains iterative: it propagates material residual changes through an affected region, uses a configurable tolerance and local iteration budget, and can fall back to full recomputation when the repair region becomes large. PageRank results should therefore be described in terms of controlled iterative convergence/validation rather than the exact-maintenance language used for exact dynamic triangle counting.
+Current results establish reproducible hosted-CI execution, exact large-graph validation, a controlled same-run published reference comparison, and measured 10M/100M storage behavior. They do **not** establish universal superiority or full production maturity.
 
-## CPU engineering evidence
-
-The hosted scale campaign also exercises systems components behind the engine. On the recorded 4-logical-CPU runner, independent-query BFS throughput increased from **5,215.62 queries/s at 1 thread** to **11,105.1 queries/s at 2 threads** (**2.13x**), with **10,930.3 queries/s at 4 threads**, showing saturation on the hosted 4-vCPU environment. The digest was identical across 1/2/4 threads.
-
-The adaptive intersection path materially improves medium/large and skewed adjacency intersections (up to roughly **5.15x** versus scalar in the exercised cases), while tiny intersections can favor scalar execution. Variable-byte coding achieved **2–4x** size reduction on the generated codec families; vectorized fixed-width decoding traded compression ratio for roughly **2.4–3.8x** faster decode than its scalar counterpart.
-
-The adaptive recomputation ablation places the incremental/full crossover around **20%** on the exercised Facebook workload after the newer full-recompute optimization; at a 50% insertion batch, forcing incremental work was about **2.5x slower** than full recomputation. This is an **oracle decision-boundary ablation**, not a claim that the current production policy achieves oracle selection.
-
-These are engineering checks, not publication-grade performance claims. [Hosted CI evidence campaign](docs/ci-scale-evidence.md).
+Publication-grade conclusions still require controlled dedicated hardware, repeated 100M+ edge runs, 8/16/32+ core scaling, genuine multi-socket NUMA experiments, hardware counters, irregular real-graph storage campaigns, segment-local compaction experiments, broader same-semantics system comparisons, and independent reproduction.
 
 ## Quick start
 
@@ -116,8 +113,6 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
-
-Ubuntu and macOS builds are continuously tested, with Linux ASan/UBSan coverage.
 
 ### Python
 
@@ -138,52 +133,16 @@ bfs = vx.IncrementalBFS(graph, 0)
 
 update = vx.UpdateBatch()
 update.add(2, 3)
-
-# Incremental algorithm apply() also applies the batch to its graph.
 bfs.apply(update)
 print(bfs.distances)
 ```
 
-## Correctness and reproducibility
-
-Performance claims are gated by result validation. The repository tests static and dynamic algorithms, destructive-update fallbacks, randomized mutations, optimized-vs-scalar kernels, scheduler/NUMA behavior, compression, native I/O, Python interoperability, and ASan/UBSan builds.
-
-For **exact-maintenance experiments**, incremental output is compared with a trusted exact result or full recomputation and a performance number is reported only when the equality gate passes. Dynamic triangle-counting results shown in this README follow that rule.
-
-For **iterative/localized algorithms** such as PageRank, exact equality is not implied merely by the word “incremental.” Validation must instead specify convergence tolerance, iteration limits and comparison methodology. This distinction is intentional so that exact-maintenance evidence is not generalized to algorithms with iterative semantics.
-
-The dynamic-storage tests additionally gate forward/reverse adjacency agreement, sorted unique bulk-load rows, packed insertion/deletion overlays, cancellation back to base state, compaction equivalence, edge counts and vertex growth across CSR segments.
-
-Hosted CI also builds pinned SuiteSparse:GraphBLAS `v10.3.2`, LAGraph `v1.2.2`, and GAP Benchmark Suite `v1.5`. A normalized BFS gate requires identical input metadata and identical full-distance output across builtin, LAGraph and GAP implementations.
-
-Benchmark infrastructure includes checksum-verified public datasets, deterministic update generation, environment capture, immutable competitor revisions, repeated measurements and validated result artifacts.
-
-**Evidence:** [same-run published reference](docs/same-run-published-baseline.md) · [published baseline eligibility](docs/published-baseline-eligibility.md) · [public multi-dataset results](docs/multi-dataset-crossover.md) · [hosted CPU evidence](docs/ci-scale-evidence.md) · [dynamic storage](docs/dynamic-storage.md) · [benchmark methodology](docs/benchmark-methodology.md) · [native competitors](docs/hosted-native-competitors.md) · [limitations](docs/limitations.md)
-
-## Research boundary
-
-The current numbers are **hosted-CI engineering evidence**, not publication-grade claims of universal superiority. The repository includes exact hosted-CI execution on a **117.19M-edge Orkut graph**, exact timed results on LiveJournal, and measured 1/2/4-thread independent-query scaling. These results establish reproducibility and meaningful scale evidence for the exercised paths; they do not establish that every VeloGraphX subsystem has equivalent scaling characteristics.
-
-Publication-grade conclusions still require controlled dedicated hardware, repeated large-graph campaigns, 8/16/32+ core scaling, genuine multi-socket NUMA experiments, hardware counters, memory-footprint characterization, broader same-semantics native-system comparisons, and independent reproduction.
-
-The strongest future evidence will come from reproducible **crossover curves** across datasets and update fractions, large-graph memory measurements, dedicated NUMA scaling, and external validation through independent users, contributors or peer review.
-
-Keeping that boundary explicit is part of the project's reproducibility contract.
-
-## Use cases
-
-VeloGraphX targets graphs that change continuously and where repeated full recomputation is expensive: **social and communication networks, payment and fraud graphs, cybersecurity networks, infrastructure/dependency graphs, temporal event graphs, knowledge graphs, and dynamic graph-systems research**.
-
 ## Contributing
 
-Contributions are welcome across dynamic graph algorithms, correctness, CPU performance, SIMD/NUMA portability, benchmarking, datasets, interoperability and reproducibility. Performance-sensitive changes should include reproducible measurements and retain correctness comparison against a trusted reference where exact semantics are expected.
+Contributions are welcome across dynamic graph algorithms, storage, correctness, CPU performance, SIMD/NUMA portability, benchmarking, datasets and interoperability. Performance-sensitive changes should include reproducible measurements and preserve the relevant correctness contract.
 
-High-value areas now include packed-delta microbenchmarks, memory-footprint characterization, compaction scheduling, reverse-adjacency performance, NUMA placement of CSR segments, 1B-edge-class experiments, multi-socket scaling, and independent benchmark reproduction.
+High-value areas include **segment-local compaction, repeated controlled 100M+ storage campaigns, PageRank accuracy/runtime curves, 8/16/32+ core scaling, and multi-socket NUMA evaluation**.
 
 ## License
 
-Apache-2.0. See [`LICENSE`](LICENSE).
-
----
-
-**Keywords:** dynamic graph algorithms · incremental graph analytics · segmented CSR · packed graph deltas · reverse adjacency · dynamic graph processing · temporal graphs · streaming graphs · CPU graph analytics · C++20 graph library · graph systems · SIMD · AVX2 · AVX-512 · NUMA · graph compression · BFS · SSSP · PageRank · exact triangle counting · k-core · Python graph analytics · GraphBLAS · LAGraph · reproducible benchmarking
+Apache-2.0.
