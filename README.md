@@ -165,7 +165,7 @@ The repository contains:
 
 A hosted-CI engineering campaign exercises core benchmarks, update-fraction measurements, paired ablations, conservative thread checks and normalized BFS adapters. Its result bundle is provenance-captured and integrity-validated and remains explicitly marked `research_claim: false`.
 
-Hosted CI also now builds immutable pinned native stacks for SuiteSparse:GraphBLAS `v10.3.2`, LAGraph `v1.2.2` and GAP Benchmark Suite `v1.5` on the same runner. The workflow executes small 1/2/4-thread BFS engineering measurements, requires GAP verification and an enabled LAGraph BFS self-check, captures machine/build provenance and uploads a machine-readable evidence bundle. These measurements are deliberately marked `research_claim: false`, `publication_grade: false` and `normalized_cross_engine_claim: false` because the upstream LAGraph and GAP harnesses do not yet establish fully identical cross-engine source/output semantics.
+Hosted CI builds immutable pinned native stacks for SuiteSparse:GraphBLAS `v10.3.2`, LAGraph `v1.2.2` and GAP Benchmark Suite `v1.5` on the same runner. In addition to small native engineering runs, the normalized BFS correctness gate now requires builtin, LAGraph and GAP to use the same dataset, source and directedness and to produce the same full-distance-vector digest. This establishes a strict same-input/full-output correctness comparison for the exercised BFS fixture. It remains explicitly non-publication evidence: `research_claim: false`, `publication_grade: false` and `publication_ready: false`.
 
 The repository also contains public-dataset incremental crossover engineering evidence, including ca-GrQc work, and ongoing work to extend that evidence across additional graph families. These measurements remain engineering evidence unless and until they are repeated under controlled, publication-grade experimental conditions.
 
@@ -185,7 +185,7 @@ Useful references:
 
 The repository has engineering evidence for correctness, cross-framework adapter normalization, incremental update behavior, optimized intersection paths, compression/decompression behavior, Python interoperability, reproducibility contracts and small hosted-CI execution campaigns.
 
-Hosted CI additionally verifies that pinned GraphBLAS/LAGraph and GAP native stacks build on the same runner and that their exercised BFS harnesses complete with upstream correctness checks across 1/2/4-thread engineering runs. This establishes native build/readiness and small-scale same-runner engineering evidence; it is not yet a normalized cross-engine performance comparison.
+Hosted CI additionally verifies that pinned GraphBLAS/LAGraph and GAP native stacks build on the same runner. For the exercised normalized BFS fixture, builtin, LAGraph and GAP are checked against identical dataset/source/directedness metadata and an identical full-distance-vector digest. This is credible cross-engine correctness evidence for that fixture, not a publication-grade performance comparison.
 
 Public-dataset incremental crossover work is also underway and already includes ca-GrQc evidence. This is useful evidence for development and hypothesis testing, but it is intentionally not presented as a universal performance result.
 
@@ -199,7 +199,7 @@ The following remain unmeasured at publication grade or materially environment-d
 - large 1/2/4/8/16/32+ thread-scaling studies on dedicated hardware;
 - 100M+ edge research-scale experiments;
 - broad multi-dataset crossover characterization across graph families;
-- complete like-for-like competitor comparisons on identical dedicated hardware, including native LAGraph/GraphBLAS and GAP;
+- complete like-for-like competitor performance comparisons on identical dedicated hardware, including native LAGraph/GraphBLAS and GAP;
 - publication-grade hardware-counter and ablation measurements;
 - research-scale codec throughput/compression-ratio campaigns;
 - calibrated production codec thresholds from representative public-dataset measurements;
@@ -216,7 +216,7 @@ Some capabilities are intentionally conservative or environment-dependent:
 - NUMA execution policies are implemented on Linux, but genuine multi-socket benefits require suitable hardware to measure;
 - out-of-core infrastructure supports mmap, async loading, bounded caching, readahead and optional `io_uring`, but research-scale NVMe behavior has not yet been established;
 - adaptive execution and codec-selection thresholds require broader public-dataset calibration;
-- hosted native LAGraph/GraphBLAS and GAP builds and upstream-harness correctness checks are available, but fully normalized same-source/output-digest cross-engine comparison and dedicated-hardware publication evidence remain outstanding.
+- normalized builtin/LAGraph/GAP BFS full-distance correctness is established for the hosted fixture, while broader datasets and dedicated-hardware publication-grade competitor performance evidence remain outstanding.
 
 For status decisions, [`docs/prompt-coverage.md`](docs/prompt-coverage.md) is the authoritative capability matrix.
 
