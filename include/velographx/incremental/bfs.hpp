@@ -166,6 +166,16 @@ class IncrementalBFS {
         }
       }
     }
+
+    // In a mixed batch, additions are already present while the deletion region
+    // is repaired. A repaired vertex can therefore emerge at a shorter level
+    // than before the batch. Propagate such decreases beyond the invalidated
+    // region before processing the explicit insertion-edge frontier below.
+    std::queue<VertexId> repaired_frontier;
+    for (VertexId v = 0; v < affected.size(); ++v) {
+      if (affected[v] && dist_[v] != unreachable) repaired_frontier.push(v);
+    }
+    propagate_decreases(repaired_frontier);
     return true;
   }
 
