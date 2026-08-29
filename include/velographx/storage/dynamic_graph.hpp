@@ -29,9 +29,6 @@ struct UpdateBatch {
 
 namespace storage_detail {
 
-// Immutable adjacency is split into fixed-size vertex segments. Each segment is
-// CSR internally, so a vertex row remains contiguous and can be exposed as a
-// zero-copy span while avoiding one heap allocation per vertex.
 class SegmentedCsr {
  public:
   static constexpr std::size_t kVerticesPerSegment = 1u << 16;
@@ -50,8 +47,7 @@ class SegmentedCsr {
         segments_.push_back(std::move(segment));
       }
       auto& segment = segments_[segment_index];
-      const auto target_count = std::min(
-          kVerticesPerSegment, vertices - segment.first_vertex);
+      const auto target_count = std::min(kVerticesPerSegment, vertices - segment.first_vertex);
       segment.offsets.resize(target_count + 1, segment.edges.size());
       segment.vertex_count = target_count;
       vertex_count_ = segment.first_vertex + target_count;
@@ -65,8 +61,7 @@ class SegmentedCsr {
     resize_vertices(vertices);
   }
 
-  void build(std::size_t vertices,
-             std::vector<std::pair<VertexId, VertexId>> arcs) {
+  void build(std::size_t vertices, std::vector<std::pair<VertexId, VertexId>> arcs) {
     clear(vertices);
     arcs.erase(std::remove_if(arcs.begin(), arcs.end(), [vertices](const auto& e) {
                  return e.first == e.second || e.first >= vertices || e.second >= vertices;
@@ -189,10 +184,6 @@ class SegmentedCsr {
   std::size_t edge_count_{0};
 };
 
-// Mutable adjacency uses one shared arena rather than an unordered_set per
-// vertex. A vertex owns a contiguous sorted slice in the arena. Slices grow by
-// relocation (geometric capacity), which keeps lookups cache-friendly and
-// removes per-edge hash/node overhead. Compaction discards arena fragmentation.
 class PackedDeltaStore {
  public:
   struct Entry {
@@ -200,7 +191,9 @@ class PackedDeltaStore {
     bool present{true};
   };
 
-  void resize_vertices(std::size_t vertices) { rows_.resize(vertices); }
+  void resize_vertices(std::size_t vertices) {
+    if (vertices > rows_.size()) rows_.resize(vertices);
+  }
 
   void clear() {
     arena_.clear();
@@ -242,12 +235,9 @@ class PackedDeltaStore {
   [[nodiscard]] bool empty() const noexcept { return live_entries_ == 0; }
 
   [[nodiscard]] std::size_t storage_bytes() const noexcept {
-    return sizeof(*this) + rows_.capacity() * sizeof(Row) +
-           arena_.capacity() * sizeof(Entry);
+    return sizeof(*this) + rows_.capacity() * sizeof(Row) + arena_.capacity() * sizeof(Entry);
   }
 
-  // Repack live slices into a fresh contiguous arena. This is cheaper than a
-  // graph compaction and is useful after repeated geometric row growth.
   void repack() {
     if (live_entries_ == 0) {
       arena_.clear();
@@ -274,8 +264,7 @@ class PackedDeltaStore {
 
   [[nodiscard]] double fragmentation_ratio() const noexcept {
     if (arena_.empty()) return 0.0;
-    return 1.0 - static_cast<double>(live_entries_) /
-                     static_cast<double>(arena_.size());
+    return 1.0 - static_cast<double>(live_entries_) / static_cast<double>(arena_.size());
   }
 
  private:
@@ -294,8 +283,7 @@ class PackedDeltaStore {
     const auto new_offset = arena_.size();
     arena_.resize(new_offset + new_capacity);
     if (meta.count != 0) {
-      std::copy_n(arena_.begin() + meta.offset, meta.count,
-                  arena_.begin() + new_offset);
+      std::copy_n(arena_.begin() + meta.offset, meta.count, arena_.begin() + new_offset);
     }
     meta.offset = new_offset;
     meta.capacity = new_capacity;
@@ -303,12 +291,12 @@ class PackedDeltaStore {
 
   void upsert(VertexId u, VertexId v, bool present) {
     auto& meta = rows_[u];
-    auto entries = row(u);
-    auto it = std::lower_bound(entries.begin(), entries.end(), v,
-                               [](const Entry& e, VertexId target) {
-                                 return e.dst < target;
-                               });
-    auto pos = static_cast<std::size_t>(it - entries.begin());
+    const auto entries = row(u);
+    const auto it = std::lower_bound(entries.begin(), entries.end(), v,
+                                     [](const Entry& e, VertexId target) {
+                                       return e.dst < target;
+                                     });
+    const auto pos = static_cast<std::size_t>(it - entries.begin());
     if (it != entries.end() && it->dst == v) {
       if (it->present != present) {
         if (it->present) {
@@ -338,11 +326,11 @@ class PackedDeltaStore {
     if (u >= rows_.size()) return;
     auto& meta = rows_[u];
     if (meta.count == 0) return;
-    auto entries = row(u);
-    auto it = std::lower_bound(entries.begin(), entries.end(), v,
-                               [](const Entry& e, VertexId target) {
-                                 return e.dst < target;
-                               });
+    const auto entries = row(u);
+    const auto it = std::lower_bound(entries.begin(), entries.end(), v,
+                                     [](const Entry& e, VertexId target) {
+                                       return e.dst < target;
+                                     });
     if (it == entries.end() || it->dst != v) return;
     const auto pos = static_cast<std::size_t>(it - entries.begin());
     if (it->present) --present_entries_; else --absent_entries_;
@@ -387,8 +375,6 @@ class DynamicGraph {
     delta_in_.resize_vertices(n);
   }
 
-  // Build immutable segmented CSR directly, then derive its transpose. Dynamic
-  // updates are kept out of the base until compact() is requested.
   void bulk_load_edges(const std::vector<std::pair<VertexId, VertexId>>& edges) {
     VertexId max_vertex = 0;
     bool saw_edge = false;
@@ -440,9 +426,7 @@ class DynamicGraph {
     return materialize_row(base_in_, delta_in_, v);
   }
 
-  [[nodiscard]] bool is_compact() const noexcept {
-    return delta_out_.empty();
-  }
+  [[nodiscard]] bool is_compact() const noexcept { return delta_out_.empty(); }
 
   [[nodiscard]] std::span<const VertexId> compact_neighbors(VertexId u) const noexcept {
     return base_out_.row(u);
@@ -454,9 +438,7 @@ class DynamicGraph {
 
   [[nodiscard]] bool has_edge(VertexId u, VertexId v) const {
     if (u >= vertex_count()) return false;
-    if (const auto overlay = delta_out_.override_for(u, v); overlay.has_value()) {
-      return *overlay;
-    }
+    if (const auto overlay = delta_out_.override_for(u, v); overlay.has_value()) return *overlay;
     return base_out_.contains(u, v);
   }
 
@@ -468,9 +450,7 @@ class DynamicGraph {
     return base_out_.edge_count();
   }
 
-  [[nodiscard]] std::size_t delta_edge_count() const noexcept {
-    return delta_out_.size();
-  }
+  [[nodiscard]] std::size_t delta_edge_count() const noexcept { return delta_out_.size(); }
 
   [[nodiscard]] std::size_t storage_bytes() const noexcept {
     return base_out_.storage_bytes() + base_in_.storage_bytes() +
@@ -491,9 +471,7 @@ class DynamicGraph {
   void compact() {
     if (delta_out_.empty()) return;
     storage_detail::SegmentedCsr rebuilt;
-    rebuilt.build_from_rows(vertex_count(), [this](VertexId u) {
-      return neighbors(u);
-    });
+    rebuilt.build_from_rows(vertex_count(), [this](VertexId u) { return neighbors(u); });
     base_out_ = std::move(rebuilt);
     base_in_.build_transpose_from(base_out_);
     delta_out_.clear();
@@ -505,9 +483,9 @@ class DynamicGraph {
  private:
   friend class IncrementalTriangleCount;
 
-  static std::vector<VertexId> materialize_row(
-      const storage_detail::SegmentedCsr& base,
-      const storage_detail::PackedDeltaStore& delta, VertexId u) {
+  static std::vector<VertexId> materialize_row(const storage_detail::SegmentedCsr& base,
+                                                const storage_detail::PackedDeltaStore& delta,
+                                                VertexId u) {
     const auto base_row = base.row(u);
     const auto overlay = delta.row(u);
     if (overlay.empty()) return {base_row.begin(), base_row.end()};
@@ -517,8 +495,7 @@ class DynamicGraph {
     std::size_t i = 0;
     std::size_t j = 0;
     while (i < base_row.size() || j < overlay.size()) {
-      if (j == overlay.size() ||
-          (i < base_row.size() && base_row[i] < overlay[j].dst)) {
+      if (j == overlay.size() || (i < base_row.size() && base_row[i] < overlay[j].dst)) {
         out.push_back(base_row[i++]);
       } else if (i == base_row.size() || overlay[j].dst < base_row[i]) {
         if (overlay[j].present) out.push_back(overlay[j].dst);
@@ -539,11 +516,8 @@ class DynamicGraph {
   }
 
   void apply_arc(VertexId u, VertexId v, bool present) {
-    const bool base_present = base_out_.contains(u, v);
-    delta_out_.set(u, v, present, base_present);
-
-    const bool reverse_base_present = base_in_.contains(v, u);
-    delta_in_.set(v, u, present, reverse_base_present);
+    delta_out_.set(u, v, present, base_out_.contains(u, v));
+    delta_in_.set(v, u, present, base_in_.contains(v, u));
   }
 
   void maybe_repack_deltas() {
