@@ -37,10 +37,9 @@ static void assert_matches_full(DynamicGraph& graph, IncrementalBFS& bfs,
 }
 
 int main() {
-  // Removing one parent conservatively invalidates the downstream old-DAG
-  // region, then reconstructs the same distances from the alternate parent.
-  // Use a permissive budget here so this micro-test exercises repair rather
-  // than the separate full-recompute fallback path.
+  // Repair-path microcases use a permissive threshold so tiny graph size does
+  // not turn conservative invalidation into an incidental fallback. The
+  // production default remains 0.35 and fallback has its own explicit test.
   {
     DynamicGraph g(5, true);
     g.bulk_load_edges({{0,1},{0,2},{1,3},{2,3},{3,4}});
@@ -55,11 +54,10 @@ int main() {
     assert_matches_full(g, bfs, 0, "alternate-parent");
   }
 
-  // Deleting one shortest-path branch must preserve a surviving equal-length branch.
   {
     DynamicGraph g(7, true);
     g.bulk_load_edges({{0,1},{1,2},{2,3},{3,4},{0,5},{5,6},{6,3}});
-    IncrementalBFS bfs(g, 0);
+    IncrementalBFS bfs(g, 0, 0.75);
     require(bfs.distances()[3] == 3, "surviving-branch: initial distance(3)");
     UpdateBatch b;
     b.remove(1,2);
@@ -72,12 +70,10 @@ int main() {
     assert_matches_full(g, bfs, 0, "surviving-branch");
   }
 
-  // Mixed delete+insert: invalidate the old branch, then allow the new edge to
-  // create a shorter replacement path in the same batch.
   {
     DynamicGraph g(6, true);
     g.bulk_load_edges({{0,1},{1,2},{2,3},{3,4},{0,5}});
-    IncrementalBFS bfs(g, 0);
+    IncrementalBFS bfs(g, 0, 0.75);
     UpdateBatch b;
     b.remove(1,2);
     b.add(5,3);
@@ -85,18 +81,19 @@ int main() {
     require(bfs.distances()[2] == IncrementalBFS::unreachable, "mixed: distance(2)");
     require(bfs.distances()[3] == 2, "mixed: distance(3)");
     require(bfs.distances()[4] == 3, "mixed: distance(4)");
+    require(!bfs.last_used_full_recompute(), "mixed: unexpected fallback");
     assert_matches_full(g, bfs, 0, "mixed");
   }
 
-  // Undirected deletion repair must account for both orientations.
   {
     DynamicGraph g(5, false);
     g.bulk_load_edges({{0,1},{1,2},{2,3},{0,4},{4,3}});
-    IncrementalBFS bfs(g, 0);
+    IncrementalBFS bfs(g, 0, 0.75);
     UpdateBatch b;
     b.remove(1,2);
     bfs.apply(b);
     require(bfs.distances()[2] == 3, "undirected: distance(2)");
+    require(!bfs.last_used_full_recompute(), "undirected: unexpected fallback");
     assert_matches_full(g, bfs, 0, "undirected");
   }
 
