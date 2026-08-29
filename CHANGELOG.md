@@ -6,8 +6,13 @@
 - Replaced per-vertex `unordered_set` insertion/deletion overlays with sorted slices in shared packed delta arenas, including overlay cancellation and fragmentation repacking.
 - Added explicit reverse adjacency with matching reverse deltas and `in_neighbors()` / `compact_in_neighbors()` APIs.
 - Updated localized PageRank repair to traverse actual predecessors instead of scanning every graph vertex for each active destination.
+- Upgraded full PageRank to tolerance-based convergence with explicit dangling-mass redistribution and L1/L-infinity iteration residuals.
+- Added quantitative localized-vs-full PageRank validation with L1/L-infinity rank-vector error, reference convergence metadata, and an explicit validation-only fallback mode.
+- Added conservative full recomputation when an update changes dangling status or materially changes the rank of a dangling vertex, because dangling mass is a graph-wide PageRank dependency.
+- Exposed PageRank residuals, convergence state, validation metrics, and validated-update mode through the Python bindings.
 - Added dynamic-storage introspection for compact edge count, live delta count, approximate owned storage, and storage-layout documentation.
 - Expanded dynamic graph tests for directed reverse traversal, packed overlays, compaction equivalence, overlay cancellation, and cross-segment vertex growth.
+- Expanded PageRank tests for reverse-indexed localized repair, converged full-reference comparison, L1/L-infinity error contracts, dangling-node semantics, and validation fallback.
 
 ## 0.7.0 - 2026-08-28
 
