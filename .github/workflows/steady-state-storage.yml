@@ -1,0 +1,208 @@
+name: Steady-State Storage Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/steady-state-storage.yml'
+      - 'benchmarks/steady_state_storage.cpp'
+      - 'include/velographx/storage/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  harness-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build steady-state target
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_steady_state_storage -j 2
+      - name: Exercise repeated maintenance loop on local fixture
+        run: |
+          build/cmake/velographx_steady_state_storage datasets/example-local-edge-list.txt 8 2 8 0 1.05 1.05 > build/smoke.json
+          python - <<'PY'
+          import json
+          r=json.load(open('build/smoke.json'))
+          assert r['correct'] is True
+          assert r['epochs'] == 8
+          assert r['total_update_operations'] > 0
+          assert r['maintenance_amortized_ops_per_s'] > 0
+          assert r['high_water_rss_kib'] > 0
+          PY
+
+  web-google-steady-state:
+    needs: harness-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build benchmark before dataset acquisition
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_steady_state_storage -j 2
+      - name: Acquire checksum-pinned web-Google
+        run: |
+          mkdir -p build/steady/source build/steady/web-google
+          python tools/prepare_dataset.py \
+            --manifest datasets/manifest.public-small.json \
+            --output-dir build/steady/source \
+            --dataset web-Google > build/steady/web-google/dataset-prepared.json
+          python tools/normalize_edge_list.py \
+            --input build/steady/source/web-Google.txt \
+            --output build/steady/web-google/web-Google-normalized.txt \
+            --report build/steady/web-google/normalization.json \
+            --directed
+          python - <<'PY'
+          import json
+          n=json.load(open('build/steady/web-google/normalization.json'))
+          assert n['vertex_count'] == 875713
+          assert n['edge_count'] == 5105039
+          assert n['source_sha256'] == '8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1'
+          PY
+      - name: Capture environment
+        run: |
+          python tools/capture_benchmark_environment.py --label steady-state-web-google --output build/steady/web-google/environment.json
+          lscpu > build/steady/web-google/lscpu.txt
+      - name: Run three steady-state repetitions
+        run: |
+          : > build/steady/web-google/runs.jsonl
+          for i in 1 2 3; do
+            build/cmake/velographx_steady_state_storage \
+              build/steady/web-google/web-Google-normalized.txt \
+              80 4096 4096 1 1.25 1.25 >> build/steady/web-google/runs.jsonl
+          done
+          python - <<'PY'
+          import json, statistics
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('build/steady/web-google/runs.jsonl').read_text().splitlines() if x.strip()]
+          assert len(rows)==3 and all(r['correct'] for r in rows)
+          assert all(r['vertices']==875713 for r in rows)
+          assert all(r['consolidation_count'] >= 2 for r in rows), [r['consolidation_count'] for r in rows]
+          keys=['total_update_operations','maintenance_amortized_ops_per_s','instrumented_campaign_ops_per_s',
+                'consolidation_count','total_consolidation_ms','consolidation_share','high_water_storage_ratio',
+                'high_water_latency_ratio','high_water_rss_kib','campaign_wall_ms']
+          summary={
+            'schema_version':1,
+            'artifact_type':'velographx-steady-state-storage-summary',
+            'dataset':'web-Google',
+            'vertices':875713,
+            'edges':5105039,
+            'directed':True,
+            'epochs':80,
+            'rows_per_epoch':4096,
+            'repeats':3,
+            'storage_threshold':1.25,
+            'latency_threshold':1.25,
+            'all_correct':True,
+            'research_claim':False,
+          }
+          for k in keys:
+            summary['median_'+k]=statistics.median(r[k] for r in rows)
+          summary['consolidation_intervals']=[r['consolidation_intervals'] for r in rows]
+          Path('build/steady/web-google/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-steady-state-web-google
+          path: |
+            build/steady/web-google/dataset-prepared.json
+            build/steady/web-google/normalization.json
+            build/steady/web-google/environment.json
+            build/steady/web-google/lscpu.txt
+            build/steady/web-google/runs.jsonl
+            build/steady/web-google/summary.json
+          retention-days: 90
+
+  orkut-steady-state:
+    needs: harness-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build benchmark before large dataset acquisition
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_steady_state_storage -j 2
+      - name: Acquire canonical SNAP Orkut snapshot
+        run: |
+          mkdir -p build/steady/orkut
+          wget -q https://snap.stanford.edu/data/bigdata/communities/com-orkut.ungraph.txt.gz -O build/steady/orkut/com-orkut.ungraph.txt.gz
+          sha256sum build/steady/orkut/com-orkut.ungraph.txt.gz | tee build/steady/orkut/source.sha256
+          gzip -dc build/steady/orkut/com-orkut.ungraph.txt.gz > build/steady/orkut/com-orkut.ungraph.txt
+          python - <<'PY'
+          from pathlib import Path
+          edges=0; vertices=set()
+          for line in Path('build/steady/orkut/com-orkut.ungraph.txt').open():
+              if not line.strip() or line.startswith('#'): continue
+              u,v=map(int,line.split()[:2]); edges+=1; vertices.add(u); vertices.add(v)
+          assert edges == 117185083
+          assert len(vertices) == 3072441
+          Path('build/steady/orkut/source-stats.json').write_text(
+              '{"dataset":"com-Orkut","canonical_source":"https://snap.stanford.edu/data/com-Orkut.html",'
+              '"vertices":3072441,"edges":117185083,"directed":false,"research_claim":false}\n')
+          PY
+      - name: Capture environment
+        run: |
+          python tools/capture_benchmark_environment.py --label steady-state-orkut --output build/steady/orkut/environment.json
+          lscpu > build/steady/orkut/lscpu.txt
+      - name: Run 100M-plus steady-state campaign
+        run: |
+          build/cmake/velographx_steady_state_storage \
+            build/steady/orkut/com-orkut.ungraph.txt \
+            60 65536 8192 0 1.25 1.25 > build/steady/orkut/run.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.load(open('build/steady/orkut/run.json'))
+          assert r['correct'] is True
+          assert r['initial_directed_edges'] == 234370166
+          assert r['consolidation_count'] >= 2, r['consolidation_count']
+          summary={
+            'schema_version':1,
+            'artifact_type':'velographx-steady-state-storage-summary',
+            'dataset':'com-Orkut',
+            'vertices_distinct':3072441,
+            'undirected_edges':117185083,
+            'directed_arcs':r['initial_directed_edges'],
+            'epochs':r['epochs'],
+            'rows_per_epoch':r['rows_per_epoch'],
+            'storage_threshold':r['storage_threshold'],
+            'latency_threshold':r['latency_threshold'],
+            'total_update_operations':r['total_update_operations'],
+            'maintenance_amortized_ops_per_s':r['maintenance_amortized_ops_per_s'],
+            'instrumented_campaign_ops_per_s':r['instrumented_campaign_ops_per_s'],
+            'consolidation_count':r['consolidation_count'],
+            'consolidation_intervals':r['consolidation_intervals'],
+            'total_consolidation_ms':r['total_consolidation_ms'],
+            'consolidation_share':r['consolidation_share'],
+            'high_water_storage_ratio':r['high_water_storage_ratio'],
+            'high_water_latency_ratio':r['high_water_latency_ratio'],
+            'high_water_rss_kib':r['high_water_rss_kib'],
+            'campaign_wall_ms':r['campaign_wall_ms'],
+            'all_correct':True,
+            'research_claim':False,
+            'scale_evidence_single_execution':True,
+          }
+          Path('build/steady/orkut/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-steady-state-orkut-100m
+          path: |
+            build/steady/orkut/source.sha256
+            build/steady/orkut/source-stats.json
+            build/steady/orkut/environment.json
+            build/steady/orkut/lscpu.txt
+            build/steady/orkut/run.json
+            build/steady/orkut/summary.json
+          retention-days: 90
