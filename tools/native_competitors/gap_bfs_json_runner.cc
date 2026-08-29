@@ -4,25 +4,13 @@
 #include <string>
 #include <vector>
 
-#include "builder.h"
-#include "command_line.h"
-#include "graph.h"
-#include "pvector.h"
-
-// Match GAP Benchmark Suite v1.5's benchmark.h aliases locally without
-// including benchmark.h itself. That header defines non-inline helpers and is
-// already pulled into the separately compiled bfs.cc translation unit.
-typedef int32_t NodeID;
-typedef int32_t WeightT;
-typedef CSRGraph<NodeID> Graph;
-typedef BuilderBase<NodeID, NodeID, WeightT> Builder;
-
-// Implemented by the pinned GAP Benchmark Suite src/bfs.cc object that the
-// workflow compiles separately. Keep these declarations in sync with GAP v1.5.
-pvector<NodeID> DOBFS(const Graph &g, NodeID source, bool logging_enabled,
-                      int alpha, int beta);
-bool BFSVerifier(const Graph &g, NodeID source,
-                 const pvector<NodeID> &parent);
+// Compile the pinned GAP Benchmark Suite BFS implementation in this same
+// translation unit. This keeps the runner on GAPBS v1.5's native C++11 build
+// model and avoids a fragile cross-translation-unit re-declaration boundary.
+// Rename only GAP's CLI entry point; DOBFS and BFSVerifier remain unchanged.
+#define main gapbs_original_main
+#include "bfs.cc"
+#undef main
 
 static void die(const std::string &msg) {
     std::cerr << msg << "\n";
@@ -54,7 +42,7 @@ int main(int argc, char **argv) {
     args.push_back(std::to_string(source));
     std::vector<char *> cargs;
     cargs.reserve(args.size());
-    for (auto &s : args) cargs.push_back(s.data());
+    for (auto &s : args) cargs.push_back(&s[0]);
 
     CLApp cli(static_cast<int>(cargs.size()), cargs.data(),
               "normalized breadth-first search");
