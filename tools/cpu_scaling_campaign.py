@@ -15,6 +15,17 @@ def run(command, *, timeout=600):
     return subprocess.run(command, text=True, capture_output=True, timeout=timeout, check=False)
 
 
+def allocated_cpus():
+    if hasattr(os, "sched_getaffinity"):
+        try:
+            cpus = sorted(os.sched_getaffinity(0))
+            if cpus:
+                return cpus
+        except OSError:
+            pass
+    return list(range(max(1, os.cpu_count() or 1)))
+
+
 def parse_lscpu():
     fields = {}
     result = run(["lscpu", "-J"], timeout=30) if shutil.which("lscpu") else None
@@ -33,11 +44,14 @@ def parse_lscpu():
         except (TypeError, ValueError):
             return fallback
 
-    logical = max(1, os.cpu_count() or number("CPU(s)", 1))
+    cpus = allocated_cpus()
+    host_logical = max(1, number("CPU(s)", os.cpu_count() or 1))
     return {
-        "logical_cpus": logical,
+        "logical_cpus": len(cpus),
+        "allocated_cpu_ids": cpus,
+        "host_logical_cpus": host_logical,
         "sockets": max(1, number("Socket(s)", 1)),
-        "cores_per_socket": max(1, number("Core(s) per socket", logical)),
+        "cores_per_socket": max(1, number("Core(s) per socket", host_logical)),
         "threads_per_core": max(1, number("Thread(s) per core", 1)),
         "numa_nodes": max(1, number("NUMA node(s)", 1)),
         "model_name": fields.get("Model name", "unknown"),
@@ -148,20 +162,31 @@ def run_repeated(binary, edge_list, queries, threads, repeats, prefix=None, time
     }
 
 
-def node_cpu_count(node):
-    path = Path(f"/sys/devices/system/node/node{node}/cpulist")
-    if not path.exists():
-        return 0
-    count = 0
-    for part in path.read_text(encoding="utf-8").strip().split(","):
+def parse_cpu_list(text):
+    cpus = set()
+    for part in text.strip().split(","):
         if not part:
             continue
         if "-" in part:
             start, end = map(int, part.split("-", 1))
-            count += end - start + 1
+            cpus.update(range(start, end + 1))
         else:
-            count += 1
-    return count
+            cpus.add(int(part))
+    return cpus
+
+
+def node_cpu_ids(node):
+    path = Path(f"/sys/devices/system/node/node{node}/cpulist")
+    if not path.exists():
+        return set()
+    try:
+        return parse_cpu_list(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+
+
+def node_allocated_cpu_count(node, allocation):
+    return len(node_cpu_ids(node).intersection(allocation))
 
 
 def markdown(report):
@@ -169,9 +194,9 @@ def markdown(report):
     lines = [
         "# CPU Scaling Evidence",
         "",
-        f"Detected **{topology['logical_cpus']} logical CPUs**, **{topology['sockets']} socket(s)** and **{topology['numa_nodes']} NUMA node(s)**.",
+        f"Detected allocation: **{topology['logical_cpus']} usable logical CPUs**; host topology reports **{topology['sockets']} socket(s)** and **{topology['numa_nodes']} NUMA node(s)**.",
         "",
-        "The requested paper ladder is `1 / 2 / 4 / 8 / 16 / 32` threads. Points above the CPU allocation are not oversubscribed; they are recorded as unavailable.",
+        "The requested paper ladder is `1 / 2 / 4 / 8 / 16 / 32` threads. Points above the process CPU-affinity allocation are not oversubscribed; they are recorded as unavailable.",
         "",
         "| Threads | Median queries/s | Speedup | Parallel efficiency |",
         "|---:|---:|---:|---:|",
@@ -191,7 +216,7 @@ def markdown(report):
         lines.extend([
             "## NUMA comparison",
             "",
-            "A dual-node comparison was executed because at least two NUMA nodes were available.",
+            "A dual-node comparison was executed because the current CPU-affinity allocation spans at least two NUMA nodes on a multi-socket host.",
             "",
             f"Single-node comparison threads: {numa['single_node_threads']}; dual-node comparison threads: {numa['dual_node_threads']}.",
             "",
@@ -206,7 +231,7 @@ def markdown(report):
     lines.extend([
         "## Interpretation boundary",
         "",
-        "Hosted-runner results are reproducible engineering evidence. A publication claim for 8/16/32+ cores or 1-socket vs 2-socket NUMA requires hardware that physically exposes those resources and should use the controlled self-hosted workflow.",
+        "Hosted-runner results are reproducible engineering evidence. A publication claim for 8/16/32+ cores or 1-socket vs 2-socket NUMA requires hardware whose active CPU allocation physically exposes those resources and should use the controlled self-hosted workflow.",
         "",
     ])
     return "\n".join(lines)
@@ -229,6 +254,7 @@ def main():
 
     requested = parse_thread_list(args.threads)
     topology = parse_lscpu()
+    allocation = set(topology["allocated_cpu_ids"])
     available = [threads for threads in requested if threads <= topology["logical_cpus"]]
     unavailable = [threads for threads in requested if threads > topology["logical_cpus"]]
     if 1 not in available:
@@ -247,6 +273,7 @@ def main():
     )
 
     numa_nodes = available_numa_nodes()
+    allocated_nodes = [node for node in numa_nodes if node_allocated_cpu_count(node, allocation) > 0]
     numa_report = {
         "requested": bool(args.numa),
         "feasible": False,
@@ -255,15 +282,16 @@ def main():
     if args.numa:
         if not shutil.which("numactl"):
             numa_report["reason"] = "numactl is unavailable"
-        elif topology["sockets"] < 2 or len(numa_nodes) < 2:
+        elif topology["sockets"] < 2 or len(allocated_nodes) < 2:
             numa_report["reason"] = (
-                f"detected {topology['sockets']} socket(s) and {len(numa_nodes)} NUMA node(s); "
-                "at least two of each are required for the paper-quality dual-socket comparison"
+                f"host reports {topology['sockets']} socket(s), but the active CPU allocation spans "
+                f"{len(allocated_nodes)} NUMA node(s); at least two allocated nodes on a multi-socket host "
+                "are required for the paper-quality dual-socket comparison"
             )
         else:
-            node0, node1 = numa_nodes[:2]
-            node0_cpus = node_cpu_count(node0)
-            node1_cpus = node_cpu_count(node1)
+            node0, node1 = allocated_nodes[:2]
+            node0_cpus = node_allocated_cpu_count(node0, allocation)
+            node1_cpus = node_allocated_cpu_count(node1, allocation)
             per_node = max(1, min(node0_cpus, node1_cpus, max(available)))
             single_threads = max(t for t in available if t <= per_node)
             dual_capacity = min(topology["logical_cpus"], node0_cpus + node1_cpus)
@@ -297,7 +325,7 @@ def main():
             }
 
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "artifact_type": "velographx-cpu-scaling-evidence",
         "research_claim": False,
         "topology": topology,
@@ -327,8 +355,10 @@ def main():
 
     print(json.dumps({
         "logical_cpus": topology["logical_cpus"],
+        "host_logical_cpus": topology["host_logical_cpus"],
         "sockets": topology["sockets"],
         "numa_nodes": topology["numa_nodes"],
+        "allocated_numa_nodes": allocated_nodes,
         "available_threads": available,
         "unavailable_threads": unavailable,
         "dual_socket_numa": numa_report.get("feasible", False),
