@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <initializer_list>
+#include <iostream>
 #include <vector>
 
 #include "velographx/incremental/connected_components.hpp"
@@ -15,24 +16,37 @@ bool equals(std::vector<velographx::VertexId> actual,
   return actual == std::vector<velographx::VertexId>(expected);
 }
 
+void dump(const char* label, const std::vector<velographx::VertexId>& row) {
+  std::cerr << label << ':';
+  for (auto v : row) std::cerr << ' ' << v;
+  std::cerr << '\n';
+}
+
 }  // namespace
 
 int main() {
   using namespace velographx;
 
-  // Existing incremental behavior remains source-compatible.
   DynamicGraph g(4, false);
   UpdateBatch b;
   b.add(0, 1);
   b.add(1, 2);
   b.add(2, 0);
   g.apply(b);
+  dump("before0", g.neighbors(0));
+  dump("before1", g.neighbors(1));
+  dump("before2", g.neighbors(2));
   assert(g.version() == 1);
   assert(g.has_edge(0, 1));
   assert(g.edge_count_directed() == 6);
   assert(g.delta_edge_count() == 6);
 
   IncrementalTriangleCount tc(g);
+  dump("after0", g.neighbors(0));
+  dump("after1", g.neighbors(1));
+  dump("after2", g.neighbors(2));
+  std::cerr << "triangles=" << tc.value() << " base=" << g.base_edge_count_directed()
+            << " delta=" << g.delta_edge_count() << '\n';
   assert(tc.value() == 1);
   assert(g.is_compact());
   assert(g.base_edge_count_directed() == 6);
@@ -48,7 +62,6 @@ int main() {
   auto plan = choose_execution({1, 1000, 4, 100, 1.2});
   assert(plan.mode == ExecutionMode::incremental);
 
-  // Bulk loading creates sorted segmented-CSR rows and explicit transpose rows.
   DynamicGraph directed(6, true);
   directed.bulk_load_edges({{0, 2}, {0, 1}, {0, 2}, {3, 2}, {4, 2}, {2, 5}});
   assert(directed.is_compact());
@@ -62,7 +75,6 @@ int main() {
   const auto compact_in = directed.compact_in_neighbors(2);
   assert(compact_in.size() == 3 && compact_in[0] == 0 && compact_in[2] == 4);
 
-  // Packed overlays must remain visible in both directions before compaction.
   UpdateBatch delta;
   delta.remove(0, 2);
   delta.add(1, 2);
@@ -76,8 +88,6 @@ int main() {
   assert(equals(directed.in_neighbors(2), {1, 3, 4, 5}));
   assert(directed.edge_count_directed() == 6);
 
-  // Returning an edge to its base state removes the overlay rather than
-  // accumulating stale tombstones.
   directed.add_edge(0, 2);
   assert(directed.has_edge(0, 2));
   assert(equals(directed.in_neighbors(2), {0, 1, 3, 4, 5}));
@@ -92,7 +102,6 @@ int main() {
   assert(directed.neighbors(2) == before_compact_out);
   assert(directed.in_neighbors(2) == before_compact_in);
 
-  // Vertex growth must extend CSR metadata without rebuilding existing rows.
   directed.add_edge(100000, 2);
   assert(directed.vertex_count() == 100001);
   assert(directed.has_edge(100000, 2));
