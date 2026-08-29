@@ -1,23 +1,47 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "artifact_type": "velographx-competitor-research-plan",
   "research_claim": false,
-  "purpose": "Require immutable competitor identities and versions before publication-grade comparative benchmarks are executed.",
+  "purpose": "Require immutable competitor identities, matched semantics, and reproducible build recipes before comparative measurements are promoted.",
   "required_before_execution": [
     "name",
     "kind",
     "version_or_commit",
     "source",
     "install_or_build_recipe",
+    "comparison_scope",
     "ready"
   ],
   "competitors": [
+    {
+      "name": "RisGraph",
+      "kind": "native-dynamic-graph-system",
+      "version_or_commit": "4e77f774d4aa7cd0bf3011e713496573b70c91ab",
+      "source": "https://github.com/thu-pacman/RisGraph",
+      "license": "Apache-2.0",
+      "install_or_build_recipe": ".github/workflows/external-baseline-evidence.yml",
+      "comparison_scope": "same-semantics batched sliding-window incremental BFS",
+      "ready": true,
+      "notes": "Primary external dynamic-algorithm baseline. Timing is emitted only after initial/final BFS layer equivalence and VeloGraphX full-recompute validation pass."
+    },
+    {
+      "name": "Teseo",
+      "kind": "native-dynamic-graph-storage-system",
+      "version_or_commit": "2c37c2831c4d2acaaa838a86e1318363ce68c45b",
+      "source": "https://github.com/cwida/teseo",
+      "license": "GPL-3.0",
+      "install_or_build_recipe": "docs/external-baselines.md",
+      "comparison_scope": "future storage-only update and adjacency-scan comparison; excluded from incremental-algorithm speedup tables",
+      "ready": false,
+      "notes": "The public Teseo API is a transactional dynamic graph store, not a same-semantics incremental BFS maintainer. It is retained as a storage candidate only."
+    },
     {
       "name": "NetworkX",
       "kind": "python-package",
       "version_or_commit": null,
       "source": "https://github.com/networkx/networkx",
       "install_or_build_recipe": null,
+      "comparison_scope": "reference/ergonomics only unless an exact matched workload is defined",
       "ready": false
     },
     {
@@ -26,6 +50,7 @@
       "version_or_commit": null,
       "source": "https://github.com/igraph/python-igraph",
       "install_or_build_recipe": null,
+      "comparison_scope": "static/native-backed reference only unless an exact matched dynamic workload is defined",
       "ready": false
     },
     {
@@ -34,6 +59,7 @@
       "version_or_commit": null,
       "source": "https://github.com/networkit/networkit",
       "install_or_build_recipe": null,
+      "comparison_scope": "static/native-backed reference only unless an exact matched dynamic workload is defined",
       "ready": false
     },
     {
@@ -42,6 +68,7 @@
       "version_or_commit": null,
       "source": "https://github.com/Qiskit/rustworkx",
       "install_or_build_recipe": null,
+      "comparison_scope": "static/native-backed reference only unless an exact matched dynamic workload is defined",
       "ready": false
     },
     {
@@ -50,6 +77,7 @@
       "version_or_commit": null,
       "source": "https://github.com/DrTimothyAldenDavis/GraphBLAS + https://github.com/GraphBLAS/LAGraph",
       "install_or_build_recipe": "docs/native-competitors.md",
+      "comparison_scope": "static algorithm reference unless a matched dynamic contract is defined",
       "ready": false
     },
     {
@@ -58,15 +86,18 @@
       "version_or_commit": null,
       "source": "https://github.com/sbeamer/gapbs",
       "install_or_build_recipe": "docs/native-competitors.md",
+      "comparison_scope": "static CPU baseline only",
       "ready": false
     }
   ],
   "rules": [
     "Do not use floating labels such as latest, main, master or HEAD as publication pins.",
-    "Python competitors must record an exact package version and resolved distribution metadata.",
     "Native competitors must record an immutable commit SHA or release tag plus compiler/build options.",
-    "A competitor may be marked ready only after its pinned identity is captured by the benchmark environment manifest.",
-    "Hosted CI contract fixtures are not comparative performance measurements."
+    "A competitor may be marked ready only after its pinned identity and matched comparison scope are captured by the benchmark contract.",
+    "Algorithm-maintenance timing requires the same algorithm result and update semantics on both systems.",
+    "Storage-only systems must not be presented in algorithm-maintenance speedup tables.",
+    "Correctness/equivalence gates must pass before any timing ratio is promoted.",
+    "Hosted CI comparative measurements are engineering evidence, not universal or publication-grade performance claims."
   ],
-  "notes": "Pins are intentionally unresolved until the dedicated benchmark environment is chosen. Populate from the exact installed/built versions used for measurements; do not invent or preselect versions merely to satisfy the schema."
+  "notes": "RisGraph is the first ready same-semantics dynamic algorithm baseline. Teseo is intentionally scoped to future storage-only evidence to avoid an unfair algorithm-vs-storage comparison."
 }
