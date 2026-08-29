@@ -4,6 +4,7 @@
 #include <functional>
 #include <limits>
 #include <queue>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include "velographx/storage/dynamic_graph.hpp"
@@ -80,13 +81,26 @@ class IncrementalBFS {
 
     if (last_affected_vertices_ != 0) repair_affected(affected, old_dist);
 
-    // Additions can only decrease distances. Run them after deletion repair so
-    // mixed batches converge from a deletion-correct state.
+    // Additions can only decrease distances, but only the last update for a
+    // logical edge describes its final batch state. Processing an earlier add
+    // that is later removed would relax through a non-existent final edge.
+    std::unordered_set<std::uint64_t> seen_final_updates;
+    seen_final_updates.reserve(batch.updates.size() * 2 + 1);
+    std::vector<std::pair<VertexId, VertexId>> final_additions;
+    final_additions.reserve(batch.updates.size());
+    for (auto it = batch.updates.rbegin(); it != batch.updates.rend(); ++it) {
+      auto u = it->src;
+      auto v = it->dst;
+      if (!g_.directed() && v < u) std::swap(u, v);
+      const auto key = (static_cast<std::uint64_t>(u) << 32) | static_cast<std::uint64_t>(v);
+      if (!seen_final_updates.insert(key).second || !it->add) continue;
+      final_additions.emplace_back(it->src, it->dst);
+    }
+
     std::queue<VertexId> q;
-    for (const auto& e : batch.updates) {
-      if (!e.add) continue;
-      relax_edge(e.src, e.dst, q);
-      if (!g_.directed()) relax_edge(e.dst, e.src, q);
+    for (const auto& [u, v] : final_additions) {
+      relax_edge(u, v, q);
+      if (!g_.directed()) relax_edge(v, u, q);
     }
     propagate_decreases(q);
   }
@@ -214,7 +228,7 @@ class IncrementalBFS {
 
     // A mixed batch may introduce a new edge that makes a repaired vertex
     // shorter than its pre-batch level. Propagate that decrease outside the
-    // invalidated region before processing all explicit additions below.
+    // invalidated region before processing surviving additions below.
     std::queue<VertexId> repaired_frontier;
     for (VertexId v = 0; v < affected.size(); ++v) {
       if (affected[v] && dist_[v] != unreachable &&
