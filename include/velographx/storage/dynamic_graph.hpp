@@ -585,6 +585,7 @@ class DynamicGraph {
   static std::span<const VertexId> compact_row(const storage_detail::SegmentedCsr& base,
                                                const storage_detail::CompactRowPatches& patches,
                                                VertexId u) noexcept {
+    if (patches.empty()) return base.row(u);
     if (const auto* patch = patches.find(u)) return *patch;
     return base.row(u);
   }
@@ -705,9 +706,12 @@ class DynamicGraph {
   }
 
   void automatic_storage_maintenance() {
+    constexpr double kAutomaticGlobalDeltaRatio = 0.01;
     constexpr double kRowDeltaDensityThreshold = 0.50;
     constexpr double kFragmentationThreshold = 0.60;
-    (void)maybe_compact(kRowDeltaDensityThreshold);
+    if (delta_ratio() >= kAutomaticGlobalDeltaRatio) {
+      (void)maybe_compact(kRowDeltaDensityThreshold);
+    }
     if (delta_out_.fragmentation_ratio() > kFragmentationThreshold) delta_out_.repack();
     if (delta_in_.fragmentation_ratio() > kFragmentationThreshold) delta_in_.repack();
   }
