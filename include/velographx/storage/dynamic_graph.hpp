@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -31,7 +32,7 @@ namespace storage_detail {
 
 class SegmentedCsr {
  public:
-  static constexpr std::size_t kVerticesPerSegment = 1u << 6;
+  static constexpr std::size_t kVerticesPerSegment = 1u << 16;
 
   [[nodiscard]] std::size_t vertex_count() const noexcept { return vertex_count_; }
   [[nodiscard]] std::size_t edge_count() const noexcept { return edge_count_; }
@@ -251,13 +252,10 @@ class PackedDeltaStore {
     return it->present;
   }
 
-  std::ptrdiff_t set(VertexId u, VertexId v, bool desired_present, bool base_present) {
+  void set(VertexId u, VertexId v, bool desired_present, bool base_present) {
     resize_vertices(static_cast<std::size_t>(u) + 1);
-    const auto before = rows_[u].count;
     if (desired_present == base_present) erase(u, v);
     else upsert(u, v, desired_present);
-    const auto after = rows_[u].count;
-    return static_cast<std::ptrdiff_t>(after) - static_cast<std::ptrdiff_t>(before);
   }
 
   [[nodiscard]] std::size_t size() const noexcept { return live_entries_; }
@@ -398,6 +396,33 @@ class PackedDeltaStore {
   std::size_t absent_entries_{0};
 };
 
+class CompactRowPatches {
+ public:
+  void clear() { rows_.clear(); }
+  [[nodiscard]] bool empty() const noexcept { return rows_.empty(); }
+
+  [[nodiscard]] const std::vector<VertexId>* find(VertexId u) const noexcept {
+    const auto it = rows_.find(u);
+    return it == rows_.end() ? nullptr : &it->second;
+  }
+
+  void set(VertexId u, std::vector<VertexId> row) {
+    rows_.insert_or_assign(u, std::move(row));
+  }
+
+  [[nodiscard]] std::size_t storage_bytes() const noexcept {
+    std::size_t bytes = sizeof(*this) + rows_.size() * sizeof(typename decltype(rows_)::value_type);
+    for (const auto& [u, row] : rows_) {
+      (void)u;
+      bytes += row.capacity() * sizeof(VertexId);
+    }
+    return bytes;
+  }
+
+ private:
+  std::unordered_map<VertexId, std::vector<VertexId>> rows_;
+};
+
 }  // namespace storage_detail
 
 class IncrementalTriangleCount;
@@ -410,7 +435,6 @@ class DynamicGraph {
     base_in_.resize_vertices(vertices);
     delta_out_.resize_vertices(vertices);
     delta_in_.resize_vertices(vertices);
-    resize_dirty_maps();
   }
 
   [[nodiscard]] std::size_t vertex_count() const noexcept { return base_out_.vertex_count(); }
@@ -424,7 +448,6 @@ class DynamicGraph {
     base_in_.resize_vertices(n);
     delta_out_.resize_vertices(n);
     delta_in_.resize_vertices(n);
-    resize_dirty_maps();
   }
 
   void bulk_load_edges(const std::vector<std::pair<VertexId, VertexId>>& edges) {
@@ -443,12 +466,16 @@ class DynamicGraph {
 
     base_out_.build(vertex_count(), std::move(arcs));
     base_in_.build_transpose_from(base_out_);
+    patches_out_.clear();
+    patches_in_.clear();
+    compact_out_edges_ = base_out_.edge_count();
+    compact_in_edges_ = base_in_.edge_count();
     delta_out_.clear();
     delta_in_.clear();
     delta_out_.resize_vertices(vertex_count());
     delta_in_.resize_vertices(vertex_count());
-    resize_dirty_maps();
-    clear_dirty_maps();
+    dirty_out_rows_.clear();
+    dirty_in_rows_.clear();
     ++version_;
   }
 
@@ -473,11 +500,11 @@ class DynamicGraph {
   }
 
   [[nodiscard]] std::vector<VertexId> neighbors(VertexId u) const {
-    return materialize_row(base_out_, delta_out_, u);
+    return materialize_row(base_out_, patches_out_, delta_out_, u);
   }
 
   [[nodiscard]] std::vector<VertexId> in_neighbors(VertexId v) const {
-    return materialize_row(base_in_, delta_in_, v);
+    return materialize_row(base_in_, patches_in_, delta_in_, v);
   }
 
   [[nodiscard]] bool is_compact() const noexcept {
@@ -485,73 +512,69 @@ class DynamicGraph {
   }
 
   [[nodiscard]] std::span<const VertexId> compact_neighbors(VertexId u) const noexcept {
+    if (const auto* patch = patches_out_.find(u)) return *patch;
     return base_out_.row(u);
   }
 
   [[nodiscard]] std::span<const VertexId> compact_in_neighbors(VertexId v) const noexcept {
+    if (const auto* patch = patches_in_.find(v)) return *patch;
     return base_in_.row(v);
   }
 
   [[nodiscard]] bool has_edge(VertexId u, VertexId v) const {
     if (u >= vertex_count()) return false;
     if (const auto overlay = delta_out_.override_for(u, v); overlay.has_value()) return *overlay;
-    return base_out_.contains(u, v);
+    return compact_contains(base_out_, patches_out_, u, v);
   }
 
   [[nodiscard]] std::size_t edge_count_directed() const noexcept {
-    return base_out_.edge_count() + delta_out_.additions() - delta_out_.deletions();
+    return compact_out_edges_ + delta_out_.additions() - delta_out_.deletions();
   }
 
   [[nodiscard]] std::size_t base_edge_count_directed() const noexcept {
-    return base_out_.edge_count();
+    return compact_out_edges_;
   }
 
   [[nodiscard]] std::size_t delta_edge_count() const noexcept { return delta_out_.size(); }
 
   [[nodiscard]] std::size_t storage_bytes() const noexcept {
     return base_out_.storage_bytes() + base_in_.storage_bytes() +
+           patches_out_.storage_bytes() + patches_in_.storage_bytes() +
            delta_out_.storage_bytes() + delta_in_.storage_bytes() +
-           dirty_out_segments_.capacity() + dirty_in_segments_.capacity() +
-           dirty_out_entries_.capacity() * sizeof(std::size_t) +
-           dirty_in_entries_.capacity() * sizeof(std::size_t) +
-           dirty_out_index_.capacity() * sizeof(std::size_t) +
-           dirty_in_index_.capacity() * sizeof(std::size_t);
+           dirty_out_rows_.capacity() * sizeof(VertexId) +
+           dirty_in_rows_.capacity() * sizeof(VertexId);
   }
 
   [[nodiscard]] double delta_ratio() const noexcept {
     return static_cast<double>(delta_out_.size()) /
-           static_cast<double>(std::max<std::size_t>(1, base_out_.edge_count()));
+           static_cast<double>(std::max<std::size_t>(1, compact_out_edges_));
   }
 
-  [[nodiscard]] std::size_t dirty_out_segment_count() const noexcept {
-    return dirty_out_index_.size();
+  [[nodiscard]] std::size_t dirty_out_segment_count() const {
+    return unique_dirty_count(dirty_out_rows_);
   }
 
-  [[nodiscard]] std::size_t dirty_in_segment_count() const noexcept {
-    return dirty_in_index_.size();
+  [[nodiscard]] std::size_t dirty_in_segment_count() const {
+    return unique_dirty_count(dirty_in_rows_);
   }
 
   bool maybe_compact(double threshold = 0.25) {
     bool compacted = false;
-    compacted |= compact_dense_segments(base_out_, delta_out_, dirty_out_segments_, dirty_out_entries_,
-                                        dirty_out_index_, threshold,
-                                        [this](VertexId u) { return neighbors(u); });
-    compacted |= compact_dense_segments(base_in_, delta_in_, dirty_in_segments_, dirty_in_entries_,
-                                        dirty_in_index_, threshold,
-                                        [this](VertexId v) { return in_neighbors(v); });
+    compacted |= compact_dense_rows(base_out_, patches_out_, delta_out_, dirty_out_rows_,
+                                    compact_out_edges_, threshold);
+    compacted |= compact_dense_rows(base_in_, patches_in_, delta_in_, dirty_in_rows_,
+                                    compact_in_edges_, threshold);
     if (compacted) {
-      delta_out_.repack();
-      delta_in_.repack();
+      if (delta_out_.fragmentation_ratio() > 0.25) delta_out_.repack();
+      if (delta_in_.fragmentation_ratio() > 0.25) delta_in_.repack();
     }
     return compacted;
   }
 
   void compact() {
     if (is_compact()) return;
-    compact_marked_segments(base_out_, delta_out_, dirty_out_segments_, dirty_out_entries_,
-                            dirty_out_index_, [this](VertexId u) { return neighbors(u); });
-    compact_marked_segments(base_in_, delta_in_, dirty_in_segments_, dirty_in_entries_,
-                            dirty_in_index_, [this](VertexId v) { return in_neighbors(v); });
+    compact_marked_rows(base_out_, patches_out_, delta_out_, dirty_out_rows_, compact_out_edges_);
+    compact_marked_rows(base_in_, patches_in_, delta_in_, dirty_in_rows_, compact_in_edges_);
     delta_out_.repack();
     delta_in_.repack();
   }
@@ -559,10 +582,25 @@ class DynamicGraph {
  private:
   friend class IncrementalTriangleCount;
 
+  static std::span<const VertexId> compact_row(const storage_detail::SegmentedCsr& base,
+                                               const storage_detail::CompactRowPatches& patches,
+                                               VertexId u) noexcept {
+    if (const auto* patch = patches.find(u)) return *patch;
+    return base.row(u);
+  }
+
+  static bool compact_contains(const storage_detail::SegmentedCsr& base,
+                               const storage_detail::CompactRowPatches& patches,
+                               VertexId u, VertexId v) noexcept {
+    const auto row = compact_row(base, patches, u);
+    return std::binary_search(row.begin(), row.end(), v);
+  }
+
   static std::vector<VertexId> materialize_row(const storage_detail::SegmentedCsr& base,
+                                                const storage_detail::CompactRowPatches& patches,
                                                 const storage_detail::PackedDeltaStore& delta,
                                                 VertexId u) {
-    const auto base_row = base.row(u);
+    const auto base_row = compact_row(base, patches, u);
     const auto overlay = delta.row(u);
     if (overlay.empty()) return {base_row.begin(), base_row.end()};
 
@@ -585,35 +623,11 @@ class DynamicGraph {
     return out;
   }
 
-  void resize_dirty_maps() {
-    dirty_out_segments_.resize(base_out_.segment_count(), 0);
-    dirty_in_segments_.resize(base_in_.segment_count(), 0);
-    dirty_out_entries_.resize(base_out_.segment_count(), 0);
-    dirty_in_entries_.resize(base_in_.segment_count(), 0);
-  }
-
-  void clear_dirty_maps() {
-    std::fill(dirty_out_segments_.begin(), dirty_out_segments_.end(), 0);
-    std::fill(dirty_in_segments_.begin(), dirty_in_segments_.end(), 0);
-    std::fill(dirty_out_entries_.begin(), dirty_out_entries_.end(), 0);
-    std::fill(dirty_in_entries_.begin(), dirty_in_entries_.end(), 0);
-    dirty_out_index_.clear();
-    dirty_in_index_.clear();
-  }
-
-  static void adjust_entry_count(std::vector<std::size_t>& counts, std::size_t segment,
-                                 std::ptrdiff_t change) {
-    if (segment >= counts.size() || change == 0) return;
-    if (change > 0) counts[segment] += static_cast<std::size_t>(change);
-    else counts[segment] -= std::min(counts[segment], static_cast<std::size_t>(-change));
-  }
-
-  static void mark_dirty(std::vector<std::uint8_t>& dirty,
-                         std::vector<std::size_t>& index,
-                         std::size_t segment) {
-    if (segment >= dirty.size() || dirty[segment]) return;
-    dirty[segment] = 1;
-    index.push_back(segment);
+  static std::size_t unique_dirty_count(const std::vector<VertexId>& rows) {
+    if (rows.empty()) return 0;
+    std::vector<VertexId> copy = rows;
+    std::sort(copy.begin(), copy.end());
+    return static_cast<std::size_t>(std::unique(copy.begin(), copy.end()) - copy.begin());
   }
 
   void apply_unversioned(const EdgeUpdate& op) {
@@ -623,75 +637,77 @@ class DynamicGraph {
   }
 
   void apply_arc(VertexId u, VertexId v, bool present) {
-    const auto out_segment = static_cast<std::size_t>(u) / storage_detail::SegmentedCsr::kVerticesPerSegment;
-    const auto in_segment = static_cast<std::size_t>(v) / storage_detail::SegmentedCsr::kVerticesPerSegment;
-    const auto base_present_out = base_out_.contains(u, v);
+    const auto base_present_out = compact_contains(base_out_, patches_out_, u, v);
     const auto overlay = delta_out_.override_for(u, v);
     const bool current = overlay.has_value() ? *overlay : base_present_out;
     if (current == present) return;
 
-    const auto out_change = delta_out_.set(u, v, present, base_present_out);
-    const auto in_change = delta_in_.set(v, u, present, base_in_.contains(v, u));
-    adjust_entry_count(dirty_out_entries_, out_segment, out_change);
-    adjust_entry_count(dirty_in_entries_, in_segment, in_change);
-    mark_dirty(dirty_out_segments_, dirty_out_index_, out_segment);
-    mark_dirty(dirty_in_segments_, dirty_in_index_, in_segment);
+    delta_out_.set(u, v, present, base_present_out);
+    delta_in_.set(v, u, present, compact_contains(base_in_, patches_in_, v, u));
+    dirty_out_rows_.push_back(u);
+    dirty_in_rows_.push_back(v);
   }
 
-  template <class RowProvider>
-  static void compact_marked_segments(storage_detail::SegmentedCsr& base,
-                                      storage_detail::PackedDeltaStore& delta,
-                                      std::vector<std::uint8_t>& dirty,
-                                      std::vector<std::size_t>& entries,
-                                      std::vector<std::size_t>& index,
-                                      RowProvider&& rows) {
-    for (const auto segment : index) {
-      if (segment >= dirty.size() || !dirty[segment]) continue;
-      const auto begin = base.segment_begin(segment);
-      const auto end = base.segment_end(segment);
-      base.rebuild_segment(segment, rows);
-      delta.clear_range(begin, end);
-      dirty[segment] = 0;
-      entries[segment] = 0;
-    }
-    index.clear();
+  static void normalize_dirty(std::vector<VertexId>& rows) {
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
   }
 
-  template <class RowProvider>
-  static bool compact_dense_segments(storage_detail::SegmentedCsr& base,
-                                     storage_detail::PackedDeltaStore& delta,
-                                     std::vector<std::uint8_t>& dirty,
-                                     std::vector<std::size_t>& entries,
-                                     std::vector<std::size_t>& index,
-                                     double threshold,
-                                     RowProvider&& rows) {
+  static void compact_one_row(const storage_detail::SegmentedCsr& base,
+                              storage_detail::CompactRowPatches& patches,
+                              storage_detail::PackedDeltaStore& delta,
+                              VertexId u,
+                              std::size_t& compact_edges) {
+    if (delta.row(u).empty()) return;
+    const auto old_size = compact_row(base, patches, u).size();
+    auto merged = materialize_row(base, patches, delta, u);
+    const auto new_size = merged.size();
+    patches.set(u, std::move(merged));
+    delta.clear_range(static_cast<std::size_t>(u), static_cast<std::size_t>(u) + 1);
+    compact_edges = compact_edges - old_size + new_size;
+  }
+
+  static void compact_marked_rows(const storage_detail::SegmentedCsr& base,
+                                  storage_detail::CompactRowPatches& patches,
+                                  storage_detail::PackedDeltaStore& delta,
+                                  std::vector<VertexId>& dirty_rows,
+                                  std::size_t& compact_edges) {
+    normalize_dirty(dirty_rows);
+    for (const auto u : dirty_rows) compact_one_row(base, patches, delta, u, compact_edges);
+    dirty_rows.clear();
+  }
+
+  static bool compact_dense_rows(const storage_detail::SegmentedCsr& base,
+                                 storage_detail::CompactRowPatches& patches,
+                                 storage_detail::PackedDeltaStore& delta,
+                                 std::vector<VertexId>& dirty_rows,
+                                 std::size_t& compact_edges,
+                                 double threshold) {
+    normalize_dirty(dirty_rows);
     bool compacted = false;
-    std::vector<std::size_t> pending;
-    pending.reserve(index.size());
-    for (const auto segment : index) {
-      if (segment >= dirty.size() || !dirty[segment]) continue;
-      const auto base_edges = std::max<std::size_t>(1, base.segment_edge_count(segment));
-      const double density = static_cast<double>(entries[segment]) / static_cast<double>(base_edges);
+    std::vector<VertexId> pending;
+    pending.reserve(dirty_rows.size());
+    for (const auto u : dirty_rows) {
+      const auto overlay_size = delta.row(u).size();
+      if (overlay_size == 0) continue;
+      const auto base_size = compact_row(base, patches, u).size();
+      const auto work_budget = std::max<std::size_t>(8, base_size);
+      const double density = static_cast<double>(overlay_size) / static_cast<double>(work_budget);
       if (density < threshold) {
-        pending.push_back(segment);
+        pending.push_back(u);
         continue;
       }
-      const auto begin = base.segment_begin(segment);
-      const auto end = base.segment_end(segment);
-      base.rebuild_segment(segment, rows);
-      delta.clear_range(begin, end);
-      dirty[segment] = 0;
-      entries[segment] = 0;
+      compact_one_row(base, patches, delta, u, compact_edges);
       compacted = true;
     }
-    index.swap(pending);
+    dirty_rows.swap(pending);
     return compacted;
   }
 
   void automatic_storage_maintenance() {
-    constexpr double kSegmentDeltaDensityThreshold = 0.25;
+    constexpr double kRowDeltaDensityThreshold = 0.50;
     constexpr double kFragmentationThreshold = 0.60;
-    (void)maybe_compact(kSegmentDeltaDensityThreshold);
+    (void)maybe_compact(kRowDeltaDensityThreshold);
     if (delta_out_.fragmentation_ratio() > kFragmentationThreshold) delta_out_.repack();
     if (delta_in_.fragmentation_ratio() > kFragmentationThreshold) delta_in_.repack();
   }
@@ -699,14 +715,14 @@ class DynamicGraph {
   bool directed_{false};
   storage_detail::SegmentedCsr base_out_;
   storage_detail::SegmentedCsr base_in_;
+  storage_detail::CompactRowPatches patches_out_;
+  storage_detail::CompactRowPatches patches_in_;
   storage_detail::PackedDeltaStore delta_out_;
   storage_detail::PackedDeltaStore delta_in_;
-  std::vector<std::uint8_t> dirty_out_segments_;
-  std::vector<std::uint8_t> dirty_in_segments_;
-  std::vector<std::size_t> dirty_out_entries_;
-  std::vector<std::size_t> dirty_in_entries_;
-  std::vector<std::size_t> dirty_out_index_;
-  std::vector<std::size_t> dirty_in_index_;
+  std::vector<VertexId> dirty_out_rows_;
+  std::vector<VertexId> dirty_in_rows_;
+  std::size_t compact_out_edges_{0};
+  std::size_t compact_in_edges_{0};
   std::uint64_t version_{0};
 };
 
