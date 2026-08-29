@@ -30,9 +30,8 @@ int main() {
   assert(g.version() == 1);
   assert(g.has_edge(0, 1));
   assert(g.edge_count_directed() == 6);
-  // Automatic maintenance may compact a tiny high-density segment immediately.
-  assert(g.is_compact());
-  assert(g.delta_edge_count() == 0);
+  assert(!g.is_compact());
+  assert(g.delta_edge_count() == 6);
 
   IncrementalTriangleCount tc(g);
   assert(tc.value() == 1);
@@ -89,6 +88,22 @@ int main() {
   assert(directed.neighbors(2) == before_compact_out);
   assert(directed.in_neighbors(2) == before_compact_in);
 
+  // A row that has already been compacted into a sparse patch must remain
+  // fully mutable on later batches, including reverse-adjacency maintenance.
+  directed.remove_edge(0, 2);
+  directed.add_edge(0, 4);
+  assert(!directed.has_edge(0, 2));
+  assert(directed.has_edge(0, 4));
+  assert(!std::binary_search(directed.in_neighbors(2).begin(), directed.in_neighbors(2).end(), 0));
+  const auto in_four = directed.in_neighbors(4);
+  assert(std::binary_search(in_four.begin(), in_four.end(), 0));
+  const auto repatch_count = directed.edge_count_directed();
+  directed.compact();
+  assert(directed.is_compact());
+  assert(directed.edge_count_directed() == repatch_count);
+  assert(!directed.has_edge(0, 2));
+  assert(directed.has_edge(0, 4));
+
   directed.add_edge(100000, 2);
   assert(directed.vertex_count() == 100001);
   assert(directed.has_edge(100000, 2));
@@ -96,7 +111,7 @@ int main() {
   assert(std::binary_search(incoming_after_growth.begin(),
                             incoming_after_growth.end(), 100000));
 
-  // Exercise dirty-segment tracking below the automatic density threshold.
+  // Exercise sparse row tracking below the automatic global-delta threshold.
   std::vector<std::pair<VertexId, VertexId>> seed;
   seed.reserve(400);
   for (VertexId i = 0; i < 200; ++i) {
