@@ -1,0 +1,61 @@
+name: Published Baseline Eligibility Contract
+
+on:
+  push:
+    paths:
+      - 'benchmarks/published-baseline-eligibility.json'
+      - 'docs/published-baseline-eligibility.md'
+      - '.github/workflows/published-baseline-eligibility.yml'
+  pull_request:
+    paths:
+      - 'benchmarks/published-baseline-eligibility.json'
+      - 'docs/published-baseline-eligibility.md'
+      - '.github/workflows/published-baseline-eligibility.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate eligibility contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('benchmarks/published-baseline-eligibility.json')
+          data = json.loads(path.read_text())
+          assert data['schema_version'] == 1
+          assert data['artifact_type'] == 'published-baseline-eligibility'
+          assert data['research_claim'] is False
+
+          required = {
+              'public_runnable_implementation',
+              'same_cpu_runner_compatible',
+              'matching_workload_semantics',
+              'identical_normalized_dataset',
+              'identical_deterministic_updates',
+              'exact_correctness_gate',
+              'captured_compiler_runtime_and_measurement_boundary',
+          }
+          assert set(data['direct_comparison_requirements']) == required
+
+          by_name = {c['name']: c for c in data['candidates']}
+          assert by_name['HiPC-2017-Makkar-Bader-Green']['same_cpu_eligible'] is False
+          assert by_name['EDTC-TPDS-2026']['same_cpu_eligible'] is False
+          assert by_name['GraphDelta-JSA-2026']['same_cpu_eligible'] is False
+
+          golden = by_name['SIGMOD-2021-GoldenCounter-exact-reference']
+          assert golden['same_cpu_eligible'] is True
+          assert golden['executed'] is True
+          assert golden['pinned_revision'] == '1085ba049bb94451661d119284d7cd9b68687a81'
+          assert Path(golden['evidence']).exists()
+
+          doc = Path('docs/published-baseline-eligibility.md').read_text()
+          for name in ('HiPC 2017', 'EDTC', 'GraphDelta', 'GoldenCounter'):
+              assert name in doc
+          PY
