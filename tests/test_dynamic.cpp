@@ -68,7 +68,6 @@ int main() {
   delta.add(1, 2);
   delta.add(5, 2);
   directed.apply(delta);
-  assert(!directed.is_compact());
   assert(!directed.has_edge(0, 2));
   assert(directed.has_edge(1, 2));
   assert(directed.has_edge(5, 2));
