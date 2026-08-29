@@ -47,6 +47,50 @@ inline ConsolidationSignal evaluate_consolidation(
           storage_exceeded || latency_exceeded};
 }
 
+// Stateful steady-state controller layered on top of the raw threshold signal.
+// Storage growth remains an immediate safety trigger. Latency is noisier on
+// shared hardware, so it must breach the limit for several consecutive samples
+// and is suppressed for a short cooldown after a successful CSR cutover.
+struct ConsolidationControllerConfig {
+  std::size_t min_epochs_between_consolidations{5};
+  std::size_t latency_breach_samples{3};
+};
+
+class ConsolidationController {
+ public:
+  explicit ConsolidationController(ConsolidationControllerConfig config = {})
+      : config_(config) {}
+
+  bool observe(const ConsolidationSignal& signal, std::size_t epoch) noexcept {
+    if (signal.latency_limit_exceeded) {
+      ++latency_breach_streak_;
+    } else {
+      latency_breach_streak_ = 0;
+    }
+
+    const bool cooldown_complete = last_consolidation_epoch_ == 0 ||
+        epoch >= last_consolidation_epoch_ + config_.min_epochs_between_consolidations;
+    if (!cooldown_complete) return false;
+
+    if (signal.storage_limit_exceeded) return true;
+    return signal.latency_limit_exceeded &&
+        latency_breach_streak_ >= config_.latency_breach_samples;
+  }
+
+  void mark_consolidated(std::size_t epoch) noexcept {
+    last_consolidation_epoch_ = epoch;
+    latency_breach_streak_ = 0;
+  }
+
+  std::size_t latency_breach_streak() const noexcept { return latency_breach_streak_; }
+  std::size_t last_consolidation_epoch() const noexcept { return last_consolidation_epoch_; }
+
+ private:
+  ConsolidationControllerConfig config_{};
+  std::size_t latency_breach_streak_{0};
+  std::size_t last_consolidation_epoch_{0};
+};
+
 // Rebuild the current logical graph into a canonical segmented-CSR snapshot.
 // This deliberately does not mutate the source graph: callers can validate the
 // snapshot before an application-level cutover. Row patches and delta arenas in
