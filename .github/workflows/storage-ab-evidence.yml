@@ -1,0 +1,91 @@
+name: Storage A/B Evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/storage-ab-evidence.yml'
+      - 'benchmarks/storage_ab_benchmark.cpp'
+      - 'tools/storage_ab_campaign.py'
+      - 'include/velographx/storage/dynamic_graph.hpp'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  storage-ab:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: 10m
+            edges: 10000000
+            repeats: 3
+            probes: 8192
+          - label: 100m
+            edges: 100000000
+            repeats: 1
+            probes: 8192
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture hardware allocation
+        run: |
+          mkdir -p build/storage-ab/${{ matrix.label }}
+          lscpu | tee build/storage-ab/${{ matrix.label }}/lscpu.txt
+          free -h | tee build/storage-ab/${{ matrix.label }}/memory.txt
+          python tools/capture_benchmark_environment.py \
+            --label storage-ab-${{ matrix.label }} \
+            --output build/storage-ab/${{ matrix.label }}/environment.json
+
+      - name: Build storage benchmark
+        run: |
+          cmake -S . -B build/storage-ab/cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/storage-ab/cmake \
+            --target velographx_storage_ab_benchmark -j 2
+
+      - name: Run historical versus current storage campaign
+        run: |
+          python tools/storage_ab_campaign.py \
+            --binary build/storage-ab/cmake/velographx_storage_ab_benchmark \
+            --edges ${{ matrix.edges }} \
+            --degree 20 \
+            --repeats ${{ matrix.repeats }} \
+            --probes ${{ matrix.probes }} \
+            --timeout-seconds 5400 \
+            --output-dir build/storage-ab/${{ matrix.label }}/results \
+            | tee build/storage-ab/${{ matrix.label }}/summary.json
+          cat build/storage-ab/${{ matrix.label }}/results/README.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate artifact contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('build/storage-ab/${{ matrix.label }}/results/storage-ab.json')
+          r = json.loads(p.read_text())
+          assert r['artifact_type'] == 'velographx-storage-ab-evidence'
+          assert r['research_claim'] is False
+          assert r['target_edges'] == ${{ matrix.edges }}
+          assert r['current']['neighbor_checksum'] == r['legacy']['neighbor_checksum']
+          assert r['current']['final_edges'] == r['legacy']['final_edges']
+          assert r['current']['loaded_rss_kb'] > 0
+          assert r['legacy']['loaded_rss_kb'] > 0
+          assert r['reverse_base']['reverse_storage_bytes'] > 0
+          assert r['current']['updates_per_second'] > 0
+          assert r['legacy']['updates_per_second'] > 0
+          print('storage A/B artifact validation passed')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-storage-ab-${{ matrix.label }}
+          path: build/storage-ab/${{ matrix.label }}/
+          retention-days: 90
