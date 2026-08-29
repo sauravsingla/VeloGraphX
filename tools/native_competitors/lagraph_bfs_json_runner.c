@@ -46,14 +46,11 @@ int main(int argc, char **argv) {
     if (LAGraph_Cached_OutDegree(G, msg) < 0) die(msg);
 
     GrB_Vector level = NULL;
-    if (LAGr_BreadthFirstSearch_Extended(
+    if (LAGr_BreadthFirstSearch(
             &level,
             NULL,
             G,
             (GrB_Index) source,
-            -1,
-            -1,
-            true,
             msg) < 0) {
         die(msg);
     }
