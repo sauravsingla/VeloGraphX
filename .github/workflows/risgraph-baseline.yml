@@ -2,7 +2,7 @@ name: RisGraph Dynamic BFS Baseline
 
 on:
   push:
-    branches: [external-dynamic-baseline-final]
+    branches: [main, external-dynamic-baseline-final]
     paths:
       - '.github/workflows/risgraph-baseline.yml'
       - 'benchmarks/risgraph_bfs_baseline.cpp'
@@ -38,7 +38,14 @@ jobs:
 
       - name: Build RisGraph batched BFS
         run: |
-          cmake -S external/RisGraph -B external/RisGraph/build -DCMAKE_BUILD_TYPE=Release
+          # RisGraph's bundled FindTBB predates oneTBB and otherwise probes the
+          # removed tbb/tbb_stddef.h header. Supplying the installed package
+          # version bypasses only that obsolete detector; upstream source and
+          # benchmark semantics remain unmodified.
+          TBB_VERSION="$(dpkg-query -W -f='${Version}' libtbb-dev | sed 's/-.*//')"
+          cmake -S external/RisGraph -B external/RisGraph/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTBB_VERSION="$TBB_VERSION"
           cmake --build external/RisGraph/build --target bfs_inc_batch -j 2
 
       - name: Build VeloGraphX matched harness
@@ -122,6 +129,7 @@ jobs:
           {
             uname -a
             g++ --version | head -1
+            dpkg-query -W libtbb-dev
             lscpu
           } > environment.txt
 
