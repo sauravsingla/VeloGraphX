@@ -33,13 +33,27 @@ The values are median `full recomputation / incremental` time over five repetiti
 
 These are **hosted-CI engineering measurements, not publication-grade universal performance claims**. The headline table intentionally excludes tiny update fractions where extremely short incremental timings can exaggerate ratios. See [`docs/multi-dataset-crossover.md`](docs/multi-dataset-crossover.md) for the full methodology, caveats, and evidence contract.
 
+### Same-run published exact reference comparison
+
+A separate hosted-CI experiment runs VeloGraphX beside the **unmodified exact `GoldenCounter` reference implementation distributed with the public SIGMOD 2021 triangle-counting source**. Both execute in the same comparison process with GCC 13.3.0, the identical normalized `facebook-combined` graph, identical deterministic insertion batches, and five repetitions per update fraction. Every VeloGraphX incremental result, GoldenCounter exact result, and VeloGraphX full recomputation agreed exactly.
+
+`GoldenCounter` dynamically accepts the updates but computes the exact global count when `triangle_count()` is queried, so its fair **exact-answer-ready** latency is insertion time plus exact-query time. VeloGraphX maintains the exact answer during its incremental update.
+
+| Update batch | VeloGraphX exact-answer-ready | Published `GoldenCounter` exact-answer-ready | Answer-ready latency ratio | VeloGraphX throughput | VeloGraphX vs own full recompute |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **1% / 883 edges** | **1.066 ms** | 43.657 ms | **40.95x lower** | **0.828 M updates/s** | **82.45x** |
+| **5% / 4,412 edges** | **6.782 ms** | 47.095 ms | **6.94x lower** | **0.651 M updates/s** | **18.05x** |
+| **10% / 8,824 edges** | **15.495 ms** | 53.931 ms | **3.48x lower** | **0.569 M updates/s** | **9.18x** |
+
+This is **not** a claim that VeloGraphX outperforms the SIGMOD 2021 SWTC algorithm itself: SWTC is an approximate sliding-window algorithm with different semantics. The comparison is specifically against the paper repository's pinned exact reference component, revision `1085ba049bb94451661d119284d7cd9b68687a81`. Full provenance, source hashes, update-only/query timings, methodology and interpretation boundaries are in [`docs/same-run-published-baseline.md`](docs/same-run-published-baseline.md).
+
 ### Peer-reviewed research context
 
 Dynamic triangle counting is an established research problem rather than a repository-specific benchmark. **Makkar, Bader and Green, HiPC 2017, _Exact and Parallel Triangle Counting in Dynamic Graphs_** studied exact batched triangle maintenance under graph insertions/deletions and emphasized avoiding recomputation from scratch by processing affected structure. Their published implementation targets GPU hardware and reports up to 32M analytic updates/s, or up to 11M updates/s when graph-structure maintenance is included. [Paper](https://doi.org/10.1109/HiPC.2017.00011) · [Author copy](https://davidbader.net/publication/2017-mbg/)
 
 **De Stefani et al., KDD 2016, _TRIÈST_** studied fully dynamic insertion/deletion streams with fixed memory, using reservoir sampling to maintain high-quality **approximate** triangle counts. This is a related but different operating point from VeloGraphX, whose campaign above maintains an **exact** triangle count and validates every incremental result against full recomputation. [KDD paper](https://doi.org/10.1145/2939672.2939771) · [KDD overview](https://www.kdd.org/kdd2016/subtopic/view/triest-counting-local-and-global-triangles-in-fully-dynamic-streams-with-fi)
 
-The comparison is intentionally methodological rather than a cross-paper speed ranking: published systems use different hardware, graph scales, update models, memory constraints, and experimental setups. **VeloGraphX's 84.77x / 59.05x / 55.23x figures are speedups over its own exact full recomputation on the same hosted-CI run, not speedups over these papers.** A defensible system-vs-system performance table requires executing a published baseline on the same dataset, hardware, compiler/runtime, update sequence, and correctness contract.
+The older cross-paper numbers remain methodological context rather than a speed ranking because those systems use different hardware, graph scales, update models, memory constraints, and experimental setups. VeloGraphX's public-dataset incremental/full figures above are speedups over its own exact full recomputation; the same-run `GoldenCounter` table is kept separate because it satisfies the stronger same-run normalization contract.
 
 ## Hosted-CI engineering results
 
@@ -189,6 +203,7 @@ The repository includes infrastructure for repeatable graph-systems experiments:
 
 Useful references:
 
+- [`docs/same-run-published-baseline.md`](docs/same-run-published-baseline.md) — same-run exact published-reference comparison and provenance
 - [`docs/multi-dataset-crossover.md`](docs/multi-dataset-crossover.md) — validated public multi-dataset incremental evidence
 - [`docs/ci-scale-evidence.md`](docs/ci-scale-evidence.md) — hosted-CI evidence and caveats
 - [`docs/hosted-native-competitors.md`](docs/hosted-native-competitors.md) — pinned GraphBLAS/LAGraph/GAP hosted evidence
