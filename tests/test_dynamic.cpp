@@ -116,8 +116,8 @@ int main() {
   assert(segmented.dirty_out_segment_count() == 1);
   assert(segmented.dirty_in_segment_count() == 1);
   assert(segmented.has_edge(10, 50000));
-  assert(std::binary_search(segmented.in_neighbors(50000).begin(),
-                            segmented.in_neighbors(50000).end(), 10));
+  const auto reverse_first = segmented.in_neighbors(50000);
+  assert(std::binary_search(reverse_first.begin(), reverse_first.end(), 10));
 
   sparse = {};
   sparse.add(65540, 120000);
