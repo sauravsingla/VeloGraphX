@@ -42,23 +42,23 @@ This comparison is specifically against the pinned exact reference component at 
 
 ### Dynamic-storage A/B evidence
 
-The current segmented-CSR / packed-delta storage was compared with the actual pre-upgrade layout reconstructed from commit `22d05c6b54b9199c852062395b3d6536abca02d9` (`vector<vector<VertexId>>` plus per-vertex `unordered_set` insertion/deletion deltas). Both designs receive identical deterministic directed graphs and identical mixed updates.
+The current segmented-CSR / packed-delta / row-patch storage was compared with the actual pre-upgrade layout reconstructed from commit `22d05c6b54b9199c852062395b3d6536abca02d9` (`vector<vector<VertexId>>` plus per-vertex `unordered_set` insertion/deletion deltas). Both designs receive identical deterministic directed graphs and identical 0.1% mixed-update batches.
 
-| Metric | 10M edges | 100M edges |
+| Metric, current / historical | 10M edges | 100M edges |
 | --- | ---: | ---: |
-| Loaded RSS, current vs historical | 110.5 vs 114.2 MiB | 1,072.2 vs 1,109.7 MiB |
-| RSS change | **3.3% lower** | **3.4% lower** |
-| Mixed update throughput | **1.89x higher** | **1.33x higher** |
-| Neighbor materialization latency | **21.6% lower** | **13.7% lower** |
-| Bulk-load time | 2.86x slower | 3.09x slower |
-| Full compaction time | **11.31x slower** | **16.16x slower** |
+| Loaded RSS | **0.967x** | **0.966x** |
+| Mixed update throughput | **1.069x** | **1.628x** |
+| Neighbor materialization latency | **0.780x** | **0.783x** |
+| Explicit sparse compaction time | **1.657x** | **1.492x** |
 | Correctness gate | pass | pass |
 
-The 10M case uses three repetitions; the 100M case is one hosted execution and is therefore scale evidence rather than a low-noise publication result.
+The 10M case uses three repetitions; the 100M case is one hosted execution and is therefore scale evidence rather than a low-noise publication result. Lower is better for RSS, neighbor latency and compaction time; higher is better for update throughput.
 
-For directed graphs, explicit reverse adjacency adds roughly the same compact CSR storage as the forward direction: about **42 MiB at 10M edges** and **420 MiB at 100M edges** in this degree-20 workload. That cost enables direct predecessor traversal instead of global predecessor discovery. The current global compaction path is the clearest remaining storage weakness and motivates segment-local or amortized compaction.
+The compaction result is a substantial improvement over the previous 65K dirty-segment implementation, whose historical-normalized compaction ratios were 9.629x at 10M and 11.989x at 100M. The current design retains the large contiguous CSR but materializes only touched rows into sparse compact patches, with forward and reverse rows maintained independently. Automatic row compaction is deferred while global delta density is below 1%, preserving the sparse-update path.
 
-[Full storage A/B methodology and evidence](docs/storage-ab-evidence.md).
+For directed graphs, explicit reverse adjacency adds roughly the same compact CSR storage as the forward direction: about **42 MiB at 10M edges** and **420 MiB at 100M edges** in this degree-20 workload. Bulk loading remains slower than the historical layout because the current path sorts/deduplicates arcs and constructs the transpose.
+
+[Full storage A/B methodology, design history and evidence](docs/storage-ab-evidence.md).
 
 ### CPU engineering evidence
 
@@ -71,8 +71,8 @@ The adaptive recomputation ablation places the incremental/full crossover around
 | Capability | Implementation |
 | --- | --- |
 | Incremental analytics | BFS / unweighted SSSP, weighted SSSP, exact triangle counting, connected components, k-core, localized iterative PageRank repair |
-| Dynamic storage | Segmented CSR base, shared packed sorted delta arenas, insertion/deletion overlays, versioning and compaction |
-| Reverse traversal | Explicit transposed CSR plus synchronized reverse deltas with `in_neighbors()` |
+| Dynamic storage | Segmented CSR base, shared packed sorted deltas, sparse row-level compact patches, insertion/deletion overlays, versioning and adaptive compaction |
+| Reverse traversal | Explicit transposed CSR plus synchronized reverse deltas/patches with `in_neighbors()` |
 | PageRank validation | Localized repair with convergence controls, L1/L∞ comparison against a full converged reference, and correctness fallback mode |
 | Adaptive execution | Affected-work estimation with incremental-vs-full fallback |
 | CPU acceleration | Scalar, AVX2, AVX-512 and ARM NEON intersection paths |
@@ -102,7 +102,7 @@ CI covers Ubuntu and macOS builds, Linux ASan/UBSan, randomized dynamic mutation
 
 Current results establish reproducible hosted-CI execution, exact large-graph validation, a controlled same-run published reference comparison, and measured 10M/100M storage behavior. They do **not** establish universal superiority or full production maturity.
 
-Publication-grade conclusions still require controlled dedicated hardware, repeated 100M+ edge runs, 8/16/32+ core scaling, genuine multi-socket NUMA experiments, hardware counters, irregular real-graph storage campaigns, segment-local compaction experiments, broader same-semantics system comparisons, and independent reproduction.
+Publication-grade conclusions still require controlled dedicated hardware, repeated 100M+ edge runs, 8/16/32+ physical-core scaling, genuine multi-socket NUMA experiments, hardware counters, irregular real-graph storage campaigns, row-patch accumulation/consolidation studies, broader same-semantics system comparisons, and independent reproduction.
 
 ## Quick start
 
@@ -141,7 +141,7 @@ print(bfs.distances)
 
 Contributions are welcome across dynamic graph algorithms, storage, correctness, CPU performance, SIMD/NUMA portability, benchmarking, datasets and interoperability. Performance-sensitive changes should include reproducible measurements and preserve the relevant correctness contract.
 
-High-value areas include **segment-local compaction, repeated controlled 100M+ storage campaigns, PageRank accuracy/runtime curves, 8/16/32+ core scaling, and multi-socket NUMA evaluation**.
+High-value areas include **row-patch consolidation under sustained updates, repeated controlled 100M+ storage campaigns, PageRank accuracy/runtime curves, 8/16/32+ physical-core scaling, and multi-socket NUMA evaluation**.
 
 ## License
 
