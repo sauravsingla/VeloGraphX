@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Replaced the dynamic graph's `vector<vector<VertexId>>` compact base with fixed-size segmented CSR storage and contiguous zero-copy rows.
+- Replaced per-vertex `unordered_set` insertion/deletion overlays with sorted slices in shared packed delta arenas, including overlay cancellation and fragmentation repacking.
+- Added explicit reverse adjacency with matching reverse deltas and `in_neighbors()` / `compact_in_neighbors()` APIs.
+- Updated localized PageRank repair to traverse actual predecessors instead of scanning every graph vertex for each active destination.
+- Added dynamic-storage introspection for compact edge count, live delta count, approximate owned storage, and storage-layout documentation.
+- Expanded dynamic graph tests for directed reverse traversal, packed overlays, compaction equivalence, overlay cancellation, and cross-segment vertex growth.
+
 ## 0.7.0 - 2026-08-28
 
 - Added reproducible hosted-CI benchmark evidence with explicit non-publication claim gates.
