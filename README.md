@@ -8,11 +8,27 @@
 
 Built for **dynamic graph analytics, temporal and streaming graphs, incremental BFS/SSSP, dynamic triangle counting, PageRank, graph compression, SIMD, multicore and NUMA-aware graph processing**.
 
-> **Validated on public graphs:** exact incremental triangle maintenance is up to **84.77x faster than full recomputation** in the hosted-CI campaign, and on the same runner VeloGraphX reaches **40.95x lower exact-answer-ready latency** than a pinned published exact reference implementation at a 1% update batch.
+> **Large-scale exact validation:** on the 34.68M-edge LiveJournal graph, exact incremental triangle maintenance matched full recomputation and was **33.99x faster at a 1% insertion batch**. The same hosted-CI campaign also completed exact validation on the **117.19M-edge Orkut graph**, demonstrating 100M-edge-class execution. On the same hosted runner, VeloGraphX also reaches **40.95x lower exact-answer-ready latency** than a pinned published exact reference on `facebook-combined` at a 1% update batch.
 
-## Results on public graphs
+## Large-scale exact results
 
-Every measurement below uses immutable dataset identity, deterministic normalization, five repetitions per update fraction, and exact incremental-vs-full validation.
+The hosted scale campaign uses canonical SNAP graphs, deterministic missing-edge insertion batches, incremental maintenance followed by exact full recomputation, and an equality gate on every exercised batch. These are **hosted-CI engineering measurements**, not universal or publication-grade performance claims.
+
+| Public dataset | Base graph | Update batch | Incremental | Full recomputation | **Speedup** | Exact |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `com-LiveJournal` | **34,681,189 edges** | 0.01% / 3,469 | **4.066 ms** | 13.126 s | **3,228.66x** | yes |
+| `com-LiveJournal` | **34,681,189 edges** | 0.1% / 34,682 | **34.709 ms** | 13.288 s | **382.85x** | yes |
+| `com-LiveJournal` | **34,681,189 edges** | 1% / 346,812 | **415.377 ms** | 14.119 s | **33.99x** | yes |
+
+LiveJournal contains 3,997,962 unique SNAP vertices; the raw identifier space used by the benchmark extends to 4,036,538 because the source IDs are not densely remapped. The initial published triangle count is 177,820,130, and every exercised post-update count matched exact recomputation.
+
+The same workflow also completed the canonical **Orkut exact-scale job** on **3,072,441 vertices / 117,185,083 edges / 627,584,181 initial triangles**. Its workflow artifact is retained as `velographx-orkut-exact-scale`. This README deliberately does not invent a speedup from the large artifact: the completed exact 100M-edge-class run is reported separately from the fully extracted LiveJournal timings.
+
+Workflow evidence: `Hosted Scale CPU Evidence`, run `33249261192`, commit `15a13c425fa736d0062acfde7d44dd07a19b95b0`. The run produced separate retained artifacts for LiveJournal exact scale, Orkut exact scale, and hosted CPU ablation/scaling.
+
+## Results on smaller public graphs
+
+The earlier repeated public-dataset campaign used immutable dataset identity, deterministic normalization, five repetitions per update fraction, and exact incremental-vs-full validation.
 
 | Public dataset | Graph family | Normalized graph | **1% updates** | **5% updates** | **10% updates** |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -20,9 +36,7 @@ Every measurement below uses immutable dataset identity, deterministic normaliza
 | `ca-HepTh` | collaboration | 9,877 vertices / 25,973 edges | **59.05x** | **12.20x** | **6.59x** |
 | `p2p-Gnutella08` | peer-to-peer | 6,301 vertices / 20,777 edges | **55.23x** | **11.53x** | **6.27x** |
 
-Values are median `full recomputation / incremental` time. **Every result matched exact full recomputation.** The complete 13-fraction sweeps showed no median crossover through a changed-edge batch equal to 200% of the original base-edge count.
-
-These are reproducible **hosted-CI engineering measurements**, not universal performance claims. Tiny update fractions are intentionally excluded from the headline results. [Full public-dataset methodology and evidence](docs/multi-dataset-crossover.md).
+Values are median `full recomputation / incremental` time and every result matched exact full recomputation. These measurements predate the later full-recompute optimization used by the scale/ablation campaign, so they are retained as reproducible historical campaign results rather than mixed with the newer crossover measurements. [Full public-dataset methodology and evidence](docs/multi-dataset-crossover.md).
 
 ## Same-run published exact reference
 
@@ -62,11 +76,11 @@ The repository therefore **does not manufacture cross-paper speedups from incomp
 
 ## CPU engineering evidence
 
-A separate hosted-CI evidence campaign exercises the systems components behind the engine, not just the triangle-count headline. On the recorded 4-logical-CPU Ubuntu runner:
+The hosted scale campaign also exercises systems components behind the engine. On the recorded 4-logical-CPU runner, independent-query BFS throughput increased from **5,215.62 queries/s at 1 thread** to **11,105.1 queries/s at 2 threads** (**2.13x**), with **10,930.3 queries/s at 4 threads**, showing saturation on the hosted 4-vCPU environment. The digest was identical across 1/2/4 threads.
 
-- the adaptive intersection path beat scalar on **5 of 6** tested size regimes, reaching up to about **5.51x** scalar/adaptive time ratio on the exercised synthetic case;
-- the fixed-width vectorized decoder beat its scalar decoder on all three generated graph families, with observed ratios of about **2.29x–4.46x**;
-- 1-thread and 2-thread affinity-constrained execution completed successfully, but the tiny hosted workload did **not** justify a multicore scaling claim.
+The adaptive intersection path materially improves medium/large and skewed adjacency intersections (up to roughly **5.15x** versus scalar in the exercised cases), while tiny intersections can favor scalar execution. Variable-byte coding achieved **2–4x** size reduction on the generated codec families; vectorized fixed-width decoding traded compression ratio for roughly **2.4–3.8x** faster decode than its scalar counterpart.
+
+The adaptive recomputation ablation places the incremental/full crossover around **20%** on the exercised Facebook workload after the newer full-recompute optimization; at a 50% insertion batch, forcing incremental work was about **2.5x slower** than full recomputation. This is an **oracle decision-boundary ablation**, not a claim that the current production policy achieves oracle selection.
 
 These are engineering checks, not publication-grade performance claims. [Hosted CI evidence campaign](docs/ci-scale-evidence.md).
 
@@ -118,7 +132,7 @@ Benchmark infrastructure includes checksum-verified public datasets, determinist
 
 ## Research boundary
 
-The current numbers are **hosted-CI engineering evidence**, not publication-grade claims of universal superiority. Strong conclusions about 100M+ edge workloads, 1/2/4/8/16/32+ thread scaling, genuine multi-socket NUMA behavior, hardware counters, and complete native-system comparisons require controlled dedicated hardware.
+The current numbers are **hosted-CI engineering evidence**, not publication-grade claims of universal superiority. The repository now includes exact hosted-CI execution on a **117.19M-edge Orkut graph** and measured 1/2/4-thread independent-query scaling. Publication-grade conclusions still require controlled dedicated hardware, repeated large-graph campaigns, 8/16/32+ core scaling, genuine multi-socket NUMA experiments, hardware counters, and broader same-semantics native-system comparisons.
 
 Keeping that boundary explicit is part of the project's reproducibility contract.
 
