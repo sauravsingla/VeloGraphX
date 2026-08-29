@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <cassert>
 #include <initializer_list>
-#include <iostream>
 #include <vector>
 
 #include "velographx/incremental/connected_components.hpp"
@@ -16,12 +15,6 @@ bool equals(std::vector<velographx::VertexId> actual,
   return actual == std::vector<velographx::VertexId>(expected);
 }
 
-void dump(const char* label, const std::vector<velographx::VertexId>& row) {
-  std::cerr << label << ':';
-  for (auto v : row) std::cerr << ' ' << v;
-  std::cerr << '\n';
-}
-
 }  // namespace
 
 int main() {
@@ -33,20 +26,12 @@ int main() {
   b.add(1, 2);
   b.add(2, 0);
   g.apply(b);
-  dump("before0", g.neighbors(0));
-  dump("before1", g.neighbors(1));
-  dump("before2", g.neighbors(2));
   assert(g.version() == 1);
   assert(g.has_edge(0, 1));
   assert(g.edge_count_directed() == 6);
   assert(g.delta_edge_count() == 6);
 
   IncrementalTriangleCount tc(g);
-  dump("after0", g.neighbors(0));
-  dump("after1", g.neighbors(1));
-  dump("after2", g.neighbors(2));
-  std::cerr << "triangles=" << tc.value() << " base=" << g.base_edge_count_directed()
-            << " delta=" << g.delta_edge_count() << '\n';
   assert(tc.value() == 1);
   assert(g.is_compact());
   assert(g.base_edge_count_directed() == 6);
