@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
     const auto initial_storage = canonical_storage;
     const auto initial_neighbor_ns = canonical_neighbor_ns;
     const velographx::ConsolidationPolicy policy{storage_threshold, latency_threshold};
-    velographx::ConsolidationController controller({5, 3});
+    velographx::ConsolidationController controller;
 
     std::vector<EpochRecord> records;
     records.reserve(epochs);
@@ -212,7 +212,7 @@ int main(int argc, char** argv) {
     std::cout << '{' << "\"artifact_type\":\"velographx-steady-state-storage\",\"schema_version\":3,\"research_claim\":false,"
       << "\"directed\":" << (directed ? "true" : "false") << ",\"vertices\":" << graph.vertex_count() << ",\"initial_directed_edges\":" << initial_directed_edges << ",\"final_directed_edges\":" << final_before_edges
       << ",\"epochs\":" << epochs << ",\"rows_per_epoch\":" << rows_per_epoch << ",\"probes\":" << probes << ",\"storage_threshold\":" << storage_threshold << ",\"latency_threshold\":" << latency_threshold
-      << ",\"controller_min_epochs_between\":5,\"controller_latency_breach_samples\":3,\"initial_storage_bytes\":" << initial_storage << ",\"high_water_storage_bytes\":" << high_water_storage_bytes
+      << ",\"controller_min_epochs_between\":10,\"controller_latency_breach_samples\":5,\"initial_storage_bytes\":" << initial_storage << ",\"high_water_storage_bytes\":" << high_water_storage_bytes
       << ",\"high_water_storage_ratio\":" << high_water_storage_ratio << ",\"high_water_rss_kib\":" << high_water_rss_kib << ",\"initial_neighbor_ns\":" << initial_neighbor_ns << ",\"high_water_latency_ratio\":" << high_water_latency_ratio
       << ",\"total_update_operations\":" << total_update_operations << ",\"total_update_ms\":" << total_update_ms << ",\"total_row_compaction_ms\":" << total_compact_ms << ",\"total_consolidation_ms\":" << total_consolidation_ms
       << ",\"maintenance_path_ms\":" << maintenance_ms << ",\"campaign_wall_ms\":" << campaign_wall_ms << ",\"consolidation_count\":" << consolidation_count << ",\"storage_trigger_count\":" << storage_trigger_count << ",\"latency_trigger_count\":" << latency_trigger_count
