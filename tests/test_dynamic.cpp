@@ -7,6 +7,7 @@
 #include "velographx/incremental/connected_components.hpp"
 #include "velographx/incremental/triangles.hpp"
 #include "velographx/runtime/execution_plan.hpp"
+#include "velographx/storage/consolidation.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
 
 namespace {
@@ -104,6 +105,31 @@ int main() {
   assert(directed.edge_count_directed() == repatch_count);
   assert(!directed.has_edge(0, 2));
   assert(directed.has_edge(0, 4));
+
+  // Consolidation builds a fresh canonical CSR snapshot without mutating the
+  // source graph. The forward and reverse logical views must be preserved.
+  const auto source_storage = directed.storage_bytes();
+  const auto source_count = directed.edge_count_directed();
+  const auto source_neighbors_zero = directed.neighbors(0);
+  const auto source_in_four = directed.in_neighbors(4);
+  auto consolidated = consolidate_to_csr_snapshot(directed);
+  assert(consolidated.directed_edges == source_count);
+  assert(consolidated.source_storage_bytes == source_storage);
+  assert(consolidated.consolidated_storage_bytes > 0);
+  assert(consolidated.graph.is_compact());
+  assert(consolidated.graph.edge_count_directed() == source_count);
+  assert(consolidated.graph.neighbors(0) == source_neighbors_zero);
+  assert(consolidated.graph.in_neighbors(4) == source_in_four);
+  assert(directed.neighbors(0) == source_neighbors_zero);
+
+  const auto below = evaluate_consolidation(120, 100, 120.0, 100.0);
+  assert(!below.should_consolidate);
+  const auto storage_signal = evaluate_consolidation(125, 100, 100.0, 100.0);
+  assert(storage_signal.storage_limit_exceeded);
+  assert(storage_signal.should_consolidate);
+  const auto latency_signal = evaluate_consolidation(110, 100, 125.0, 100.0);
+  assert(latency_signal.latency_limit_exceeded);
+  assert(latency_signal.should_consolidate);
 
   directed.add_edge(100000, 2);
   assert(directed.vertex_count() == 100001);
