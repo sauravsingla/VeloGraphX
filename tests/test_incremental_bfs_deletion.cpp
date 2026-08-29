@@ -1,8 +1,9 @@
-#include <cassert>
 #include <cstdint>
 #include <iterator>
 #include <random>
 #include <set>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -14,9 +15,25 @@ using velographx::IncrementalBFS;
 using velographx::UpdateBatch;
 using velographx::VertexId;
 
-static void assert_matches_full(DynamicGraph& graph, IncrementalBFS& bfs, VertexId source) {
+static void require(bool condition, const std::string& message) {
+  if (!condition) throw std::runtime_error(message);
+}
+
+static void assert_matches_full(DynamicGraph& graph, IncrementalBFS& bfs,
+                                VertexId source, const std::string& context) {
   IncrementalBFS full(graph, source);
-  assert(bfs.distances() == full.distances());
+  if (bfs.distances() == full.distances()) return;
+  const auto& got = bfs.distances();
+  const auto& expected = full.distances();
+  const auto n = std::min(got.size(), expected.size());
+  for (std::size_t i = 0; i < n; ++i) {
+    if (got[i] != expected[i]) {
+      throw std::runtime_error(context + ": BFS mismatch at vertex " + std::to_string(i) +
+                               ", got=" + std::to_string(got[i]) +
+                               ", expected=" + std::to_string(expected[i]));
+    }
+  }
+  throw std::runtime_error(context + ": BFS distance-vector size mismatch");
 }
 
 int main() {
@@ -28,28 +45,28 @@ int main() {
     UpdateBatch b;
     b.remove(1,3);
     bfs.apply(b);
-    assert(bfs.distances()[3] == 2);
-    assert(bfs.distances()[4] == 3);
-    assert(bfs.last_affected_vertices() == 0);
-    assert(!bfs.last_used_full_recompute());
-    assert_matches_full(g, bfs, 0);
+    require(bfs.distances()[3] == 2, "alternate-parent: distance(3)");
+    require(bfs.distances()[4] == 3, "alternate-parent: distance(4)");
+    require(bfs.last_affected_vertices() == 0, "alternate-parent: affected count");
+    require(!bfs.last_used_full_recompute(), "alternate-parent: unexpected fallback");
+    assert_matches_full(g, bfs, 0, "alternate-parent");
   }
 
-  // Deleting the only tree support invalidates a descendant region and repairs
-  // it from a longer surviving boundary path.
+  // Deleting one shortest-path branch must preserve a surviving equal-length branch.
   {
     DynamicGraph g(7, true);
     g.bulk_load_edges({{0,1},{1,2},{2,3},{3,4},{0,5},{5,6},{6,3}});
     IncrementalBFS bfs(g, 0);
-    assert(bfs.distances()[3] == 3);
+    require(bfs.distances()[3] == 3, "surviving-branch: initial distance(3)");
     UpdateBatch b;
     b.remove(1,2);
     bfs.apply(b);
-    assert(bfs.distances()[2] == IncrementalBFS::unreachable);
-    assert(bfs.distances()[3] == 3); // alternate 0-5-6-3 remains shortest
-    assert(bfs.distances()[4] == 4);
-    assert(!bfs.last_used_full_recompute());
-    assert_matches_full(g, bfs, 0);
+    require(bfs.distances()[2] == IncrementalBFS::unreachable,
+            "surviving-branch: distance(2)");
+    require(bfs.distances()[3] == 3, "surviving-branch: distance(3)");
+    require(bfs.distances()[4] == 4, "surviving-branch: distance(4)");
+    require(!bfs.last_used_full_recompute(), "surviving-branch: unexpected fallback");
+    assert_matches_full(g, bfs, 0, "surviving-branch");
   }
 
   // Mixed delete+insert: invalidate the old branch, then allow the new edge to
@@ -62,10 +79,10 @@ int main() {
     b.remove(1,2);
     b.add(5,3);
     bfs.apply(b);
-    assert(bfs.distances()[2] == IncrementalBFS::unreachable);
-    assert(bfs.distances()[3] == 2);
-    assert(bfs.distances()[4] == 3);
-    assert_matches_full(g, bfs, 0);
+    require(bfs.distances()[2] == IncrementalBFS::unreachable, "mixed: distance(2)");
+    require(bfs.distances()[3] == 2, "mixed: distance(3)");
+    require(bfs.distances()[4] == 3, "mixed: distance(4)");
+    assert_matches_full(g, bfs, 0, "mixed");
   }
 
   // Undirected deletion repair must account for both orientations.
@@ -76,8 +93,8 @@ int main() {
     UpdateBatch b;
     b.remove(1,2);
     bfs.apply(b);
-    assert(bfs.distances()[2] == 3); // 0-4-3-2
-    assert_matches_full(g, bfs, 0);
+    require(bfs.distances()[2] == 3, "undirected: distance(2)");
+    assert_matches_full(g, bfs, 0, "undirected");
   }
 
   // A tiny fallback budget must fail closed to a full recomputation.
@@ -90,8 +107,8 @@ int main() {
     UpdateBatch b;
     b.remove(0,1);
     bfs.apply(b);
-    assert(bfs.last_used_full_recompute());
-    assert_matches_full(g, bfs, 0);
+    require(bfs.last_used_full_recompute(), "fallback: full recompute not used");
+    assert_matches_full(g, bfs, 0, "fallback");
   }
 
   // Deterministic randomized differential test across mixed additions and
@@ -132,7 +149,7 @@ int main() {
         }
       }
       bfs.apply(batch);
-      assert_matches_full(g, bfs, 0);
+      assert_matches_full(g, bfs, 0, "randomized epoch " + std::to_string(epoch));
     }
   }
 }
