@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -7,6 +8,14 @@
 #include "command_line.h"
 #include "graph.h"
 #include "pvector.h"
+
+// Match GAP Benchmark Suite v1.5's benchmark.h aliases locally without
+// including benchmark.h itself. That header defines non-inline helpers and is
+// already pulled into the separately compiled bfs.cc translation unit.
+typedef int32_t NodeID;
+typedef int32_t WeightT;
+typedef CSRGraph<NodeID> Graph;
+typedef BuilderBase<NodeID, NodeID, WeightT> Builder;
 
 // Implemented by the pinned GAP Benchmark Suite src/bfs.cc object that the
 // workflow compiles separately. Keep these declarations in sync with GAP v1.5.
