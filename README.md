@@ -49,7 +49,9 @@ The 10M case uses three repetitions; the 100M case is one hosted execution and i
 
 Long-running behavior was also measured on checksum-pinned irregular graphs. On directed **web-Google (875,713 vertices / 5,105,039 edges)** after 50 mutation/compaction cycles, owned storage reached **1.332x** the pristine CSR baseline and sampled neighbor latency reached **1.719x**. Validated CSR consolidation reduced storage to **0.751x of the accumulated footprint** and latency to **0.604x of its pre-consolidation value**. All **24 final repetitions** across web-Google and ca-GrQc passed logical-digest, sampled-neighborhood, and edge-count gates.
 
-The resulting maintenance helper signals consolidation when either storage or sampled neighbor latency reaches **1.25x** its canonical-CSR baseline. This is an engineering default derived from these hosted workloads, not a universal optimum, and consolidation remains an explicit validated O(E) snapshot operation rather than hidden update-path work.
+A hardened steady-state campaign now exercises repeated accumulate → row-compact → policy-check → consolidate → cutover cycles. On web-Google, all three 80-epoch repetitions preserved exactly **5,105,039 directed edges** and the controller used a median **5 consolidations**, with a median storage high-water of about **1.136x** canonical CSR. On checksum-pinned **com-Orkut (117,185,083 undirected edges / 234,370,166 directed arcs)**, the 60-epoch 100M+-edge execution preserved the edge count exactly and passed full final validation. Its hard storage bound was crossed roughly every four epochs, producing **15 consolidations**, a **1.306x** storage high-water, and consolidation accounting for about **94.5%** of measured maintenance-path time. That result is intentionally retained as a limitation: full CSR rebuilding is still too expensive when a large graph repeatedly reaches the hard storage bound on a hosted 2-core/4-thread runner.
+
+The maintenance policy uses a hard **1.25x storage safety trigger** plus a noisier latency path requiring meaningful patch growth, persistent latency breaches, and a cooldown after successful cutover. The storage safety trigger deliberately bypasses latency cooldown; consolidation remains an explicit validated O(E) snapshot operation rather than hidden update-path work.
 
 [Storage A/B evidence](docs/storage-ab-evidence.md) · [row-patch accumulation and consolidation](docs/row-patch-accumulation-evidence.md) · [storage architecture](docs/dynamic-storage.md)
 
@@ -89,9 +91,9 @@ Detailed evidence: [benchmark methodology](docs/benchmark-methodology.md) · [pu
 
 ## Research boundary
 
-Current results establish reproducible hosted-CI execution, exact large-graph validation, a controlled same-run published exact-reference comparison, 10M/100M storage measurements, and real irregular-graph consolidation evidence. They do **not** establish universal superiority or full production maturity.
+Current results establish reproducible hosted-CI execution, exact large-graph validation, a controlled same-run published exact-reference comparison, 10M/100M storage measurements, real irregular-graph consolidation evidence, and repeated steady-state consolidation on both web-Google and a 117M-edge Orkut graph. They do **not** establish universal superiority or full production maturity.
 
-Publication-grade conclusions still require controlled dedicated hardware, repeated 100M+ edge runs, 8/16/32+ physical-core scaling, genuine multi-socket NUMA experiments, hardware counters, broader irregular graph and update-locality campaigns, steady-state repeated consolidation, broader same-semantics system comparisons, and independent reproduction.
+Publication-grade conclusions still require controlled dedicated hardware, repeated 100M+ edge runs across multiple machines/seeds, 8/16/32+ physical-core scaling, genuine multi-socket NUMA experiments, hardware counters, broader irregular graph and update-locality campaigns, lower-cost or incremental canonicalization strategies, broader same-semantics system comparisons, and independent reproduction.
 
 ## Quick start
 
