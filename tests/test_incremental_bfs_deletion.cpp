@@ -54,6 +54,26 @@ int main() {
     assert_matches_full(g, bfs, 0, "alternate-parent");
   }
 
+  // Two parents can both look like valid alternate support until each parent
+  // is invalidated by another deletion in the same batch. Support loss must
+  // propagate to a fixed point through the old shortest-path DAG.
+  {
+    DynamicGraph g(5, true);
+    g.bulk_load_edges({{0,1},{0,2},{1,3},{2,3},{3,4}});
+    IncrementalBFS bfs(g, 0, 0.90);
+    UpdateBatch b;
+    b.remove(0,1);
+    b.remove(0,2);
+    bfs.apply(b);
+    require(bfs.distances()[1] == IncrementalBFS::unreachable, "support-fixpoint: distance(1)");
+    require(bfs.distances()[2] == IncrementalBFS::unreachable, "support-fixpoint: distance(2)");
+    require(bfs.distances()[3] == IncrementalBFS::unreachable, "support-fixpoint: distance(3)");
+    require(bfs.distances()[4] == IncrementalBFS::unreachable, "support-fixpoint: distance(4)");
+    require(bfs.last_affected_vertices() == 4, "support-fixpoint: affected count");
+    require(!bfs.last_used_full_recompute(), "support-fixpoint: unexpected fallback");
+    assert_matches_full(g, bfs, 0, "support-fixpoint");
+  }
+
   {
     DynamicGraph g(7, true);
     g.bulk_load_edges({{0,1},{1,2},{2,3},{3,4},{0,5},{5,6},{6,3}});
