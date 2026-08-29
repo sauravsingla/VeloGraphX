@@ -7,6 +7,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <sys/resource.h>
 #include <utility>
 #include <vector>
 
@@ -18,6 +19,16 @@ using velographx::ConsolidationPolicy;
 using velographx::DynamicGraph;
 using velographx::UpdateBatch;
 using velographx::VertexId;
+
+std::size_t peak_rss_kib() {
+  rusage usage{};
+  if (getrusage(RUSAGE_SELF, &usage) != 0) return 0;
+#if defined(__APPLE__)
+  return static_cast<std::size_t>(usage.ru_maxrss) / 1024;
+#else
+  return static_cast<std::size_t>(usage.ru_maxrss);
+#endif
+}
 
 std::vector<std::pair<VertexId, VertexId>> read_edges(const std::string& path) {
   std::ifstream in(path);
@@ -58,7 +69,7 @@ std::pair<double, std::uint64_t> probe_once(const DynamicGraph& g, std::size_t c
     const auto row = g.neighbors(u);
     h ^= static_cast<std::uint64_t>(row.size()) + (h << 6) + (h >> 2);
     for (const auto v : row) {
-      h ^= static_cast<std::uint64_t>(v) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+      h ^= static_cast<std::uint64_t>(v) + (h << 6) + (h >> 2);
     }
   }
   const auto end = Clock::now();
@@ -74,7 +85,9 @@ std::pair<double, std::uint64_t> probe_median(const DynamicGraph& g, std::size_t
   for (std::size_t i = 0; i < repeats; ++i) {
     const auto [latency, digest] = probe_once(g, count);
     if (i == 0) expected_digest = digest;
-    if (digest != expected_digest) throw std::runtime_error("neighbor probe digest changed within checkpoint");
+    if (digest != expected_digest) {
+      throw std::runtime_error("neighbor probe digest changed within checkpoint");
+    }
     values.push_back(latency);
   }
   std::sort(values.begin(), values.end());
@@ -92,8 +105,7 @@ UpdateBatch make_mutation_round(const DynamicGraph& g, std::size_t round,
     if (row.empty()) continue;
     const auto old_v = row[(round + i) % row.size()];
     VertexId new_v = static_cast<VertexId>((static_cast<std::uint64_t>(old_v) + 97 + round + i) % n);
-    for (std::size_t tries = 0; tries < 64 &&
-         (new_v == u || g.has_edge(u, new_v)); ++tries) {
+    for (std::size_t tries = 0; tries < 64 && (new_v == u || g.has_edge(u, new_v)); ++tries) {
       new_v = static_cast<VertexId>((static_cast<std::uint64_t>(new_v) + 7919) % n);
     }
     if (new_v == u || g.has_edge(u, new_v)) continue;
@@ -108,7 +120,6 @@ struct EpochRecord {
   std::size_t update_operations{0};
   double update_ms{0.0};
   double compact_ms{0.0};
-  std::size_t storage_bytes{0};
   double storage_ratio{1.0};
   double neighbor_ns{0.0};
   double latency_ratio{1.0};
@@ -116,6 +127,7 @@ struct EpochRecord {
   double consolidation_ms{0.0};
   double post_storage_ratio{1.0};
   double post_latency_ratio{1.0};
+  std::size_t peak_rss_kib{0};
 };
 
 }  // namespace
@@ -162,13 +174,13 @@ int main(int argc, char** argv) {
     std::size_t storage_trigger_count = 0;
     std::size_t latency_trigger_count = 0;
     std::size_t high_water_storage_bytes = canonical_storage;
+    std::size_t high_water_rss_kib = peak_rss_kib();
     double high_water_storage_ratio = 1.0;
     double high_water_latency_ratio = 1.0;
-    double worst_post_consolidation_latency_ratio = 1.0;
-    double worst_post_consolidation_storage_ratio = 1.0;
     std::size_t last_consolidation_epoch = 0;
     std::vector<std::size_t> consolidation_intervals;
 
+    const auto campaign_begin = Clock::now();
     for (std::size_t epoch = 1; epoch <= epochs; ++epoch) {
       auto batch = make_mutation_round(graph, epoch - 1, rows_per_epoch);
       const auto update_operations = batch.updates.size();
@@ -193,16 +205,17 @@ int main(int argc, char** argv) {
       high_water_storage_bytes = std::max(high_water_storage_bytes, storage);
       high_water_storage_ratio = std::max(high_water_storage_ratio, signal.storage_growth_ratio);
       high_water_latency_ratio = std::max(high_water_latency_ratio, signal.neighbor_latency_ratio);
+      high_water_rss_kib = std::max(high_water_rss_kib, peak_rss_kib());
 
       EpochRecord record;
       record.epoch = epoch;
       record.update_operations = update_operations;
       record.update_ms = update_ms;
       record.compact_ms = compact_ms;
-      record.storage_bytes = storage;
       record.storage_ratio = signal.storage_growth_ratio;
       record.neighbor_ns = neighbor_ns;
       record.latency_ratio = signal.neighbor_latency_ratio;
+      record.peak_rss_kib = high_water_rss_kib;
 
       if (signal.should_consolidate) {
         if (signal.storage_limit_exceeded) ++storage_trigger_count;
@@ -213,6 +226,7 @@ int main(int argc, char** argv) {
         auto snapshot = velographx::consolidate_to_csr_snapshot(graph);
         const auto s1 = Clock::now();
         const double consolidation_ms = std::chrono::duration<double, std::milli>(s1 - s0).count();
+        high_water_rss_kib = std::max(high_water_rss_kib, peak_rss_kib());
         const auto after_digest = digest_graph(snapshot.graph);
         const auto [post_neighbor_ns, post_probe_digest] = probe_median(snapshot.graph, probes, 5);
         if (before_digest != after_digest || before_edges != snapshot.graph.edge_count_directed() ||
@@ -225,10 +239,6 @@ int main(int argc, char** argv) {
         record.post_storage_ratio = storage == 0 ? 1.0
             : static_cast<double>(snapshot.consolidated_storage_bytes) / static_cast<double>(storage);
         record.post_latency_ratio = neighbor_ns <= 0.0 ? 1.0 : post_neighbor_ns / neighbor_ns;
-        worst_post_consolidation_storage_ratio = std::max(worst_post_consolidation_storage_ratio,
-                                                          record.post_storage_ratio);
-        worst_post_consolidation_latency_ratio = std::max(worst_post_consolidation_latency_ratio,
-                                                          record.post_latency_ratio);
         total_consolidation_ms += consolidation_ms;
         ++consolidation_count;
         consolidation_intervals.push_back(epoch - last_consolidation_epoch);
@@ -239,39 +249,44 @@ int main(int argc, char** argv) {
         canonical_neighbor_ns = post_neighbor_ns;
         canonical_probe_digest = post_probe_digest;
       }
+      record.peak_rss_kib = std::max(record.peak_rss_kib, high_water_rss_kib);
       records.push_back(record);
     }
+    const auto campaign_end = Clock::now();
+    const double campaign_wall_ms = std::chrono::duration<double, std::milli>(campaign_end - campaign_begin).count();
 
-    // Final correctness validation is intentionally not counted as maintenance cost.
     const auto final_before_digest = digest_graph(graph);
     const auto final_before_edges = graph.edge_count_directed();
     const auto v0 = Clock::now();
     auto final_snapshot = velographx::consolidate_to_csr_snapshot(graph);
     const auto v1 = Clock::now();
+    high_water_rss_kib = std::max(high_water_rss_kib, peak_rss_kib());
     const auto final_after_digest = digest_graph(final_snapshot.graph);
-    const auto [final_snapshot_neighbor_ns, final_snapshot_probe_digest] =
-        probe_median(final_snapshot.graph, probes, 3);
+    const auto [final_snapshot_neighbor_ns, final_snapshot_probe_digest] = probe_median(final_snapshot.graph, probes, 3);
     (void)final_snapshot_neighbor_ns;
     if (final_before_digest != final_after_digest ||
         final_before_edges != final_snapshot.graph.edge_count_directed() ||
         canonical_probe_digest == 0 || final_snapshot_probe_digest == 0) {
       throw std::runtime_error("final steady-state correctness validation failed");
     }
-    const double final_validation_ms =
-        std::chrono::duration<double, std::milli>(v1 - v0).count();
+    const double final_validation_ms = std::chrono::duration<double, std::milli>(v1 - v0).count();
 
     const double update_seconds = total_update_ms / 1000.0;
-    const double maintenance_seconds = (total_update_ms + total_compact_ms + total_consolidation_ms) / 1000.0;
+    const double maintenance_ms = total_update_ms + total_compact_ms + total_consolidation_ms;
+    const double maintenance_seconds = maintenance_ms / 1000.0;
+    const double campaign_seconds = campaign_wall_ms / 1000.0;
     const double update_throughput = update_seconds > 0.0
         ? static_cast<double>(total_update_operations) / update_seconds : 0.0;
     const double amortized_throughput = maintenance_seconds > 0.0
         ? static_cast<double>(total_update_operations) / maintenance_seconds : 0.0;
-    const double consolidation_share = (total_update_ms + total_compact_ms + total_consolidation_ms) > 0.0
-        ? total_consolidation_ms / (total_update_ms + total_compact_ms + total_consolidation_ms) : 0.0;
+    const double observed_campaign_throughput = campaign_seconds > 0.0
+        ? static_cast<double>(total_update_operations) / campaign_seconds : 0.0;
+    const double consolidation_share = maintenance_ms > 0.0
+        ? total_consolidation_ms / maintenance_ms : 0.0;
 
     std::cout << "{"
               << "\"artifact_type\":\"velographx-steady-state-storage\","
-              << "\"schema_version\":1,"
+              << "\"schema_version\":2,"
               << "\"research_claim\":false,"
               << "\"directed\":" << (directed ? "true" : "false") << ','
               << "\"vertices\":" << graph.vertex_count() << ','
@@ -285,18 +300,22 @@ int main(int argc, char** argv) {
               << "\"initial_storage_bytes\":" << initial_storage << ','
               << "\"high_water_storage_bytes\":" << high_water_storage_bytes << ','
               << "\"high_water_storage_ratio\":" << high_water_storage_ratio << ','
+              << "\"high_water_rss_kib\":" << high_water_rss_kib << ','
               << "\"initial_neighbor_ns\":" << initial_neighbor_ns << ','
               << "\"high_water_latency_ratio\":" << high_water_latency_ratio << ','
               << "\"total_update_operations\":" << total_update_operations << ','
               << "\"total_update_ms\":" << total_update_ms << ','
               << "\"total_row_compaction_ms\":" << total_compact_ms << ','
               << "\"total_consolidation_ms\":" << total_consolidation_ms << ','
+              << "\"maintenance_path_ms\":" << maintenance_ms << ','
+              << "\"campaign_wall_ms\":" << campaign_wall_ms << ','
               << "\"consolidation_count\":" << consolidation_count << ','
               << "\"storage_trigger_count\":" << storage_trigger_count << ','
               << "\"latency_trigger_count\":" << latency_trigger_count << ','
               << "\"consolidation_share\":" << consolidation_share << ','
               << "\"update_only_ops_per_s\":" << update_throughput << ','
-              << "\"amortized_ops_per_s\":" << amortized_throughput << ','
+              << "\"maintenance_amortized_ops_per_s\":" << amortized_throughput << ','
+              << "\"instrumented_campaign_ops_per_s\":" << observed_campaign_throughput << ','
               << "\"final_validation_ms\":" << final_validation_ms << ','
               << "\"correct\":true,"
               << "\"consolidation_intervals\":[";
@@ -319,7 +338,8 @@ int main(int argc, char** argv) {
                 << "\"consolidated\":" << (r.consolidation_triggered ? "true" : "false") << ','
                 << "\"consolidation_ms\":" << r.consolidation_ms << ','
                 << "\"post_storage_ratio\":" << r.post_storage_ratio << ','
-                << "\"post_latency_ratio\":" << r.post_latency_ratio
+                << "\"post_latency_ratio\":" << r.post_latency_ratio << ','
+                << "\"peak_rss_kib\":" << r.peak_rss_kib
                 << '}';
     }
     std::cout << "]}\n";
