@@ -63,10 +63,13 @@ class IncrementalBFS {
     last_deletion_candidates_ = deletion_candidates.size();
 
     std::vector<std::uint8_t> affected(g_.vertex_count(), 0);
+    std::vector<VertexId> affected_vertices;
+    affected_vertices.reserve(std::min<std::size_t>(deletion_candidates.size() * 4 + 8,
+                                                     g_.vertex_count()));
     bool fallback_needed = false;
     if (!deletion_candidates.empty()) {
       fallback_needed = !compute_affected_prebatch(
-          deletion_candidates, deleted_edges, old_dist, affected);
+          deletion_candidates, deleted_edges, old_dist, affected, affected_vertices);
     }
 
     g_.apply(batch);
@@ -79,7 +82,7 @@ class IncrementalBFS {
       return;
     }
 
-    if (last_affected_vertices_ != 0) repair_affected(affected, old_dist);
+    if (!affected_vertices.empty()) repair_affected(affected, affected_vertices, old_dist);
 
     // Additions can only decrease distances, but only the last update for a
     // logical edge describes its final batch state. Processing an earlier add
@@ -152,7 +155,8 @@ class IncrementalBFS {
       const std::vector<VertexId>& candidates,
       const std::vector<std::pair<VertexId, VertexId>>& deleted_edges,
       const std::vector<std::uint32_t>& old_dist,
-      std::vector<std::uint8_t>& affected) {
+      std::vector<std::uint8_t>& affected,
+      std::vector<VertexId>& affected_vertices) {
     const auto fallback_limit = std::max<std::size_t>(
         1, static_cast<std::size_t>(static_cast<double>(affected.size()) * deletion_fallback_fraction_));
     std::queue<VertexId> invalidate;
@@ -168,6 +172,7 @@ class IncrementalBFS {
       }
       if (has_surviving_old_support(v, deleted_edges, old_dist, affected)) return;
       affected[v] = 1;
+      affected_vertices.push_back(v);
       invalidate.push(v);
       ++last_affected_vertices_;
     };
@@ -205,15 +210,15 @@ class IncrementalBFS {
   }
 
   void repair_affected(const std::vector<std::uint8_t>& affected,
+                       const std::vector<VertexId>& affected_vertices,
                        const std::vector<std::uint32_t>& old_dist) {
-    for (VertexId v = 0; v < affected.size(); ++v) {
-      if (affected[v] && v < dist_.size()) dist_[v] = unreachable;
+    for (auto v : affected_vertices) {
+      if (v < dist_.size()) dist_[v] = unreachable;
     }
 
     using Item = std::pair<std::uint32_t, VertexId>;
     std::priority_queue<Item, std::vector<Item>, std::greater<Item>> pq;
-    for (VertexId v = 0; v < affected.size(); ++v) {
-      if (!affected[v]) continue;
+    for (auto v : affected_vertices) {
       const auto best = best_boundary_distance(v, affected);
       if (best != unreachable) {
         dist_[v] = best;
@@ -239,8 +244,8 @@ class IncrementalBFS {
     // shorter than its pre-batch level. Propagate that decrease outside the
     // invalidated region before processing surviving additions below.
     std::queue<VertexId> repaired_frontier;
-    for (VertexId v = 0; v < affected.size(); ++v) {
-      if (affected[v] && dist_[v] != unreachable &&
+    for (auto v : affected_vertices) {
+      if (v < dist_.size() && dist_[v] != unreachable &&
           (v >= old_dist.size() || dist_[v] < old_dist[v])) {
         repaired_frontier.push(v);
       }
