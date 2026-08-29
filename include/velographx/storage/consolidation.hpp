@@ -20,6 +20,18 @@ struct ConsolidationPolicy {
   double max_neighbor_latency_ratio{1.25};
 };
 
+// Conservative bounded envelope for very large graphs. The default 1.25x cap
+// remains the general-purpose policy. For 100M+ directed-arc graphs, callers
+// running an explicit maintenance loop may choose a wider but still bounded
+// storage envelope to amortize expensive O(E) canonicalization.
+inline ConsolidationPolicy scale_aware_consolidation_policy(
+    std::size_t directed_edges,
+    double latency_ratio = 1.25) noexcept {
+  constexpr std::size_t kLargeGraphDirectedArcs = 100'000'000;
+  return {directed_edges >= kLargeGraphDirectedArcs ? 1.50 : 1.25,
+          latency_ratio};
+}
+
 struct ConsolidationSignal {
   double storage_growth_ratio{1.0};
   double neighbor_latency_ratio{1.0};
@@ -110,16 +122,34 @@ class ConsolidationController {
 // This deliberately does not mutate the source graph: callers can validate the
 // snapshot before an application-level cutover. Row patches and delta arenas in
 // the returned graph are empty because bulk_load_edges() constructs fresh CSR.
+//
+// A steady-state benchmark calls compact() before this function. In that common
+// path, compact_neighbors() returns a zero-copy span from either the canonical
+// CSR or a row patch. Avoiding neighbors() there removes one temporary vector
+// allocation/copy per vertex during a 100M+ edge canonicalization. The fallback
+// to neighbors() preserves correctness when callers consolidate a graph that
+// still contains live deltas.
 inline ConsolidationSnapshot consolidate_to_csr_snapshot(const DynamicGraph& source) {
   std::vector<std::pair<VertexId, VertexId>> edges;
   edges.reserve(source.directed() ? source.edge_count_directed()
                                   : source.edge_count_directed() / 2);
 
+  const bool compact_source = source.is_compact();
   for (std::size_t u = 0; u < source.vertex_count(); ++u) {
-    const auto row = source.neighbors(static_cast<VertexId>(u));
-    for (const auto v : row) {
-      if (source.directed() || u < static_cast<std::size_t>(v)) {
-        edges.emplace_back(static_cast<VertexId>(u), v);
+    const auto vertex = static_cast<VertexId>(u);
+    if (compact_source) {
+      const auto row = source.compact_neighbors(vertex);
+      for (const auto v : row) {
+        if (source.directed() || u < static_cast<std::size_t>(v)) {
+          edges.emplace_back(vertex, v);
+        }
+      }
+    } else {
+      const auto row = source.neighbors(vertex);
+      for (const auto v : row) {
+        if (source.directed() || u < static_cast<std::size_t>(v)) {
+          edges.emplace_back(vertex, v);
+        }
       }
     }
   }
