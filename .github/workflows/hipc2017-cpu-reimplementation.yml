@@ -1,0 +1,156 @@
+name: HiPC 2017 CPU Reimplementation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/hipc2017-cpu-reimplementation.yml'
+      - 'benchmarks/hipc2017_cpu_reimplementation.cpp'
+      - 'datasets/multi-dataset-crossover.json'
+      - 'tools/prepare_pinned_public_dataset.py'
+      - 'tools/normalize_edge_list.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'include/**'
+      - 'src/**'
+  pull_request:
+    paths:
+      - '.github/workflows/hipc2017-cpu-reimplementation.yml'
+      - 'benchmarks/hipc2017_cpu_reimplementation.cpp'
+      - 'datasets/multi-dataset-crossover.json'
+      - 'tools/prepare_pinned_public_dataset.py'
+      - 'tools/normalize_edge_list.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'include/**'
+      - 'src/**'
+  workflow_dispatch:
+
+jobs:
+  facebook-hipc-derived:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Acquire immutable facebook-combined dataset
+        run: |
+          mkdir -p build/hipc2017/source
+          python tools/prepare_pinned_public_dataset.py \
+            --manifest datasets/multi-dataset-crossover.json \
+            --dataset facebook-combined \
+            --output-dir build/hipc2017/source \
+            > build/hipc2017/dataset-prepared.json
+          python tools/normalize_edge_list.py \
+            --input build/hipc2017/source/facebook-combined.txt \
+            --output build/hipc2017/facebook-combined-normalized.txt \
+            --report build/hipc2017/normalization.json
+
+      - name: Build with common GCC environment
+        run: |
+          g++ --version | head -1 | tee build/hipc2017/compiler.txt
+          g++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/hipc2017_cpu_reimplementation.cpp \
+            -o build/hipc2017/hipc2017_cpu_reimplementation
+
+      - name: Capture environment
+        run: |
+          python tools/capture_benchmark_environment.py \
+            --label github-hosted-facebook-hipc2017-cpu-reimplementation \
+            --output build/hipc2017/environment.json
+
+      - name: Run identical 1%, 5%, and 10% insertion batches
+        run: |
+          build/hipc2017/hipc2017_cpu_reimplementation \
+            build/hipc2017/facebook-combined-normalized.txt 5 '0.01,0.05,0.10' \
+            > build/hipc2017/comparison.csv
+
+      - name: Validate exactness and summarize medians
+        run: |
+          python - <<'PY'
+          import csv, json, statistics
+          from pathlib import Path
+          rows = list(csv.DictReader(Path('build/hipc2017/comparison.csv').open()))
+          assert len(rows) == 15
+          assert all(r['correct'] == '1' for r in rows)
+          assert all(int(r['velographx_triangles']) == int(r['hipc_triangles']) == int(r['recomputed_triangles']) for r in rows)
+          summary = {
+              'artifact_type': 'velographx-hipc2017-cpu-reimplementation',
+              'research_claim': False,
+              'publication_grade': False,
+              'dataset': 'facebook-combined',
+              'repeats': 5,
+              'baseline_status': 'independent CPU reimplementation of HiPC 2017 Algorithm 2 insertion inclusion-exclusion formulation; not the authors GPU/cuSTINGER implementation',
+              'paper': 'Makkar, Bader, Green, Exact and Parallel Triangle Counting in Dynamic Graphs, HiPC 2017',
+              'doi': '10.1109/HiPC.2017.00011',
+              'fractions': {},
+              'all_exact_results_agree': True,
+              'comparison_contract': {
+                  'same_runner': True,
+                  'same_binary_process': True,
+                  'same_compiler': True,
+                  'same_normalized_dataset': True,
+                  'same_update_sequence': True,
+                  'same_batch_sizes': True,
+                  'exact_answer_checked_against_full_recompute': True,
+                  'hipc_answer_ready_definition': 'sorted-vector graph update + three inclusion-exclusion intersection phases',
+              },
+          }
+          for fraction in ('0.01', '0.05', '0.1'):
+              group = [r for r in rows if r['update_fraction'] == fraction]
+              requested = int(group[0]['requested_edges'])
+              def med(key): return statistics.median(float(r[key]) for r in group)
+              vx = med('velographx_update_ns')
+              full = med('velographx_full_recompute_ns')
+              hu = med('hipc_graph_update_ns')
+              ha = med('hipc_analytic_ns')
+              hr = med('hipc_answer_ready_ns')
+              summary['fractions'][fraction] = {
+                  'requested_edges': requested,
+                  'velographx_update_median_ms': vx / 1e6,
+                  'velographx_updates_per_s': requested * 1e9 / vx,
+                  'velographx_full_recompute_median_ms': full / 1e6,
+                  'velographx_incremental_vs_full': full / vx,
+                  'hipc_graph_update_median_ms': hu / 1e6,
+                  'hipc_analytic_median_ms': ha / 1e6,
+                  'hipc_answer_ready_median_ms': hr / 1e6,
+                  'hipc_answer_ready_updates_per_s': requested * 1e9 / hr,
+                  'answer_ready_ratio_hipc_over_velographx': hr / vx,
+                  'correctness_rate': 1.0,
+              }
+          Path('build/hipc2017/summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Record eligibility boundary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = {
+            'research_claim': False,
+            'same_cpu_eligibility': {
+              'HiPC_2017': {
+                'original_system_same_cpu_eligible': False,
+                'reason': 'Published implementation/performance evaluation uses NVIDIA GPU with cuSTINGER; this workflow benchmarks an independent CPU reimplementation of the published inclusion-exclusion algorithm.'
+              },
+              'EDTC_2026': {
+                'original_system_same_cpu_eligible': False,
+                'reason': 'EDTC is explicitly a GPU dynamic triangle-counting system; a CPU run would not be the published implementation.'
+              },
+              'GraphDelta_2026': {
+                'original_system_same_cpu_eligible': False,
+                'reason': 'GraphDelta is a distributed GraphX framework evaluated on PageRank, Connected Components and SSSP rather than exact triangle counting; no public source repository was identified in the reproducibility search.'
+              }
+            }
+          }
+          Path('build/hipc2017/eligibility.json').write_text(json.dumps(report, indent=2) + '\n')
+          PY
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-hipc2017-cpu-reimplementation
+          path: build/hipc2017/
+          retention-days: 30
