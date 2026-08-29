@@ -46,7 +46,17 @@ int main(int argc, char **argv) {
     if (LAGraph_Cached_OutDegree(G, msg) < 0) die(msg);
 
     GrB_Vector level = NULL;
-    if (LAGr_BreadthFirstSearch(&level, NULL, G, (GrB_Index) source, msg) < 0) die(msg);
+    if (LAGr_BreadthFirstSearch_Extended(
+            &level,
+            NULL,
+            G,
+            (GrB_Index) source,
+            -1,
+            -1,
+            true,
+            msg) < 0) {
+        die(msg);
+    }
 
     printf("{\"framework_version\":\"LAGraph-1.2.2\",\"distances\":[");
     for (int64_t i = 0; i < vertices; i++) {
