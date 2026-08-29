@@ -48,13 +48,13 @@ inline ConsolidationSignal evaluate_consolidation(
 }
 
 // Stateful steady-state controller layered on top of the raw threshold signal.
-// Storage growth remains an immediate safety trigger. Latency is noisier on
-// shared hardware, so it must breach the limit for several consecutive samples
-// and is suppressed for a cooldown after a successful CSR cutover. The defaults
-// are intentionally conservative to avoid maintenance thrashing on noisy hosts.
+// Storage growth is an immediate safety trigger. Latency is noisier on shared
+// hardware, so latency-driven consolidation requires meaningful patch growth,
+// persistent threshold breaches, and a cooldown after a successful cutover.
 struct ConsolidationControllerConfig {
   std::size_t min_epochs_between_consolidations{10};
   std::size_t latency_breach_samples{5};
+  double min_storage_growth_for_latency_trigger{1.10};
 };
 
 class ConsolidationController {
@@ -63,7 +63,15 @@ class ConsolidationController {
       : config_(config) {}
 
   bool observe(const ConsolidationSignal& signal, std::size_t epoch) noexcept {
-    if (signal.latency_limit_exceeded) {
+    // Do not delay the hard storage bound with latency hysteresis or cooldown.
+    if (signal.storage_limit_exceeded) {
+      latency_breach_streak_ = 0;
+      return true;
+    }
+
+    const bool meaningful_patch_growth =
+        signal.storage_growth_ratio >= config_.min_storage_growth_for_latency_trigger;
+    if (signal.latency_limit_exceeded && meaningful_patch_growth) {
       ++latency_breach_streak_;
     } else {
       latency_breach_streak_ = 0;
@@ -73,8 +81,7 @@ class ConsolidationController {
         epoch >= last_consolidation_epoch_ + config_.min_epochs_between_consolidations;
     if (!cooldown_complete) return false;
 
-    if (signal.storage_limit_exceeded) return true;
-    return signal.latency_limit_exceeded &&
+    return signal.latency_limit_exceeded && meaningful_patch_growth &&
         latency_breach_streak_ >= config_.latency_breach_samples;
   }
 
