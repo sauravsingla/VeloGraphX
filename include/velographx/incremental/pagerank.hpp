@@ -46,8 +46,6 @@ class IncrementalPageRank {
       }
     };
 
-    // Seed both endpoints and their immediate dependents. Subsequent rounds
-    // propagate only when a material residual remains.
     for (const auto& e : batch.updates) {
       activate(e.src);
       activate(e.dst);
@@ -94,12 +92,13 @@ class IncrementalPageRank {
       for (VertexId v = 0; v < n; ++v) {
         if (!active[v]) continue;
 
+        // Reverse adjacency makes localized repair proportional to the actual
+        // predecessor set instead of scanning every vertex in the graph.
         double incoming = 0.0;
-        for (VertexId u = 0; u < n; ++u) {
-          auto neighbors = g_.neighbors(u);
-          if (neighbors.empty()) continue;
-          if (std::binary_search(neighbors.begin(), neighbors.end(), v)) {
-            incoming += rank_[u] / static_cast<double>(neighbors.size());
+        for (auto u : g_.in_neighbors(v)) {
+          const auto out_degree = g_.neighbors(u).size();
+          if (out_degree != 0) {
+            incoming += rank_[u] / static_cast<double>(out_degree);
           }
         }
 
@@ -108,8 +107,6 @@ class IncrementalPageRank {
         next_rank[v] = updated;
 
         if (delta > tol) {
-          // PageRank dependency flows along outgoing edges, so a changed rank
-          // only needs to wake vertices that receive mass from this vertex.
           for (auto dst : g_.neighbors(v)) activate_next(dst);
         }
       }
