@@ -57,6 +57,19 @@ jobs:
           git clone --quiet https://github.com/thu-pacman/RisGraph.git /tmp/risgraph
           git -C /tmp/risgraph checkout --quiet "$RISGRAPH_SHA"
           git -C /tmp/risgraph submodule update --init --recursive
+          # Compatibility-only patch for pinned Abseil f1dad1e9 under GCC 11:
+          # graphcycles.cc uses std::numeric_limits but does not include <limits>.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/risgraph/deps/abseil-cpp/absl/synchronization/internal/graphcycles.cc')
+          s = p.read_text()
+          needle = '#include <algorithm>\n'
+          assert needle in s and '#include <limits>\n' not in s
+          p.write_text(s.replace(needle, needle + '#include <limits>\n', 1))
+          PY
+          mkdir -p baseline-artifact
+          git -C /tmp/risgraph diff -- deps/abseil-cpp > baseline-artifact/risgraph-compatibility.patch
+          grep -q '^+#include <limits>$' baseline-artifact/risgraph-compatibility.patch
           cmake -S /tmp/risgraph -B /tmp/risgraph/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER=g++-11
@@ -153,7 +166,7 @@ jobs:
       - name: Summarize evidence
         run: |
           python3 - <<'PY'
-          import json, statistics, subprocess
+          import json, statistics
           vx = [float(x) for x in open('baseline-artifact/velographx-times.txt')]
           rg = [float(x) for x in open('baseline-artifact/risgraph-times.txt')]
           assert len(vx) == 5 and len(rg) == 5
@@ -165,6 +178,7 @@ jobs:
               'baseline': 'RisGraph',
               'baseline_commit': '4e77f774d4aa7cd0bf3011e713496573b70c91ab',
               'baseline_license': 'Apache-2.0',
+              'compatibility_patch': 'pinned Abseil graphcycles.cc adds missing <limits> include only',
               'workload': {
                   'vertices': 2000,
                   'edges': 20000,
@@ -189,6 +203,7 @@ jobs:
           lscpu > baseline-artifact/lscpu.txt
           g++-11 --version > baseline-artifact/compiler.txt
           git -C /tmp/risgraph rev-parse HEAD > baseline-artifact/risgraph-commit.txt
+          git -C /tmp/risgraph submodule status > baseline-artifact/risgraph-submodules.txt
           git -C /tmp/tbb rev-parse HEAD > baseline-artifact/tbb-commit.txt
 
       - uses: actions/upload-artifact@v4
