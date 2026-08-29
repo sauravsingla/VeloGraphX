@@ -131,20 +131,6 @@ class IncrementalBFS {
                               std::pair<VertexId, VertexId>{u, v});
   }
 
-  [[nodiscard]] bool has_surviving_old_support(
-      VertexId v,
-      const std::vector<std::pair<VertexId, VertexId>>& deleted_edges,
-      const std::vector<std::uint32_t>& old_dist,
-      const std::vector<std::uint8_t>& affected) const {
-    if (v >= old_dist.size() || old_dist[v] == unreachable || old_dist[v] == 0) return false;
-    for (auto p : g_.in_neighbors(v)) {
-      if (p >= old_dist.size() || p >= affected.size() || affected[p]) continue;
-      if (old_dist[p] == unreachable || old_dist[p] + 1 != old_dist[v]) continue;
-      if (!edge_deleted(p, v, deleted_edges)) return true;
-    }
-    return false;
-  }
-
   bool compute_affected_prebatch(
       const std::vector<VertexId>& candidates,
       const std::vector<std::pair<VertexId, VertexId>>& deleted_edges,
@@ -152,18 +138,33 @@ class IncrementalBFS {
       std::vector<std::uint8_t>& affected) {
     const auto fallback_limit = std::max<std::size_t>(
         1, static_cast<std::size_t>(static_cast<double>(affected.size()) * deletion_fallback_fraction_));
-    std::queue<VertexId> invalidate;
 
-    auto try_invalidate = [&](VertexId v) {
-      if (v >= old_dist.size() || v >= affected.size() || v == source_ ||
+    // Count surviving parents in the old shortest-path DAG before mutation.
+    // A vertex is invalid only when every old-level support edge is deleted or
+    // its parent is itself invalidated. Propagating support loss to a fixed
+    // point avoids order-dependent stale labels in multi-parent deletion batches.
+    std::vector<std::uint32_t> support_count(affected.size(), 0);
+    for (VertexId v = 0; v < affected.size(); ++v) {
+      if (v == source_ || v >= old_dist.size() || old_dist[v] == unreachable) continue;
+      for (auto p : g_.in_neighbors(v)) {
+        if (p >= old_dist.size() || old_dist[p] == unreachable) continue;
+        if (old_dist[p] + 1 != old_dist[v]) continue;
+        if (!edge_deleted(p, v, deleted_edges)) ++support_count[v];
+      }
+    }
+
+    std::queue<VertexId> invalidate;
+    auto invalidate_vertex = [&](VertexId v) {
+      if (v >= affected.size() || v >= old_dist.size() || v == source_ ||
           old_dist[v] == unreachable || affected[v]) return;
-      if (has_surviving_old_support(v, deleted_edges, old_dist, affected)) return;
       affected[v] = 1;
       invalidate.push(v);
       ++last_affected_vertices_;
     };
 
-    for (auto v : candidates) try_invalidate(v);
+    for (auto v : candidates) {
+      if (v < support_count.size() && support_count[v] == 0) invalidate_vertex(v);
+    }
 
     while (!invalidate.empty()) {
       if (last_affected_vertices_ > fallback_limit) return false;
@@ -171,14 +172,15 @@ class IncrementalBFS {
       invalidate.pop();
       if (u >= old_dist.size() || old_dist[u] == unreachable) continue;
 
-      // This is intentionally pre-mutation adjacency: every old shortest-path
-      // child is still visible, including children connected by edges that are
-      // about to be deleted in this batch. Rechecking support after a parent is
-      // invalidated makes multi-parent deletion order deterministic.
+      // Pre-mutation adjacency contains the complete old DAG. Only surviving
+      // edges contributed to support_count, so only those edges are decremented
+      // when their parent becomes invalid. Deleted edges were excluded up front.
       for (auto v : g_.neighbors(u)) {
-        if (v < old_dist.size() && old_dist[v] == old_dist[u] + 1) {
-          try_invalidate(v);
-        }
+        if (v >= old_dist.size() || v >= support_count.size() || affected[v]) continue;
+        if (old_dist[v] != old_dist[u] + 1) continue;
+        if (edge_deleted(u, v, deleted_edges)) continue;
+        if (support_count[v] != 0) --support_count[v];
+        if (support_count[v] == 0) invalidate_vertex(v);
       }
     }
     return last_affected_vertices_ <= fallback_limit;
