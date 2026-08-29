@@ -1,0 +1,143 @@
+name: Canonicalization A/B Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/canonicalization-ab.yml'
+      - 'benchmarks/steady_state_storage.cpp'
+      - 'include/velographx/storage/consolidation.hpp'
+      - 'include/velographx/storage/dynamic_graph.hpp'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build benchmark
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_steady_state_storage velographx_tests -j 2
+          ctest --test-dir build/cmake --output-on-failure
+      - name: Exercise compact-source snapshot path
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          n=256
+          rows=[]
+          for u in range(n):
+              for d in (1,7,31,67):
+                  rows.append(f"{u} {(u+d)%n}\n")
+          Path('build/smoke.txt').write_text(''.join(rows))
+          PY
+          build/cmake/velographx_steady_state_storage build/smoke.txt 16 32 64 1 1.25 1.25 > build/smoke.json
+          python - <<'PY'
+          import json
+          r=json.load(open('build/smoke.json'))
+          assert r['correct'] is True
+          assert r['initial_directed_edges'] == r['final_directed_edges']
+          assert r['total_update_operations'] > 0
+          PY
+
+  orkut-policy-ab:
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build benchmark before dataset acquisition
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_steady_state_storage -j 2
+      - name: Acquire checksum-pinned canonical SNAP Orkut
+        run: |
+          mkdir -p build/canonicalization-ab
+          wget -q https://snap.stanford.edu/data/bigdata/communities/com-orkut.ungraph.txt.gz -O build/canonicalization-ab/com-orkut.ungraph.txt.gz
+          echo 'f73e33fb685f411a10c952f2ba3ea788380b91a17bc636e38da1a23f6c6b2bc6  build/canonicalization-ab/com-orkut.ungraph.txt.gz' | sha256sum -c -
+          gzip -dc build/canonicalization-ab/com-orkut.ungraph.txt.gz > build/canonicalization-ab/com-orkut.ungraph.txt
+          grep -q '^# Nodes: 3072441 Edges: 117185083' build/canonicalization-ab/com-orkut.ungraph.txt
+          test "$(grep -vc '^#' build/canonicalization-ab/com-orkut.ungraph.txt)" -eq 117185083
+      - name: Capture environment
+        run: |
+          python tools/capture_benchmark_environment.py --label canonicalization-ab-orkut --output build/canonicalization-ab/environment.json
+          lscpu > build/canonicalization-ab/lscpu.txt
+      - name: Run conservative 1.25x policy
+        run: |
+          build/cmake/velographx_steady_state_storage \
+            build/canonicalization-ab/com-orkut.ungraph.txt \
+            60 65536 8192 0 1.25 1.25 > build/canonicalization-ab/conservative.json
+      - name: Run bounded 1.50x large-graph policy
+        run: |
+          build/cmake/velographx_steady_state_storage \
+            build/canonicalization-ab/com-orkut.ungraph.txt \
+            60 65536 8192 0 1.50 1.25 > build/canonicalization-ab/bounded.json
+      - name: Validate and summarize A/B
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.load(open('build/canonicalization-ab/conservative.json'))
+          b=json.load(open('build/canonicalization-ab/bounded.json'))
+          for r in (a,b):
+              assert r['correct'] is True
+              assert r['initial_directed_edges'] == 234370166
+              assert r['final_directed_edges'] == r['initial_directed_edges']
+              assert r['total_update_operations'] > 0
+          assert b['consolidation_count'] < a['consolidation_count'], (a['consolidation_count'],b['consolidation_count'])
+          assert b['total_consolidation_ms'] < a['total_consolidation_ms'], (a['total_consolidation_ms'],b['total_consolidation_ms'])
+          assert b['high_water_storage_ratio'] < 1.70, b['high_water_storage_ratio']
+          summary={
+              'schema_version':1,
+              'artifact_type':'velographx-canonicalization-policy-ab',
+              'dataset':'com-Orkut',
+              'undirected_edges':117185083,
+              'directed_arcs':234370166,
+              'epochs':60,
+              'rows_per_epoch':65536,
+              'research_claim':False,
+              'conservative':{
+                  'storage_threshold':1.25,
+                  'consolidation_count':a['consolidation_count'],
+                  'consolidation_intervals':a['consolidation_intervals'],
+                  'total_consolidation_ms':a['total_consolidation_ms'],
+                  'consolidation_share':a['consolidation_share'],
+                  'maintenance_amortized_ops_per_s':a['maintenance_amortized_ops_per_s'],
+                  'high_water_storage_ratio':a['high_water_storage_ratio'],
+                  'high_water_latency_ratio':a['high_water_latency_ratio'],
+                  'high_water_rss_kib':a['high_water_rss_kib'],
+              },
+              'bounded_large_graph':{
+                  'storage_threshold':1.50,
+                  'consolidation_count':b['consolidation_count'],
+                  'consolidation_intervals':b['consolidation_intervals'],
+                  'total_consolidation_ms':b['total_consolidation_ms'],
+                  'consolidation_share':b['consolidation_share'],
+                  'maintenance_amortized_ops_per_s':b['maintenance_amortized_ops_per_s'],
+                  'high_water_storage_ratio':b['high_water_storage_ratio'],
+                  'high_water_latency_ratio':b['high_water_latency_ratio'],
+                  'high_water_rss_kib':b['high_water_rss_kib'],
+              },
+              'consolidation_count_ratio': b['consolidation_count']/a['consolidation_count'],
+              'consolidation_time_ratio': b['total_consolidation_ms']/a['total_consolidation_ms'],
+              'maintenance_throughput_ratio': b['maintenance_amortized_ops_per_s']/a['maintenance_amortized_ops_per_s'],
+              'edge_count_preserved':True,
+              'all_correct':True,
+          }
+          Path('build/canonicalization-ab/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-canonicalization-ab-orkut
+          path: |
+            build/canonicalization-ab/environment.json
+            build/canonicalization-ab/lscpu.txt
+            build/canonicalization-ab/conservative.json
+            build/canonicalization-ab/bounded.json
+            build/canonicalization-ab/summary.json
+          retention-days: 90
