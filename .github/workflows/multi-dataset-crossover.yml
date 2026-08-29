@@ -8,9 +8,13 @@ on:
       - 'tools/prepare_pinned_public_dataset.py'
       - 'tools/normalize_edge_list.py'
       - 'tools/summarize_update_crossover.py'
-      - 'benchmarks/public_update_fraction_campaign.cpp'
+      - 'tools/capture_benchmark_environment.py'
+      - 'tools/validate_benchmark_preflight.py'
       - 'tools/build_result_artifact.py'
       - 'tools/validate_result_bundle.py'
+      - 'benchmarks/**'
+      - 'include/**'
+      - 'src/**'
       - 'CMakeLists.txt'
   pull_request:
     paths:
@@ -19,9 +23,13 @@ on:
       - 'tools/prepare_pinned_public_dataset.py'
       - 'tools/normalize_edge_list.py'
       - 'tools/summarize_update_crossover.py'
-      - 'benchmarks/public_update_fraction_campaign.cpp'
+      - 'tools/capture_benchmark_environment.py'
+      - 'tools/validate_benchmark_preflight.py'
       - 'tools/build_result_artifact.py'
       - 'tools/validate_result_bundle.py'
+      - 'benchmarks/**'
+      - 'include/**'
+      - 'src/**'
       - 'CMakeLists.txt'
   workflow_dispatch:
 
