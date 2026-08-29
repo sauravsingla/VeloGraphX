@@ -62,8 +62,34 @@ jobs:
 
       - name: Acquire checksum-pinned web-Google
         run: |
-          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/external-risgraph/source --dataset web-Google > build/external-risgraph/dataset-prepared.json
-          python tools/normalize_edge_list.py --input build/external-risgraph/source/web-Google.txt --output build/external-risgraph/web-Google-normalized.txt --report build/external-risgraph/normalization.json --directed
+          mkdir -p build/external-risgraph/source
+          EXPECTED_SHA=8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1
+          TARGET=build/external-risgraph/source/web-Google.txt
+          if ! timeout 120s python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/external-risgraph/source --dataset web-Google > build/external-risgraph/dataset-prepared.json; then
+            echo "Pinned GitHub source did not complete in 120s; trying canonical SNAP source"
+            rm -f "$TARGET" build/external-risgraph/dataset-prepared.json build/external-risgraph/web-Google.txt.gz
+            curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 240 \
+              https://snap.stanford.edu/data/web-Google.txt.gz \
+              -o build/external-risgraph/web-Google.txt.gz
+            gzip -dc build/external-risgraph/web-Google.txt.gz > "$TARGET"
+            echo "$EXPECTED_SHA  $TARGET" | sha256sum -c -
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          Path('build/external-risgraph/dataset-prepared.json').write_text(json.dumps({
+            'schema_version':1,
+            'prepared':[{
+              'name':'web-Google',
+              'path':'build/external-risgraph/source/web-Google.txt',
+              'sha256':'8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1',
+              'format':'edge-list-text','directed':True,'weighted':False,
+              'acquisition_source':'https://snap.stanford.edu/data/web-Google.txt.gz'
+            }]
+          },sort_keys=True)+'\n')
+          PY
+          fi
+          echo "$EXPECTED_SHA  $TARGET" | sha256sum -c -
+          python tools/normalize_edge_list.py --input "$TARGET" --output build/external-risgraph/web-Google-normalized.txt --report build/external-risgraph/normalization.json --directed
           python - <<'PY'
           import json
           n=json.load(open('build/external-risgraph/normalization.json'))
@@ -134,7 +160,7 @@ jobs:
             'root':int(vx['root']),'imported_rate':vx['imported_rate'],'batch_size':vx['batch_size'],'batches':vx['batches'],
             'initial_edges':vx['initial_edges'],'final_edges':vx['final_edges'],
             'update_semantics':'per batch: add next window edges, remove equally many oldest window edges, then maintain exact BFS',
-            'velographx_deletion_policy':'shortest-path-DAG invalidation with alternate-parent preservation, boundary repair, insertion relaxation, and 35% affected-region fallback',
+            'velographx_deletion_policy':'pre-batch shortest-path-DAG support invalidation, boundary repair, final-state insertion relaxation, and 35% affected-region fallback',
             'legacy_velographx_policy':'full BFS recomputation after every deletion-containing batch',
             'deletion_candidates':vx['deletion_candidates'],'affected_vertices':vx['affected_vertices'],
             'full_recompute_batches':vx['full_recompute_batches'],
