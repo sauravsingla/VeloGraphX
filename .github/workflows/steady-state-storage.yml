@@ -19,14 +19,24 @@ jobs:
         run: |
           cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build/cmake --target velographx_steady_state_storage -j 2
-      - name: Exercise repeated maintenance loop on local fixture
+      - name: Exercise repeated maintenance loop on generated fixture
         run: |
-          build/cmake/velographx_steady_state_storage datasets/example-local-edge-list.txt 8 2 8 0 1.05 1.05 > build/smoke.json
+          python - <<'PY'
+          from pathlib import Path
+          rows=[]
+          n=128
+          for u in range(n):
+              rows.append(f"{u} {(u+1)%n}\n")
+              rows.append(f"{u} {(u+7)%n}\n")
+              rows.append(f"{u} {(u+31)%n}\n")
+          Path('build/smoke-edge-list.txt').write_text(''.join(rows))
+          PY
+          build/cmake/velographx_steady_state_storage build/smoke-edge-list.txt 12 16 64 1 1.05 1.05 > build/smoke.json
           python - <<'PY'
           import json
           r=json.load(open('build/smoke.json'))
           assert r['correct'] is True
-          assert r['epochs'] == 8
+          assert r['epochs'] == 12
           assert r['total_update_operations'] > 0
           assert r['maintenance_amortized_ops_per_s'] > 0
           assert r['high_water_rss_kib'] > 0
