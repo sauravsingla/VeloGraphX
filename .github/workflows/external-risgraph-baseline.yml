@@ -87,15 +87,19 @@ jobs:
             echo "root=$ROOT"
           } > build/external-risgraph/pins.txt
 
-      - name: Run VeloGraphX
+      - name: Run VeloGraphX deletion-aware and legacy policies
         run: |
           build/cmake/velographx_external_risgraph_bfs build/external-risgraph/web-Google-normalized.txt "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" > build/external-risgraph/velographx.json
           python - <<'PY'
           import json
           r=json.load(open('build/external-risgraph/velographx.json'))
-          assert r['correct'] is True
+          assert r['schema_version']==2
+          assert r['correct'] is True and r['legacy_correct'] is True
           assert r['vertices']==875713 and r['source_edges']==5105039
           assert r['final_edges']==r['initial_edges'] and r['batches']>0
+          assert r['deletion_candidates']>=0 and r['affected_vertices']>=0
+          assert r['full_recompute_batches']<=r['batches']
+          assert r['legacy_full_recompute_wall_us']>0
           PY
 
       - name: Run official RisGraph
@@ -125,12 +129,17 @@ jobs:
           assert mean and total and visited
           rg_mean=float(mean.group(1)); rg_total=float(total.group(1))
           result={
-            'schema_version':1,'artifact_type':'velographx-external-risgraph-baseline',
+            'schema_version':2,'artifact_type':'velographx-external-risgraph-baseline',
             'dataset':'web-Google','dataset_vertices':875713,'dataset_edges':5105039,'directed':True,
             'root':int(vx['root']),'imported_rate':vx['imported_rate'],'batch_size':vx['batch_size'],'batches':vx['batches'],
             'initial_edges':vx['initial_edges'],'final_edges':vx['final_edges'],
             'update_semantics':'per batch: add next window edges, remove equally many oldest window edges, then maintain exact BFS',
-            'velographx_deletion_policy':'full BFS recomputation when a batch contains any deletion',
+            'velographx_deletion_policy':'shortest-path-DAG invalidation with alternate-parent preservation, boundary repair, insertion relaxation, and 35% affected-region fallback',
+            'legacy_velographx_policy':'full BFS recomputation after every deletion-containing batch',
+            'deletion_candidates':vx['deletion_candidates'],'affected_vertices':vx['affected_vertices'],
+            'full_recompute_batches':vx['full_recompute_batches'],
+            'legacy_full_recompute_wall_mean_us':vx['legacy_full_recompute_mean_us'],
+            'deletion_repair_speedup_over_legacy':vx['deletion_repair_speedup_over_legacy'],
             'risgraph_revision':'4e77f774d4aa7cd0bf3011e713496573b70c91ab','risgraph_program':'official bfs_inc_batch',
             'risgraph_algorithm_implementation_modified':False,'build_compatibility_manifest':compat,
             'velographx_wall_mean_us':vx['wall_mean_us'],'risgraph_wall_mean_us':rg_mean,
@@ -138,6 +147,7 @@ jobs:
             'latency_ratio_velographx_over_risgraph':vx['wall_mean_us']/rg_mean if rg_mean else None,
             'visited_vertices':int(visited[-1]),'layer_counts':rg_full,
             'velographx_correct_against_independent_full_bfs':True,
+            'legacy_velographx_correct_against_independent_full_bfs':True,
             'risgraph_incremental_equals_risgraph_full_recompute':True,'cross_system_layer_histogram_equal':True,
             'research_claim':False,'hosted_ci_single_execution':True
           }
