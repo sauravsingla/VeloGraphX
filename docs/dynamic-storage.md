@@ -42,9 +42,11 @@ Long-running row-local compaction can accumulate enough patched rows to increase
 
 The source graph is left unchanged. The returned snapshot starts with no row patches and no pending deltas, so an application can validate the snapshot before an explicit maintenance-boundary cutover. Consolidation is O(E) and is intentionally separated from `DynamicGraph::apply()`.
 
-The same header provides `ConsolidationPolicy` and `evaluate_consolidation()`. The current engineering defaults signal consolidation when either owned storage or sampled neighbor latency reaches **1.25x** its canonical-CSR baseline. The helper only returns a signal; it never starts consolidation automatically.
+The same header provides `ConsolidationPolicy`, `evaluate_consolidation()`, and the stateful `ConsolidationController`. The raw engineering thresholds remain **1.25x** owned-storage growth and **1.25x** sampled-neighbor-latency growth relative to the canonical-CSR baseline.
 
-Those defaults come from the retained real-graph accumulation campaign, not from an assumption that one threshold is universally optimal. Applications can provide their own policy values.
+The controller treats the two signals differently. Storage growth is a hard safety bound and can request consolidation immediately. Latency is noisier, so latency-driven work additionally requires meaningful patch growth, a persistent breach streak, and completion of the post-cutover cooldown. Samples observed during cooldown do not build the latency persistence streak. The hard storage bound deliberately bypasses that cooldown.
+
+Those defaults come from retained hosted-CI real-graph evidence, not from an assumption that one threshold is universally optimal. Applications can provide their own policy values.
 
 ## Introspection
 
@@ -63,12 +65,18 @@ The existing dirty-count introspection names are retained for compatibility, but
 
 Forward and reverse logical views must agree for every directed arc. Bulk-load duplicates are removed. Overlay entries are sorted and unique per row. Row compaction must preserve outgoing and incoming neighborhoods, edge counts and later mutability.
 
-CSR consolidation has an additional contract: the fresh snapshot must preserve the full logical adjacency, deterministic sampled-neighborhood digest, directed edge count and directed/undirected semantics before a caller cuts over. Tests cover snapshot preservation and consolidation-policy threshold behavior in addition to mutation, reverse traversal and row-patch maintenance.
+CSR consolidation has an additional contract: the fresh snapshot must preserve the full logical adjacency, deterministic sampled-neighborhood digest, directed edge count and directed/undirected semantics before a caller cuts over. Tests cover snapshot preservation, threshold behavior, cooldown/persistence behavior, mutation, reverse traversal and row-patch maintenance.
+
+The steady-state workload generator also reserves every logical edge removed or inserted within each update batch so two selected rows cannot schedule conflicting replacements. The workflow now gates the final directed edge count against the initial count in addition to the graph digest checks.
 
 ## Measured boundary
 
 The retained 10M/100M storage A/B campaign shows why row patches replaced whole-segment compaction: on the exercised 0.1% mixed-update workload, explicit compaction is about **1.657x** and **1.492x** the historical row-local implementation, versus **9.629x** and **11.989x** for the previous 65K dirty-segment design. The same final run retains lower neighbor latency and higher update throughput than the historical layout at both tested scales.
 
-The follow-up real-graph campaign measures long-running accumulation on `ca-GrQc` and directed `web-Google`. On web-Google, 50 cycles raise sampled neighbor latency to **1.719x** the pristine CSR baseline while owned storage reaches **1.332x**; validated CSR consolidation reduces the sampled latency to **0.604x of the pre-consolidation value** and the owned footprint to **0.751x of the accumulated value**. See [row-patch accumulation evidence](row-patch-accumulation-evidence.md).
+The follow-up real-graph accumulation campaign measures long-running patch growth on `ca-GrQc` and directed `web-Google`. On web-Google, 50 cycles raise sampled neighbor latency to **1.719x** the pristine CSR baseline while owned storage reaches **1.332x**; validated CSR consolidation reduces sampled latency to **0.604x of the pre-consolidation value** and the owned footprint to **0.751x of the accumulated value**. See [row-patch accumulation evidence](row-patch-accumulation-evidence.md).
 
-These are hosted-CI engineering measurements, not universal claims. Publication-quality follow-up still requires controlled hardware, broader graph families, mutation-locality sweeps, repeated steady-state consolidation cycles and maintenance-amortized application throughput.
+A subsequent steady-state campaign repeatedly accumulates, row-compacts, evaluates the maintenance controller, consolidates, validates, and cuts over. On web-Google, all three 80-epoch repetitions preserve exactly **5,105,039 directed edges**; the controller uses a median **5 consolidations** and holds the median storage high-water to about **1.136x** canonical CSR. On checksum-pinned `com-Orkut`, a single hosted 60-epoch scale execution preserves exactly **117,185,083 undirected edges / 234,370,166 directed arcs** with full final validation. Storage reaches **1.306x**, causing the hard storage bound to fire every four epochs for **15 consolidations**.
+
+That Orkut result exposes the current bottleneck rather than hiding it: on the hosted Xeon Platinum 8370C runner allocation (2 physical cores / 4 logical CPUs), full-graph CSR rebuilding consumes about **94.5% of measured maintenance-path time**. The next storage research target is therefore not proving that repeated consolidation works—it does—but reducing the cost/frequency of canonicalization through lower-cost rebuilding, segmented/background cutover strategies, or a better policy under controlled hardware.
+
+These are hosted-CI engineering measurements, not universal claims. Publication-quality follow-up still requires controlled hardware, repeated 100M+ runs across machines/seeds, broader graph families, mutation-locality sweeps, hardware counters, and maintenance-amortized application comparisons against alternative canonicalization policies.
