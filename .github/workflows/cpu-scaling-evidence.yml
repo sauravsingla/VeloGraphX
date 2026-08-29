@@ -1,0 +1,197 @@
+name: CPU Scaling Evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cpu-scaling-evidence.yml'
+      - 'benchmarks/thread_scaling_bfs.cpp'
+      - 'tools/cpu_scaling_campaign.py'
+      - 'include/**'
+      - 'src/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+    inputs:
+      controlled_hardware:
+        description: 'Also run the 1/2/4/8/16/32+ campaign on a self-hosted velographx-scale runner'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-topology-scaling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install topology tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y numactl
+
+      - name: Acquire pinned graph fixture
+        run: |
+          mkdir -p build/cpu-scaling/source
+          python tools/prepare_pinned_public_dataset.py \
+            --manifest datasets/multi-dataset-crossover.json \
+            --dataset facebook-combined \
+            --output-dir build/cpu-scaling/source \
+            > build/cpu-scaling/dataset.json
+          python tools/normalize_edge_list.py \
+            --input build/cpu-scaling/source/facebook-combined.txt \
+            --output build/cpu-scaling/facebook-normalized.txt \
+            --report build/cpu-scaling/normalization.json
+
+      - name: Build scaling target
+        run: |
+          cmake -S . -B build/cpu-scaling/cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cpu-scaling/cmake \
+            --target velographx_thread_scaling_bfs -j 2
+
+      - name: Capture runner topology
+        run: |
+          lscpu | tee build/cpu-scaling/lscpu.txt
+          numactl --hardware | tee build/cpu-scaling/numactl.txt || true
+          python tools/capture_benchmark_environment.py \
+            --label github-hosted-cpu-scaling \
+            --output build/cpu-scaling/environment.json
+
+      - name: Run maximum feasible hosted scaling ladder
+        run: |
+          python tools/cpu_scaling_campaign.py \
+            --binary build/cpu-scaling/cmake/velographx_thread_scaling_bfs \
+            --edge-list build/cpu-scaling/facebook-normalized.txt \
+            --output-dir build/cpu-scaling/results \
+            --queries 64 \
+            --repeats 5 \
+            --threads 1,2,4,8,16,32 \
+            --numa \
+            --timeout-seconds 600 \
+            | tee build/cpu-scaling/feasibility.json
+          cat build/cpu-scaling/results/README.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate scaling artifact
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('build/cpu-scaling/results/cpu-scaling.json').read_text())
+          assert report['artifact_type']=='velographx-cpu-scaling-evidence'
+          assert report['research_claim'] is False
+          assert report['thread_scaling']['aggregate']
+          rows=report['thread_scaling']['aggregate']
+          assert rows[0]['threads']==1
+          assert abs(rows[0]['speedup']-1.0) < 1e-9
+          assert abs(rows[0]['parallel_efficiency']-1.0) < 1e-9
+          assert len({row['digest'] for row in rows}) == 1
+          assert set(report['feasibility']['available_threads']).isdisjoint(
+              report['feasibility']['unavailable_threads'])
+          print('CPU scaling artifact validation passed')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-hosted-cpu-scaling
+          path: |
+            build/cpu-scaling/environment.json
+            build/cpu-scaling/lscpu.txt
+            build/cpu-scaling/numactl.txt
+            build/cpu-scaling/dataset.json
+            build/cpu-scaling/normalization.json
+            build/cpu-scaling/feasibility.json
+            build/cpu-scaling/results/
+          retention-days: 30
+
+  controlled-paper-scaling:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.controlled_hardware }}
+    runs-on: [self-hosted, linux, x64, velographx-scale]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify controlled-hardware prerequisites
+        run: |
+          command -v cmake
+          command -v c++
+          command -v python3
+          lscpu
+          numactl --hardware || true
+
+      - name: Acquire pinned graph fixture
+        run: |
+          rm -rf build/controlled-cpu-scaling
+          mkdir -p build/controlled-cpu-scaling/source
+          python3 tools/prepare_pinned_public_dataset.py \
+            --manifest datasets/multi-dataset-crossover.json \
+            --dataset facebook-combined \
+            --output-dir build/controlled-cpu-scaling/source \
+            > build/controlled-cpu-scaling/dataset.json
+          python3 tools/normalize_edge_list.py \
+            --input build/controlled-cpu-scaling/source/facebook-combined.txt \
+            --output build/controlled-cpu-scaling/facebook-normalized.txt \
+            --report build/controlled-cpu-scaling/normalization.json
+
+      - name: Build scaling target
+        run: |
+          cmake -S . -B build/controlled-cpu-scaling/cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/controlled-cpu-scaling/cmake \
+            --target velographx_thread_scaling_bfs -j "$(nproc)"
+
+      - name: Run 1 2 4 8 16 32 plus available higher-core and NUMA campaign
+        run: |
+          logical="$(nproc)"
+          ladder="1,2,4,8,16,32"
+          if [ "$logical" -ge 64 ]; then ladder="$ladder,64"; fi
+          if [ "$logical" -ge 128 ]; then ladder="$ladder,128"; fi
+          python3 tools/cpu_scaling_campaign.py \
+            --binary build/controlled-cpu-scaling/cmake/velographx_thread_scaling_bfs \
+            --edge-list build/controlled-cpu-scaling/facebook-normalized.txt \
+            --output-dir build/controlled-cpu-scaling/results \
+            --queries 256 \
+            --repeats 7 \
+            --threads "$ladder" \
+            --numa \
+            --timeout-seconds 1800 \
+            | tee build/controlled-cpu-scaling/feasibility.json
+          cat build/controlled-cpu-scaling/results/README.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publication-readiness gate
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('build/controlled-cpu-scaling/results/cpu-scaling.json').read_text())
+          ready=report['feasibility']['full_1_2_4_8_16_32_ladder']
+          dual=report['feasibility']['dual_socket_numa']
+          status={
+              'full_1_2_4_8_16_32_ladder': ready,
+              'dual_socket_numa': dual,
+              'publication_scaling_ready': bool(ready and dual),
+              'logical_cpus': report['topology']['logical_cpus'],
+              'sockets': report['topology']['sockets'],
+              'numa_nodes': report['topology']['numa_nodes'],
+          }
+          Path('build/controlled-cpu-scaling/publication-readiness.json').write_text(
+              json.dumps(status, sort_keys=True, indent=2)+'\n')
+          print(json.dumps(status, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-controlled-cpu-scaling
+          path: build/controlled-cpu-scaling/
+          retention-days: 90
