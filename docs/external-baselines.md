@@ -14,16 +14,20 @@ Pinned source:
 - build mode: Release
 - matched executable: `bfs_inc_batch`
 
-The comparison uses RisGraph's own batched sliding-window semantics: load an initial edge prefix, then for each batch insert the next edges and incrementally update BFS, followed by deleting the oldest edges and incrementally updating BFS again. VeloGraphX replays that same two-phase sequence rather than combining insertions and deletions into a different batch contract.
+The comparison uses RisGraph's own batched sliding-window protocol: load an initial edge prefix, then for each batch insert the next records and maintain BFS, followed by deleting the oldest records and maintaining BFS again. VeloGraphX replays that same two-phase sequence rather than combining insertion and deletion into a different batch contract.
 
-The evidence workflow fixes the root, import fraction, batch size, deterministic edge stream, compiler family, runner, and thread count. Before any timing ratio is emitted, the workflow requires:
+The benchmark stream represents a simple undirected graph as **adjacent reciprocal directed records**: every logical edge `{u,v}` appears as `(u,v)` followed by `(v,u)`. The import boundary and batch size are both pair-aligned. This restriction is deliberate. An earlier arbitrary-directed candidate stream was rejected before timing because the two executables produced different initial BFS layer histograms; VeloGraphX's histogram matched an independent straightforward directed BFS, so that stream was not a valid same-semantics comparison with RisGraph. No timing from that rejected run is used.
+
+The evidence workflow fixes the root, import fraction, batch size, deterministic reciprocal edge stream, compiler family, runner, and thread count. Before any timing ratio is emitted, the workflow requires:
 
 1. VeloGraphX incremental BFS to match a fresh VeloGraphX full recomputation after the final update.
 2. VeloGraphX and RisGraph to report identical initial BFS layer counts.
 3. VeloGraphX and RisGraph to report identical final BFS layer counts.
 4. The exact RisGraph commit to match the declared immutable pin.
 
-Five same-runner repetitions are retained. Reported timing is the median wall time for the complete sliding-window update phase. The workflow records raw outputs, compiler, CPU topology, workload checksum, competitor commit, and TBB commit.
+Five same-runner repetitions are retained. Reported timing is the median wall time for the complete sliding-window update phase. VeloGraphX currently performs localized repair for insertion batches and a full BFS recomputation after a batch containing deletions, while RisGraph uses its own incremental deletion-maintenance implementation. This is therefore a comparison of **complete maintenance cost for the same result and update protocol**, not a claim that the internal maintenance algorithms are identical.
+
+The workflow records raw outputs, compiler, CPU topology, workload checksum, competitor commit, TBB commit, and the exact compatibility-only patch needed to compile RisGraph's pinned Abseil dependency with GCC 11 (`#include <limits>` in `graphcycles.cc`). No RisGraph algorithm source is modified.
 
 This is hosted-CI engineering evidence. It must not be described as universal superiority, a reproduction of the paper's headline throughput, or a publication-grade hardware comparison.
 
@@ -46,8 +50,9 @@ Teseo remains eligible for a future **storage-only** experiment if both systems 
 - Compare algorithm maintenance only when both systems maintain the same result under the same update semantics.
 - Keep structural storage comparisons separate from algorithm-maintenance comparisons.
 - Use immutable source revisions and record all non-system dependency pins needed to build an older competitor.
-- Do not alter competitor algorithms to improve or weaken performance. Compatibility-only build changes, if ever required, must be recorded as patches and retained with the artifact.
+- Do not alter competitor algorithms to improve or weaken performance. Compatibility-only build changes must be recorded as patches and retained with the artifact.
 - Match thread count for the primary comparison. Multithread scaling is a separate experiment.
 - Validate result equivalence before reporting a timing ratio.
 - Preserve raw competitor output; do not compare only parsed headline numbers.
+- Reject a workload rather than weakening the correctness gate when system outputs disagree.
 - Hosted runners are engineering evidence, not controlled publication hardware.
