@@ -38,6 +38,7 @@ jobs:
           assert r['correct'] is True
           assert r['epochs'] == 12
           assert r['total_update_operations'] > 0
+          assert r['initial_directed_edges'] == r['final_directed_edges']
           assert r['maintenance_amortized_ops_per_s'] > 0
           assert r['high_water_rss_kib'] > 0
           PY
@@ -92,6 +93,8 @@ jobs:
           rows=[json.loads(x) for x in Path('build/steady/web-google/runs.jsonl').read_text().splitlines() if x.strip()]
           assert len(rows)==3 and all(r['correct'] for r in rows)
           assert all(r['vertices']==875713 for r in rows)
+          assert all(r['initial_directed_edges']==5105039 for r in rows)
+          assert all(r['final_directed_edges']==r['initial_directed_edges'] for r in rows)
           assert all(r['consolidation_count'] >= 2 for r in rows), [r['consolidation_count'] for r in rows]
           keys=['total_update_operations','maintenance_amortized_ops_per_s','instrumented_campaign_ops_per_s',
                 'consolidation_count','total_consolidation_ms','consolidation_share','high_water_storage_ratio',
@@ -110,6 +113,7 @@ jobs:
             'latency_threshold':1.25,
             'controller_min_epochs_between':10,
             'controller_latency_breach_samples':5,
+            'edge_count_preserved':True,
             'all_correct':True,
             'research_claim':False,
           }
@@ -149,6 +153,7 @@ jobs:
           mkdir -p build/steady/orkut
           wget -q https://snap.stanford.edu/data/bigdata/communities/com-orkut.ungraph.txt.gz -O build/steady/orkut/com-orkut.ungraph.txt.gz
           sha256sum build/steady/orkut/com-orkut.ungraph.txt.gz | tee build/steady/orkut/source.sha256
+          grep -q '^f73e33fb685f411a10c952f2ba3ea788380b91a17bc636e38da1a23f6c6b2bc6  ' build/steady/orkut/source.sha256
           gzip -dc build/steady/orkut/com-orkut.ungraph.txt.gz > build/steady/orkut/com-orkut.ungraph.txt
           grep -q '^# Nodes: 3072441 Edges: 117185083' build/steady/orkut/com-orkut.ungraph.txt
           edge_rows=$(grep -vc '^#' build/steady/orkut/com-orkut.ungraph.txt)
@@ -157,6 +162,7 @@ jobs:
           from pathlib import Path
           Path('build/steady/orkut/source-stats.json').write_text(
               '{"dataset":"com-Orkut","canonical_source":"https://snap.stanford.edu/data/com-Orkut.html",'
+              '"source_sha256":"f73e33fb685f411a10c952f2ba3ea788380b91a17bc636e38da1a23f6c6b2bc6",'
               '"vertices":3072441,"edges":117185083,"directed":false,"research_claim":false}\n')
           PY
       - name: Capture environment
@@ -174,6 +180,7 @@ jobs:
           r=json.load(open('build/steady/orkut/run.json'))
           assert r['correct'] is True
           assert r['initial_directed_edges'] == 234370166
+          assert r['final_directed_edges'] == r['initial_directed_edges']
           assert r['consolidation_count'] >= 2, r['consolidation_count']
           summary={
             'schema_version':1,
@@ -199,6 +206,7 @@ jobs:
             'high_water_latency_ratio':r['high_water_latency_ratio'],
             'high_water_rss_kib':r['high_water_rss_kib'],
             'campaign_wall_ms':r['campaign_wall_ms'],
+            'edge_count_preserved':True,
             'all_correct':True,
             'research_claim':False,
             'scale_evidence_single_execution':True,
