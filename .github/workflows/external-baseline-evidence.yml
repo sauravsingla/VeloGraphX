@@ -82,21 +82,29 @@ jobs:
           python3 - <<'PY'
           import random
           n = 2000
-          target = 20000
-          edges = []
+          logical_target = 10000
+          logical = []
           seen = set()
           for u in range(n - 1):
               e = (u, u + 1)
               seen.add(e)
-              edges.append(e)
+              logical.append(e)
           rng = random.Random(20260829)
-          while len(edges) < target:
+          while len(logical) < logical_target:
               u = rng.randrange(n)
               v = rng.randrange(n)
-              if u == v or (u, v) in seen:
+              if u == v:
                   continue
-              seen.add((u, v))
+              a, b = sorted((u, v))
+              if (a, b) in seen:
+                  continue
+              seen.add((a, b))
+              logical.append((a, b))
+          edges = []
+          for u, v in logical:
               edges.append((u, v))
+              edges.append((v, u))
+          assert len(edges) == 20000
           with open('baseline-artifact/workload.txt', 'w') as f:
               for u, v in edges:
                   f.write(f'{u} {v}\n')
@@ -181,11 +189,13 @@ jobs:
               'compatibility_patch': 'pinned Abseil graphcycles.cc adds missing <limits> include only',
               'workload': {
                   'vertices': 2000,
-                  'edges': 20000,
+                  'logical_undirected_edges': 10000,
+                  'directed_records': 20000,
+                  'representation': 'adjacent reciprocal directed records for every logical undirected edge',
                   'root': 0,
                   'imported_rate': 0.8,
                   'batch_size': 128,
-                  'update_semantics': 'RisGraph sliding-window batch: add next batch, maintain BFS, delete oldest batch, maintain BFS',
+                  'update_semantics': 'RisGraph sliding-window batch: add next reciprocal records, maintain BFS, delete oldest reciprocal records, maintain BFS',
                   'threads': 1,
               },
               'correctness': json.load(open('baseline-artifact/correctness.json')),
@@ -194,7 +204,7 @@ jobs:
               'velographx_median_wall_us': med_vx,
               'risgraph_median_wall_us': med_rg,
               'median_ratio_risgraph_over_velographx': med_rg / med_vx,
-              'note': 'Hosted-CI same-runner engineering evidence only; no universal superiority claim.'
+              'note': 'Hosted-CI same-runner engineering evidence on an undirected-equivalent reciprocal stream only; no universal superiority claim.'
           }
           json.dump(summary, open('baseline-artifact/summary.json', 'w'), indent=2)
           print(json.dumps(summary, indent=2))
