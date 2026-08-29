@@ -38,7 +38,7 @@ jobs:
           cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build/cmake --target velographx_external_risgraph_bfs -j 2
 
-      - name: Checkout immutable RisGraph and record build-only compatibility
+      - name: Checkout immutable RisGraph and record compatibility
         run: |
           git clone --filter=blob:none https://github.com/thu-pacman/RisGraph.git build/risgraph
           git -C build/risgraph checkout --detach "$RISGRAPH_SHA"
@@ -50,8 +50,9 @@ jobs:
           import json
           m=json.load(open('build/external-risgraph/compatibility-manifest.json'))
           assert m['risgraph_revision']=='4e77f774d4aa7cd0bf3011e713496573b70c91ab'
-          assert m['algorithm_source_modified'] is False
-          assert len(m['changes'])==2
+          assert m['algorithm_implementation_modified'] is False
+          assert m['compatibility_source_modified'] is True
+          assert len(m['changes'])==3
           PY
 
       - name: Build official RisGraph batch BFS
@@ -79,7 +80,8 @@ jobs:
           {
             echo "velographx_sha=$(git rev-parse HEAD)"
             echo "risgraph_sha=$RISGRAPH_SHA"
-            echo "risgraph_algorithm_source_modified=false"
+            echo "risgraph_algorithm_implementation_modified=false"
+            echo "risgraph_compatibility_source_modified=true"
             echo "imported_rate=$IMPORTED_RATE"
             echo "batch_size=$BATCH_SIZE"
             echo "root=$ROOT"
@@ -130,7 +132,7 @@ jobs:
             'update_semantics':'per batch: add next window edges, remove equally many oldest window edges, then maintain exact BFS',
             'velographx_deletion_policy':'full BFS recomputation when a batch contains any deletion',
             'risgraph_revision':'4e77f774d4aa7cd0bf3011e713496573b70c91ab','risgraph_program':'official bfs_inc_batch',
-            'risgraph_algorithm_source_modified':False,'build_compatibility_manifest':compat,
+            'risgraph_algorithm_implementation_modified':False,'build_compatibility_manifest':compat,
             'velographx_wall_mean_us':vx['wall_mean_us'],'risgraph_wall_mean_us':rg_mean,
             'velographx_wall_total_us':vx['wall_us'],'risgraph_wall_total_us':rg_total,
             'latency_ratio_velographx_over_risgraph':vx['wall_mean_us']/rg_mean if rg_mean else None,
