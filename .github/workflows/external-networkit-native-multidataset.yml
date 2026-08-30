@@ -109,8 +109,10 @@ jobs:
             --report build/native-campaign/ca-GrQc-normalization.json \
             --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
             --expected-vertices 5242 \
-            --expected-source-rows 14496 \
-            --expected-self-loops 12
+            --expected-source-rows 28980 \
+            --expected-self-loops 12 \
+            --expected-nonloop-pair-multiplicity 2 \
+            --expected-unique-nonloop-pairs 14484
 
           python - <<'PY'
           import json, subprocess
@@ -118,8 +120,12 @@ jobs:
           for name, rate in configs:
               n=json.load(open(f'build/native-campaign/{name}-normalization.json'))
               if name == 'ca-GrQc':
+                  assert n['source_rows'] == 28980
                   assert n['source_self_loop_rows_removed'] == 12
+                  assert n['source_nonloop_rows'] == 28968
                   assert n['source_unique_nonloop_undirected_edges'] == 14484
+                  assert n['source_expected_nonloop_pair_multiplicity'] == 2
+                  assert n['source_reciprocal_pairs_verified'] == 14484
                   assert n['edge_count'] == 28968
                   assert n['directed_representation_of_undirected_graph'] is True
               subprocess.run(['python','tools/select_bfs_root.py','--input',f'build/native-campaign/{name}.txt',
