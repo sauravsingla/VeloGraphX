@@ -215,15 +215,20 @@ PolicyResult run_policy(const std::string& policy,
 
       const bool fresh_model = have_incremental && have_full &&
           incremental_age <= kFreshAge && full_age <= kFreshAge;
-      const bool large_graph_tail_guard = vertices >= kLargeGraphVertices &&
-          (shallow_fraction > 0.0 || update_fraction >= kLargeGraphUpdateGuard);
+      const bool shallow_deletion_cold_start_guard = vertices >= kLargeGraphVertices &&
+          first_batch && shallow_fraction > 0.0;
+      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&
+          update_fraction >= kLargeGraphUpdateGuard;
 
       if (update_fraction >= kPreflightFullUpdate) {
         choose_full = true;
         trace.reason = "preflight_full";
-      } else if (large_graph_tail_guard) {
+      } else if (shallow_deletion_cold_start_guard) {
         choose_full = true;
-        trace.reason = shallow_fraction > 0.0 ? "shallow_deletion_guard" : "large_graph_update_guard";
+        trace.reason = "shallow_deletion_cold_start_guard";
+      } else if (large_graph_update_guard) {
+        choose_full = true;
+        trace.reason = "large_graph_update_guard";
       } else if (initial_reachable_fraction <= kVerySparseReach) {
         choose_full = true;
         trace.reason = "very_sparse_reach";
