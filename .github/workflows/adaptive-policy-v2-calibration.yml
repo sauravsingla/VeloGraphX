@@ -20,8 +20,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: Apply final confidence-aware guard patch
-        run: git apply benchmarks/adaptive_policy_v3_guard.patch
+      - name: Apply final confidence-aware guard transformation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('benchmarks/adaptive_policy_bfs.cpp')
+          s=p.read_text()
+          old='''      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&\n          update_fraction >= kLargeGraphUpdateGuard;'''
+          new='''      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&\n          update_fraction >= kLargeGraphUpdateGuard && fresh_model &&\n          predicted_incremental > predicted_full * 1.05;'''
+          assert old in s
+          s=s.replace(old,new,1)
+          s=s.replace('trace.reason = "large_graph_update_guard";','trace.reason = "confidence_large_graph_update_guard";',1)
+          p.write_text(s)
+          PY
       - name: Build selector v2
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
@@ -87,7 +98,8 @@ jobs:
       - name: Development provenance
         if: always()
         run: |
-          { echo selector_commit=$(git rev-parse HEAD); echo guard_patch=benchmarks/adaptive_policy_v3_guard.patch; echo development_datasets=ca-GrQc,soc-Epinions1,web-Google; echo email_EuAll_used_for_tuning=false; echo repetitions=3; echo feature_cost_in_adaptive_timing=true; echo fixed_targets='mean<=0.05,p95<=0.20,worst<=0.25,exact=100%'; } > build/v2-calibration/provenance.txt
+          mkdir -p build/v2-calibration
+          { echo selector_commit=$(git rev-parse HEAD); echo guard_transform=confidence-aware-large-graph-v1; echo development_datasets=ca-GrQc,soc-Epinions1,web-Google; echo email_EuAll_used_for_tuning=false; echo repetitions=3; echo feature_cost_in_adaptive_timing=true; echo fixed_targets='mean<=0.05,p95<=0.20,worst<=0.25,exact=100%'; } > build/v2-calibration/provenance.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: adaptive-selector-v2-calibration, path: build/v2-calibration/, retention-days: 90}
