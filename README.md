@@ -38,14 +38,15 @@ All **15/15 measured results agreed exactly** across VeloGraphX incremental main
 
 ### Same-semantics dynamic BFS baseline
 
-VeloGraphX was also compared with the pinned SIGMOD 2021 **RisGraph** implementation (`4e77f774d4aa7cd0bf3011e713496573b70c91ab`) under its sliding-window directed BFS workload: the same edge stream, root, 50% initial import, 256-edge batches, and answer-ready timing envelope for insertion, deletion, and BFS maintenance.
+VeloGraphX was compared with the pinned SIGMOD 2021 **RisGraph** implementation (`4e77f774d4aa7cd0bf3011e713496573b70c91ab`) on checksum-pinned directed `web-Google` using the same source-order sliding-window stream, root, 99% initial import, 4,096-edge batches, and answer-ready timing envelope. Sparse SNAP vertex IDs are deterministically relabeled to a dense range without reordering edges. The root is selected deterministically as the maximum-out-degree vertex in the imported prefix and reached **588,118 vertices**, preventing the comparison from degenerating to a trivial BFS tree.
 
-| System | Mean answer-ready batch time |
+| System / policy | Mean answer-ready batch time |
 | --- | ---: |
-| VeloGraphX | **920.625 µs** |
-| RisGraph | **125.598 µs** |
+| VeloGraphX deletion-aware repair | **59.658 ms** |
+| VeloGraphX legacy full-recompute policy | **118.039 ms** |
+| RisGraph | **31.333 ms** |
 
-RisGraph was approximately **7.33x faster** on this deletion-heavy workload. The result is retained because the semantics and correctness gates match even though it is unfavorable to VeloGraphX. VeloGraphX currently falls back to full BFS recomputation on deletion-containing batches, while RisGraph implements incremental deletion repair. Both systems matched the same final BFS layer histogram, and each maintained answer was checked against full rebuilding before the timing ratio was accepted. [Methodology, compatibility notes, and evidence](docs/external-dynamic-baselines.md).
+Deletion-aware repair is **1.98x faster than VeloGraphX's former deletion policy** on this 13-batch workload, with **0/13 safety fallbacks to full recomputation**. RisGraph remains approximately **1.90x faster** than the new VeloGraphX path, so the external performance gap is reduced but not closed. VeloGraphX's maintained result matched an independent full BFS, RisGraph incremental maintenance matched its own full rebuild, and the final BFS layer histogram matched exactly across systems. [Methodology, compatibility notes, and evidence](docs/external-dynamic-baselines.md).
 
 ### Dynamic storage and steady-state maintenance
 
@@ -76,7 +77,7 @@ An adaptive-recomputation ablation places the incremental/full crossover around 
 
 | Area | Implementation |
 | --- | --- |
-| Incremental analytics | BFS / unweighted SSSP, weighted SSSP, exact triangle counting, connected components, k-core, localized PageRank repair |
+| Incremental analytics | Deletion-aware BFS / unweighted SSSP, weighted SSSP, exact triangle counting, connected components, k-core, localized PageRank repair |
 | Dynamic storage | Segmented CSR, packed sorted deltas, sparse row patches, reverse adjacency, validated CSR consolidation |
 | Adaptive execution | Affected-work estimation with incremental-vs-full fallback |
 | CPU acceleration | Scalar, AVX2, AVX-512 and ARM NEON intersection paths |
@@ -90,7 +91,7 @@ An adaptive-recomputation ablation places the incremental/full crossover around 
 
 Exact-maintenance experiments are checked against trusted exact results or full recomputation. Iterative algorithms such as PageRank use convergence tolerances and L1/L∞ error against a separately converged full reference.
 
-CI covers Ubuntu and macOS builds, Linux ASan/UBSan, dynamic mutation correctness, forward/reverse storage consistency, optimized-vs-scalar kernels, scheduler/NUMA behavior, compression, native I/O, Python interoperability, dataset checksums, and benchmark artifact contracts.
+CI covers Ubuntu and macOS builds, Linux ASan/UBSan, dynamic mutation correctness, forward/reverse storage consistency, optimized-vs-scalar kernels, scheduler/NUMA behavior, compression, native I/O, Python interoperability, dataset checksums, and benchmark artifact contracts. Deletion-aware BFS additionally has deterministic mixed-update differential testing against fresh full BFS after every batch.
 
 Detailed methodology: [benchmark methodology](docs/benchmark-methodology.md) · [published-baseline eligibility](docs/published-baseline-eligibility.md) · [external dynamic baselines](docs/external-dynamic-baselines.md) · [limitations](docs/limitations.md)
 
