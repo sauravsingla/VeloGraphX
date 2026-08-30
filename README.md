@@ -81,17 +81,34 @@ VeloGraphX was compared in the same process and on the same hosted runner with t
 
 All **15/15 measured results agreed exactly** across VeloGraphX incremental maintenance, the published exact reference, and VeloGraphX full recomputation. The comparison is specifically with the exact reference component at revision `1085ba049bb94451661d119284d7cd9b68687a81`; it is **not** a claim against the paper's approximate SWTC algorithm. See [full methodology](docs/same-run-published-baseline.md).
 
-### Same-semantics dynamic BFS baseline
+### Same-semantics dynamic BFS baselines
 
-VeloGraphX was compared with the pinned SIGMOD 2021 **RisGraph** implementation (`4e77f774d4aa7cd0bf3011e713496573b70c91ab`) on checksum-pinned directed `web-Google`. The comparison uses the same source-order sliding-window stream, root, 99% initial import, 4,096-edge batches, and answer-ready timing envelope. Sparse SNAP vertex IDs are deterministically relabeled without reordering edges. The selected root reached **588,118 vertices**, avoiding a trivial BFS workload.
+External dynamic-BFS systems are admitted only when they receive the same directed graph, source-order sliding-window stream, root, 99% initial import, 4,096-edge batches, and must restore an exact BFS answer after every batch. The public workload is checksum-pinned `web-Google`; the deterministic root reaches **588,118 vertices**.
+
+**RisGraph — native research-system comparison**
 
 | System / policy | Mean answer-ready batch time |
 | --- | ---: |
 | VeloGraphX deletion-aware repair | **59.658 ms** |
 | VeloGraphX legacy full-recompute policy | **118.039 ms** |
-| RisGraph | **31.333 ms** |
+| RisGraph (`4e77f774...`) | **31.333 ms** |
 
-Deletion-aware repair is **1.98x faster than VeloGraphX's former deletion policy** on this 13-batch workload, with **0/13 safety fallbacks** to full recomputation. **RisGraph remains approximately 1.90x faster** than the current VeloGraphX path, so the external performance gap is reduced but not closed. VeloGraphX matched an independent full BFS, RisGraph matched its own full rebuild, and the final BFS layer histogram agreed exactly across systems. See [external baseline methodology](docs/external-dynamic-baselines.md).
+Deletion-aware repair is **1.98x faster than VeloGraphX's former deletion policy** on this 13-batch run, with **0/13 safety fallbacks**. **RisGraph remains approximately 1.90x faster** than the measured VeloGraphX path. VeloGraphX matched an independent full BFS, RisGraph matched its own full rebuild, and the final BFS layer histogram agreed exactly across systems.
+
+**NetworKit DynBFS — exact dynamic-BFS comparison**
+
+| System | Mean answer-ready batch time |
+| --- | ---: |
+| VeloGraphX deletion-aware repair | **41.682 ms** |
+| NetworKit 11.2.1 `DynBFS` | **46.933 ms** |
+
+In this separate same-run hosted-CI execution, VeloGraphX measured approximately **11.2% lower answer-ready latency** than NetworKit. NetworKit `DynBFS` matched a freshly recomputed full BFS after **all 13/13 batches**, and its final BFS layer histogram matched VeloGraphX exactly.
+
+The NetworKit result is deliberately qualified: NetworKit is invoked through its Python bindings, so its timed envelope includes Python-level graph mutation calls plus native `DynBFS` maintenance, whereas VeloGraphX uses a native C++ harness. It is therefore engineering evidence, **not** a publication-grade language-neutral superiority claim.
+
+The RisGraph and NetworKit campaigns ran on different hosted runners, so their absolute numbers must **not** be combined into a three-system ranking. Only same-run pairwise ratios are meaningful here. Teseo/GFE, Aspen, Terrace, LiveGraph, GraphOne, STINGER, and LLAMA were also screened as serious dynamic-graph systems, but are excluded from this table because their public evaluation contracts do not maintain exact BFS state after every identical update batch.
+
+See [external baseline methodology and screening](docs/external-dynamic-baselines.md) and the machine-readable [baseline eligibility manifest](benchmarks/external-baseline-manifest.json).
 
 ### Dynamic storage and steady-state maintenance
 
@@ -128,9 +145,9 @@ Methodology and boundaries: [benchmark methodology](docs/benchmark-methodology.m
 
 ## Research boundary
 
-The current repository establishes reproducible hosted-CI execution, exact large-graph validation, a controlled same-run exact-reference comparison, a matched external dynamic-BFS comparison, 10M/100M storage measurements, repeated steady-state consolidation, and a 100M+-class canonicalization-policy A/B.
+The current repository establishes reproducible hosted-CI execution, exact large-graph validation, a controlled same-run exact-reference comparison, matched external dynamic-BFS comparisons against RisGraph and NetworKit, 10M/100M storage measurements, repeated steady-state consolidation, and a 100M+-class canonicalization-policy A/B.
 
-It does **not** establish universal superiority or full production maturity. Publication-grade conclusions still require dedicated hardware, repeated same-hardware external-system comparisons across multiple public graph families and seeds, 8/16/32+ physical-core scaling, true multi-socket NUMA experiments, hardware-counter analysis, broader update-locality studies, additional same-semantics dynamic-system comparisons, and independent reproduction.
+It does **not** establish universal superiority or full production maturity. Publication-grade conclusions still require dedicated hardware, repeated same-hardware native external-system comparisons across multiple public graph families and seeds, 8/16/32+ physical-core scaling, true multi-socket NUMA experiments, hardware-counter analysis, broader update-locality studies, and independent reproduction.
 
 ## Quick start
 
