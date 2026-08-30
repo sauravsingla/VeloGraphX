@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -156,8 +157,14 @@ PolicyResult run_policy(const std::string& policy,
   std::vector<Edge> initial(edges.begin(), edges.begin() + imported_edges);
   velographx::DynamicGraph graph(vertices, true);
   graph.bulk_load_edges(initial);
-  velographx::IncrementalBFS bfs(
-      graph, root, policy == "always_incremental" ? 2.0 : kAffectedBudget);
+  const auto initial_bfs_begin = Clock::now();
+  const double repair_budget =
+      policy == "always_incremental" ? 2.0 :
+      ((policy == "adaptive" && vertices >= 200000) ? 2.0 : kAffectedBudget);
+  velographx::IncrementalBFS bfs(graph, root, repair_budget);
+  const auto initial_bfs_end = Clock::now();
+  const double initial_bfs_us =
+      std::chrono::duration<double, std::micro>(initial_bfs_end - initial_bfs_begin).count();
 
   PolicyResult result;
   result.name = policy;
@@ -175,10 +182,17 @@ PolicyResult run_policy(const std::string& policy,
   double previous_affected_fraction = 0.0;
   double ema_incremental_us = 0.0;
   double ema_full_us = 0.0;
+  double last_incremental_update_fraction = 0.0;
+  double ema_incremental_rel_error = 0.0;
+  double ema_full_rel_error = 0.0;
+  bool have_incremental_error = false;
+  bool have_full_error = false;
+  const bool large_scale = vertices >= 200000;
   bool have_incremental = false;
-  bool have_full = false;
+  bool have_full = large_scale;
+  if (large_scale) ema_full_us = initial_bfs_us;
   std::size_t incremental_age = kFreshAge + 1;
-  std::size_t full_age = kFreshAge + 1;
+  std::size_t full_age = large_scale ? 0 : kFreshAge + 1;
   bool first_batch = true;
 
   for (std::size_t begin = imported_edges; begin < edges.size(); begin += batch_size) {
@@ -201,48 +215,74 @@ PolicyResult run_policy(const std::string& policy,
     } else if (policy == "adaptive") {
       const double update_fraction = static_cast<double>(updates.updates.size()) /
           static_cast<double>(std::max<std::size_t>(1, graph.edge_count_directed()));
-      const double shallow_fraction =
-          shallow_parent_deletion_fraction(updates, bfs.distances(), graph.directed());
+      const double shallow_fraction = first_batch
+          ? shallow_parent_deletion_fraction(updates, bfs.distances(), graph.directed())
+          : 0.0;
       trace.update_fraction = update_fraction;
       trace.shallow_parent_deletion_fraction = shallow_fraction;
-
-      const double predicted_incremental = have_incremental
-          ? ema_incremental_us * (1.0 + 2.0 * previous_affected_fraction)
-          : 0.0;
-      const double predicted_full = have_full ? ema_full_us : 0.0;
-      trace.predicted_incremental_us = predicted_incremental;
-      trace.predicted_full_us = predicted_full;
-
-      const bool fresh_model = have_incremental && have_full &&
-          incremental_age <= kFreshAge && full_age <= kFreshAge;
-      const bool shallow_deletion_cold_start_guard = vertices >= kLargeGraphVertices &&
-          first_batch && shallow_fraction > 0.0;
-      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&
-          update_fraction >= kLargeGraphUpdateGuard;
-
-      if (update_fraction >= kPreflightFullUpdate) {
-        choose_full = true;
-        trace.reason = "preflight_full";
-      } else if (shallow_deletion_cold_start_guard) {
-        choose_full = true;
-        trace.reason = "shallow_deletion_cold_start_guard";
-      } else if (large_graph_update_guard) {
-        choose_full = true;
-        trace.reason = "large_graph_update_guard";
-      } else if (initial_reachable_fraction <= kVerySparseReach) {
-        choose_full = true;
-        trace.reason = "very_sparse_reach";
-      } else if (initial_reachable_fraction < kSparseReach &&
-                 update_fraction >= kSparseReachFullUpdate) {
-        choose_full = true;
-        trace.reason = "sparse_reach_guard";
-      } else if (fresh_model && predicted_incremental >
-                                  predicted_full * kLearnedFullMargin) {
-        choose_full = true;
-        trace.reason = "fresh_cost_model";
+      if (large_scale) {
+        const double normalized_scale = have_incremental
+            ? std::sqrt((update_fraction + 1e-12) /
+                        (last_incremental_update_fraction + 1e-12))
+            : 1.0;
+        const double bounded_scale = std::clamp(normalized_scale, 0.50, 2.50);
+        const double predicted_incremental = have_incremental
+            ? ema_incremental_us * bounded_scale *
+                  (1.0 + 3.0 * previous_affected_fraction)
+            : 0.0;
+        const double predicted_full = ema_full_us;
+        const double inc_uncertainty = have_incremental_error
+            ? std::clamp(ema_incremental_rel_error, 0.05, 0.35) : 0.35;
+        const double full_uncertainty = have_full_error
+            ? std::clamp(ema_full_rel_error, 0.05, 0.35) : 0.20;
+        const double inc_lower = predicted_incremental * (1.0 - inc_uncertainty);
+        const double full_upper = predicted_full * (1.0 + full_uncertainty);
+        trace.predicted_incremental_us = predicted_incremental;
+        trace.predicted_full_us = predicted_full;
+        const bool shallow_cold_start = first_batch && shallow_fraction > 0.0;
+        if (update_fraction >= kPreflightFullUpdate) {
+          choose_full = true;
+          trace.reason = "large_preflight_full";
+        } else if (shallow_cold_start) {
+          choose_full = true;
+          trace.reason = "large_shallow_cold_start";
+        } else if (!have_incremental) {
+          choose_full = update_fraction >= simple_update_fraction;
+          trace.reason = choose_full ? "large_warmup_full" : "large_warmup_incremental";
+        } else if (inc_lower > full_upper) {
+          choose_full = true;
+          trace.reason = "large_uncertainty_confident_full";
+        } else {
+          choose_full = false;
+          trace.reason = "large_uncertainty_overlap_incremental";
+        }
       } else {
-        choose_full = false;
-        trace.reason = fresh_model ? "confidence_incremental" : "insufficient_evidence_incremental";
+        const double predicted_incremental = have_incremental
+            ? ema_incremental_us * (1.0 + 2.0 * previous_affected_fraction)
+            : 0.0;
+        const double predicted_full = have_full ? ema_full_us : 0.0;
+        trace.predicted_incremental_us = predicted_incremental;
+        trace.predicted_full_us = predicted_full;
+        const bool fresh_model = have_incremental && have_full &&
+            incremental_age <= kFreshAge && full_age <= kFreshAge;
+        if (update_fraction >= kPreflightFullUpdate) {
+          choose_full = true;
+          trace.reason = "scale_preflight_full";
+        } else if (initial_reachable_fraction <= kVerySparseReach) {
+          choose_full = true;
+          trace.reason = "scale_very_sparse_reach";
+        } else if (initial_reachable_fraction < kSparseReach &&
+                   update_fraction >= kSparseReachFullUpdate) {
+          choose_full = true;
+          trace.reason = "scale_sparse_reach_guard";
+        } else if (fresh_model && predicted_incremental >
+                                    predicted_full * kLearnedFullMargin) {
+          choose_full = true;
+          trace.reason = "scale_fresh_cost_model";
+        } else {
+          choose_full = false;
+          trace.reason = fresh_model ? "scale_confidence_incremental" : "scale_insufficient_evidence_incremental";
+        }
       }
       trace.chose_full = choose_full;
     }
@@ -272,7 +312,24 @@ PolicyResult run_policy(const std::string& policy,
     if (policy == "adaptive") {
       ++incremental_age;
       ++full_age;
-      if (choose_full) {
+      const bool observed_full = choose_full || bfs.last_used_full_recompute();
+      if (large_scale && trace.predicted_incremental_us > 0.0 &&
+          trace.predicted_full_us > 0.0) {
+        if (observed_full) {
+          const double rel = std::abs(execution_us - trace.predicted_full_us) /
+              std::max(1.0, trace.predicted_full_us);
+          ema_full_rel_error = have_full_error
+              ? (1.0 - kEmaAlpha) * ema_full_rel_error + kEmaAlpha * rel : rel;
+          have_full_error = true;
+        } else {
+          const double rel = std::abs(execution_us - trace.predicted_incremental_us) /
+              std::max(1.0, trace.predicted_incremental_us);
+          ema_incremental_rel_error = have_incremental_error
+              ? (1.0 - kEmaAlpha) * ema_incremental_rel_error + kEmaAlpha * rel : rel;
+          have_incremental_error = true;
+        }
+      }
+      if (observed_full) {
         ema_full_us = have_full
             ? (1.0 - kEmaAlpha) * ema_full_us + kEmaAlpha * execution_us
             : execution_us;
@@ -285,6 +342,7 @@ PolicyResult run_policy(const std::string& policy,
             : execution_us;
         have_incremental = true;
         incremental_age = 0;
+        last_incremental_update_fraction = trace.update_fraction;
         previous_affected_fraction = static_cast<double>(bfs.last_affected_vertices()) /
             static_cast<double>(std::max<std::size_t>(1, vertices));
       }
@@ -358,7 +416,7 @@ int main(int argc, char** argv) {
   }
 
   bool all_exact = true;
-  std::cout << "{\"schema_version\":6,\"selector\":\"root-state-confidence-v2-fair\""
+  std::cout << "{\"schema_version\":6,\"selector\":\"scale-conditioned-selector-owned-v3\""
             << ",\"root\":" << root64
             << ",\"vertices\":" << vertices
             << ",\"batch_size\":" << batch_size
