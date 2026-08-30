@@ -58,12 +58,12 @@ Hosted-CI evidence currently covers only the competitors available in that envir
 
 ## Public-dataset and large-scale evidence
 
-Public-dataset engineering evidence exists, including the current incremental triangle crossover work, but the overall evaluation remains incomplete.
+Public-dataset engineering evidence now includes exact 100M-edge-class triangle validation, 10M/100M storage measurements, repeated steady-state maintenance, and a 100M+-class canonicalization-policy A/B. These results establish engineering and scale evidence on the stated workloads, but the overall evaluation remains incomplete.
 
 The project does not yet claim results for:
 
 - a broad multi-dataset incremental crossover campaign across substantially different graph families;
-- 100M+ edge research-scale experiments;
+- publication-grade repeated 100M+-edge comparisons across multiple algorithms, datasets, seeds, and external systems;
 - publication-grade 1/2/4/8/16/32+ thread scaling;
 - controlled multi-socket NUMA locality and remote-traffic studies;
 - complete same-hardware comparisons with native LAGraph/GAP and other serious CPU graph systems;
@@ -73,7 +73,7 @@ The project does not yet claim results for:
 
 ## Benchmark interpretation
 
-Hosted CI validates correctness, contracts, reproducibility tooling, and small-scale engineering behavior. It is **not** a publication-grade performance environment.
+Hosted CI validates correctness, contracts, reproducibility tooling, and engineering behavior on the documented workloads. It is **not** a publication-grade performance environment.
 
 Performance results should only be promoted to project-level research claims when the corresponding dataset provenance, checksums, machine configuration, compiler/toolchain information, competitor versions, repetitions/statistics, correctness checks, and result artifacts are captured by the repository's documented workflow.
 
