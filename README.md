@@ -59,14 +59,14 @@ Against the pinned exact `GoldenCounter` component from public SIGMOD 2021 sourc
 
 The accepted NetworKit campaign uses native C++, the same hosted runner, one thread, five paired repetitions per dataset, identical update streams and exact full-BFS validation after every batch.
 
-| Dataset | VeloGraphX | NetworKit 11.2.1 | Result |
-| --- | ---: | ---: | --- |
-| `web-Google` | 57.202 ms | 43.742 ms | NetworKit **1.31x faster** |
-| `ca-GrQc` | 0.3952 ms | 0.08127 ms | NetworKit **4.86x faster** |
+| Dataset | VeloGraphX | NetworKit 11.2.1 | Paired VX/NK ratio |
+| --- | ---: | ---: | ---: |
+| `web-Google` | **44.531 ms** | **43.607 ms** | **1.021x** |
+| `ca-GrQc` | **0.3884 ms** | **0.0879 ms** | **4.42x** |
+
+On `web-Google`, the clean optimized rerun is therefore within about **2.1% of NetworKit** on the measured hosted runner. All five repetitions on both datasets passed exact correctness and nontrivial-reachability gates. Accepted campaign: GitHub Actions `33294575513`, VeloGraphX commit `2ebcd9107afeb977b41ad11be0ec4734ce767f63`, artifact `9727073670`.
 
 A separate native `web-Google` campaign measured RisGraph at **31.333 ms** versus VeloGraphX at **59.658 ms**. Because the RisGraph and NetworKit campaigns ran on different hosted runners, their absolute times are not combined into a three-system ranking.
-
-The repository intentionally retains unfavorable external results. They define concrete optimization targets and make the evaluation more useful than selective benchmark reporting.
 
 ## Correctness and reproducibility
 
