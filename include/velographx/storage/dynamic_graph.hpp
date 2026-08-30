@@ -706,10 +706,12 @@ class DynamicGraph {
   }
 
   void automatic_storage_maintenance() {
+    constexpr std::size_t kAutomaticMinimumDeltaEntries = 4096;
     constexpr double kAutomaticGlobalDeltaRatio = 0.01;
     constexpr double kRowDeltaDensityThreshold = 0.50;
     constexpr double kFragmentationThreshold = 0.60;
-    if (delta_ratio() >= kAutomaticGlobalDeltaRatio) {
+    if (delta_out_.size() >= kAutomaticMinimumDeltaEntries &&
+        delta_ratio() >= kAutomaticGlobalDeltaRatio) {
       (void)maybe_compact(kRowDeltaDensityThreshold);
     }
     if (delta_out_.fragmentation_ratio() > kFragmentationThreshold) delta_out_.repack();
