@@ -57,14 +57,14 @@ Against the pinned exact `GoldenCounter` component from public SIGMOD 2021 sourc
 
 ### Native dynamic-BFS baselines
 
-The accepted NetworKit campaign uses native C++, the same hosted runner, one thread, five paired repetitions per dataset, identical update streams and exact full-BFS validation after every batch.
+The latest NetworKit campaign uses native C++, the same hosted runner, one thread, five paired repetitions per dataset, identical update streams and exact full-BFS validation after every batch.
 
 | Dataset | VeloGraphX | NetworKit 11.2.1 | Paired VX/NK ratio |
 | --- | ---: | ---: | ---: |
-| `web-Google` | **39.661 ms** | **39.628 ms** | **1.001x** |
-| `ca-GrQc` | **0.3054 ms** | **0.0753 ms** | **4.05x** |
+| `web-Google` | **39.38 ms** | **41.53 ms** | **0.948x** |
+| `ca-GrQc` | **0.3134 ms** | **0.0887 ms** | **3.53x** |
 
-On `web-Google`, the systems are at same-run hosted-CI parity. On `ca-GrQc`, storage-policy and delta-update optimizations reduced VeloGraphX mean batch latency from the prior clean **0.3884 ms** to **0.3054 ms** while preserving exactness. All five repetitions on both datasets passed correctness and nontrivial-reachability gates. Accepted campaign: GitHub Actions `33295590400`, VeloGraphX commit `c05bfcb9fa071ccee487d186fe92fdad9ad3ef66`, artifact `9727429231`.
+On `web-Google`, VeloGraphX was about **5.2% faster than NetworKit** in this same-run hosted-CI campaign. On `ca-GrQc`, VeloGraphX remains materially slower, although mean batch latency remains substantially below the earlier clean **0.3884 ms** baseline. All five repetitions on both datasets passed exact correctness and nontrivial-reachability gates. Latest campaign uses VeloGraphX commit `7fd75c0...` and retained artifact `9727662196`.
 
 A separate native `web-Google` campaign measured RisGraph at **31.333 ms** versus VeloGraphX at **59.658 ms**. Because the RisGraph and NetworKit campaigns ran on different hosted runners, their absolute times are not combined into a three-system ranking.
 
