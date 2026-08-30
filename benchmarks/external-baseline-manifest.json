@@ -21,12 +21,12 @@
       "scope": "directed unweighted exact BFS under batched sliding-window insertions and deletions",
       "timing_contract": "native C++ graph mutation plus DynBFS.updateBatch; independent full BFS verification excluded from timing",
       "status": "measured-native-repeated-multidataset",
-      "campaign_run_id": 33294575513,
-      "campaign_head_sha": "2ebcd9107afeb977b41ad11be0ec4734ce767f63",
-      "artifact_id": 9727073670,
+      "campaign_run_id": 33295590400,
+      "campaign_head_sha": "c05bfcb9fa071ccee487d186fe92fdad9ad3ef66",
+      "artifact_id": 9727429231,
       "repetitions_per_dataset": 5,
       "datasets": ["web-Google", "ca-GrQc"],
-      "notes": "Native C++ same-machine repeated campaign. All repetitions require exact correctness and nontrivial final reachability before timing is accepted."
+      "notes": "Native C++ same-machine repeated campaign after small-graph storage-policy and packed-delta update optimizations. All repetitions require exact correctness and nontrivial final reachability before timing is accepted."
     }
   ],
   "accepted_secondary_system_baselines": [
