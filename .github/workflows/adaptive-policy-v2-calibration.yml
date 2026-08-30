@@ -1,0 +1,85 @@
+name: Adaptive BFS Selector v2 Development Calibration
+on:
+  push:
+    paths:
+      - '.github/workflows/adaptive-policy-v2-calibration.yml'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+  workflow_dispatch:
+
+jobs:
+  calibration:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      SIMPLE_UPDATE_FRACTION: '0.01'
+      EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Build selector v2
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+          cmake -S . -B build/v2 -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF
+          cmake --build build/v2 -j2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/v2/libvelographx.a -pthread -o build/adaptive_policy_bfs
+      - name: Prepare three development datasets
+        run: |
+          mkdir -p build/v2-calibration/datasets build/v2-calibration/runs build/v2-calibration/summary
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/v2-calibration/datasets --dataset web-Google > build/v2-calibration/web-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/v2-calibration/datasets --dataset ca-GrQc > build/v2-calibration/ca-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/v2-calibration/datasets --dataset soc-Epinions1 > build/v2-calibration/epinions-source.json
+          python tools/prepare_pinned_edge_stream.py --input build/v2-calibration/datasets/web-Google.txt --output build/v2-calibration/web-Google.txt --report build/v2-calibration/web-normalization.json --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 --expected-vertices 875713 --expected-edges 5105039
+          python tools/prepare_symmetric_pinned_edge_stream.py --input build/v2-calibration/datasets/ca-GrQc.txt --output build/v2-calibration/ca-GrQc.txt --report build/v2-calibration/ca-normalization.json --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484
+          gzip -dc build/v2-calibration/datasets/soc-Epinions1.gz > build/v2-calibration/epinions-source.txt
+          test "$(sha256sum build/v2-calibration/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py --input build/v2-calibration/epinions-source.txt --output build/v2-calibration/soc-Epinions1.txt --report build/v2-calibration/epinions-normalization.json --expected-sha256 "$EPINIONS_TEXT_SHA256" --expected-vertices 75879 --expected-edges 508837
+      - name: Development-only calibration sweep
+        run: |
+          python - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          configs=[
+            ('ca-GrQc',0.75,[4282,2465,1974],[96,384,1536]),
+            ('soc-Epinions1',0.90,[763,634,71391],[384,1536,6144]),
+            ('web-Google',0.99,[481807,391806,0,2,5],[1536,6144,24576]),
+          ]
+          for dataset,rate,roots,batches in configs:
+            for root in roots:
+              for batch in batches:
+                for rep in range(1,4):
+                  out=Path(f'build/v2-calibration/runs/{dataset}-r{root}__{batch}__{rep}.json')
+                  with out.open('w') as f:
+                    subprocess.run(['build/adaptive_policy_bfs',f'build/v2-calibration/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
+                  d=json.load(out.open())
+                  assert d['selector']=='root-state-confidence-v2'
+                  assert d['all_policies_exact']
+          PY
+      - name: Calibration diagnostics
+        run: |
+          python - <<'PY'
+          import glob,json,statistics
+          regs=[]; batches=[]; tail=[]; decisions=[]
+          by_dataset={}
+          for fn in glob.glob('build/v2-calibration/runs/*.json'):
+            x=json.load(open(fn)); ps={p['name']:p for p in x['policies']}; a=ps['adaptive']; decisions.append(a['mean_decision_us'])
+            best=min(p['total_us'] for p in ps.values()); rr=a['total_us']/best-1; regs.append(rr)
+            ds=fn.split('/')[-1].split('-r')[0]; by_dataset.setdefault(ds,[]).append(rr)
+            for i,v in enumerate(a['batch_us']):
+              b=min(p['batch_us'][i] for p in ps.values()); r=v/b-1; batches.append(r)
+              if r>.20:
+                t=a['trace'][i].copy();t.update({'file':fn,'batch_index':i,'regret':r,'actual_incremental_us':ps['always_incremental']['batch_us'][i],'actual_full_us':ps['always_full']['batch_us'][i],'actual_simple_us':ps['simple_threshold']['batch_us'][i],'actual_adaptive_us':v});tail.append(t)
+          batches.sort();p95=batches[min(len(batches)-1,int(.95*(len(batches)-1)))]
+          summary={'all_exact':True,'development_only':True,'regime_mean_regret':statistics.mean(regs),'p95_batch_regret':p95,'worst_regime_regret':max(regs),'mean_decision_us':statistics.mean(decisions),'tail_batches_over_20pct':len(tail),'dataset_mean_regret':{k:statistics.mean(v) for k,v in by_dataset.items()}}
+          print(json.dumps(summary,indent=2));open('build/v2-calibration/summary/summary.json','w').write(json.dumps(summary,indent=2)+'\n')
+          tail.sort(key=lambda x:x['regret'],reverse=True);open('build/v2-calibration/summary/tail-cases.json','w').write(json.dumps(tail,indent=2)+'\n')
+          PY
+      - name: Development provenance
+        if: always()
+        run: |
+          { echo selector_commit=$(git rev-parse HEAD); echo development_datasets=ca-GrQc,soc-Epinions1,web-Google; echo email_EuAll_used_for_tuning=false; echo repetitions=3; } > build/v2-calibration/provenance.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: adaptive-selector-v2-calibration, path: build/v2-calibration/, retention-days: 90}
