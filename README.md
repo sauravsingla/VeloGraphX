@@ -4,9 +4,9 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 
-**VeloGraphX is a CPU-native C++20 research engine for exact incremental analytics on changing graphs.** It combines dynamic graph storage, localized repair, adaptive full recomputation, CPU-aware execution, and reproducible benchmarking.
+**VeloGraphX is a CPU-native C++20 research engine for exact incremental analytics on changing graphs.** It combines compact mutable graph storage, localized repair, adaptive full recomputation, CPU-aware execution, and reproducible benchmarking.
 
-Its central systems question is: **when should an update be repaired incrementally, and when is full recomputation cheaper?** The project does not claim novelty from reimplementing individual graph algorithms.
+The central systems question is: **when should a graph update be repaired incrementally, and when is full recomputation cheaper?** VeloGraphX does not claim novelty from the individual graph algorithms themselves.
 
 ## Core architecture
 
@@ -15,7 +15,7 @@ update stream
     ↓
 dynamic graph storage
     ↓
-affected-work estimation
+work estimation / adaptive decision
     ↓
 localized repair  ↔  full recomputation
     ↓
@@ -28,18 +28,18 @@ exact maintained result
 | --- | --- |
 | Incremental analytics | BFS / unweighted SSSP, weighted SSSP, exact triangles, connected components, k-core, PageRank repair |
 | Dynamic storage | Segmented CSR, packed deltas, sparse row patches, reverse adjacency, validated consolidation |
-| Adaptive execution | Affected-work estimation and incremental-vs-full fallback |
+| Adaptive execution | Update-density preflight, affected-work budgeting, incremental-vs-full fallback |
 | CPU execution | SIMD intersections, multicore scheduling, push/pull frontiers, work stealing, NUMA-aware policies |
 | Interoperability | C++20, pybind11, NumPy, SciPy CSR, Apache Arrow |
-| Reproducibility | Dataset checksums, pinned competitors, exactness gates, environment capture, retained artifacts |
+| Reproducibility | Checksum-pinned datasets, pinned competitors, exactness gates, environment capture, retained artifacts |
 
 ## Key evidence
 
-The results below are **hosted-CI engineering measurements with exact correctness checks**, not universal performance claims.
+Results below are **hosted-CI engineering measurements with independent exactness checks**, not universal performance claims.
 
-### Native exact dynamic BFS vs NetworKit
+### Exact dynamic BFS vs NetworKit
 
-NetworKit 11.2.1 is compared in native C++ on the same hosted runner with one thread, identical update streams and independent exact full-BFS validation after every batch.
+NetworKit 11.2.1 is compared in native C++ on the same hosted runner with one thread, identical update streams, and independent full-BFS validation after every batch.
 
 | Dataset | VeloGraphX | NetworKit 11.2.1 | VX/NK |
 | --- | ---: | ---: | ---: |
@@ -47,13 +47,26 @@ NetworKit 11.2.1 is compared in native C++ on the same hosted runner with one th
 | `ca-GrQc` | 0.1110 ms | **0.0808 ms** | **1.374x** |
 | `soc-Epinions1` (3 roots × 5 paired runs) | 1.794 ms | **1.152 ms** | **1.582x** |
 
-VeloGraphX was **23.6% lower-latency on web-Google** in the canonical same-run campaign. The focused small-graph campaign reduced `ca-GrQc` from **0.3134 ms to 0.1110 ms (~64.6%)** while preserving exact results.
+On the canonical `web-Google` campaign, VeloGraphX had **23.6% lower answer-ready batch latency** than NetworKit. The focused `ca-GrQc` optimization campaign reduced VeloGraphX latency from **0.3134 ms to 0.1110 ms (~64.6%)** while preserving exact results.
 
-The third graph family, checksum-pinned directed `soc-Epinions1` (**75,879 vertices / 508,837 edges**), used three deterministic reachability-screened roots (`763`, `634`, `71391`) and five paired repetitions per root. **All 15 VeloGraphX/NetworKit pairs were exact**, each root reached 46,898 vertices, and the mean paired ratio was **1.582x**. Evidence run `33303152827`, artifact `9729665685`.
-
-Supplementary VeloGraphX-only three-root testing on the original datasets measured `ca-GrQc` at **103.546–108.345 µs** and `web-Google` at **22.691–30.986 ms**, with every root passing reachability and exactness gates.
+The checksum-pinned directed `soc-Epinions1` family has **75,879 vertices and 508,837 edges**. Three deterministic reachability-screened roots and five paired repetitions per root produced **15/15 exact VeloGraphX/NetworKit pairs**; the mean paired VX/NK ratio was **1.582x**. Evidence run `33303152827`, artifact `9729665685`.
 
 Canonical two-dataset campaign: GitHub Actions `33301190847`, artifact `9729078197`.
+
+### Adaptive incremental-vs-recompute policy
+
+A separate exact experiment compares four strategies on dynamic BFS:
+
+- always incremental repair;
+- always full recomputation;
+- a simple fixed update threshold;
+- VeloGraphX's two-stage adaptive policy, using a cheap update-density preflight followed by an affected-work repair budget.
+
+The validation covers **3 checksum-pinned graph families × 3 roots × 3 update regimes × 5 repetitions**, or **27 regimes**. Every measured policy result passed independent exact full-BFS verification.
+
+Across those 27 regimes, the adaptive policy was **3.78% above the fastest policy on average** and was itself fastest in **10/27 regimes**. The experiment also exposes genuine crossover behavior: incremental repair is preferable in many small/medium regimes, while recomputation or threshold decisions become preferable in some larger regimes.
+
+The predeclared worst-case acceptance bound was 1.30x the fastest policy. The adaptive policy's worst regime was **1.334x** (`web-Google`, root `391806`, batch `6144`), so the experiment **did not pass the promotion gate**. The candidate therefore remains research evidence rather than a claim of a solved or universally superior selector. Validation run `33312852351`, commit `bb9f0162f20551f2da39212daa0e9c61cd9609bc`.
 
 ### Exact dynamic triangles
 
@@ -69,7 +82,7 @@ Exact validation also completed on `com-Orkut` with **117,185,083 edges** and **
 
 Against the pinned exact `GoldenCounter` component from public SIGMOD 2021 source code, **15/15 results matched exactly**, with **3.48x–40.95x lower latency** on the measured workload. This comparison is with the exact reference component, not the paper's approximate SWTC algorithm.
 
-A separate native `web-Google` campaign measured RisGraph at **31.333 ms** versus VeloGraphX at **59.658 ms**. It ran on a different hosted runner from the NetworKit campaign, so the results are intentionally not combined into a three-system ranking.
+A separate native `web-Google` campaign measured RisGraph at **31.333 ms** versus VeloGraphX at **59.658 ms**. It ran on a different hosted runner from the NetworKit campaign, so these measurements are not combined into a three-system ranking.
 
 ## Correctness and reproducibility
 
@@ -86,7 +99,7 @@ Detailed evidence and methodology:
 
 ## Research boundary
 
-The repository provides exact large-graph execution, dynamic storage, localized maintenance, adaptive recomputation, and reproducible external comparisons. It does **not** establish universal superiority or production maturity. Publication-grade performance claims still require dedicated hardware, broader update regimes, same-machine native competitor campaigns beyond NetworKit, multicore/NUMA experiments, hardware counters, and independent reproduction.
+The repository demonstrates exact dynamic graph execution, compact mutable storage, localized maintenance, adaptive recomputation experiments, and reproducible external comparisons. It does **not** establish universal superiority, production maturity, or a universally optimal adaptive policy. Stronger publication claims require broader graph/update families, dedicated hardware, same-machine competitor campaigns beyond NetworKit, multicore/NUMA evaluation, hardware counters, and independent reproduction.
 
 ## Quick start
 
