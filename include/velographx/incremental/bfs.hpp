@@ -104,12 +104,12 @@ class IncrementalBFS {
     std::size_t head = 0;
     while (head < bfs_queue_.size()) {
       const auto u = bfs_queue_[head++];
-      for (auto v : g_.neighbors(u)) {
+      g_.for_each_neighbor(u, [&](VertexId v) {
         if (dist_[v] == unreachable) {
           dist_[v] = dist_[u] + 1;
           bfs_queue_.push_back(v);
         }
-      }
+      });
     }
   }
 
@@ -152,9 +152,9 @@ class IncrementalBFS {
     if (v >= dist_.size() || v == source_ || dist_[v] == unreachable) return 0;
     if (shortest_parent_count_[v] != 0) return shortest_parent_count_[v];
     std::uint32_t count = 0;
-    for (auto p : g_.in_neighbors(v)) {
+    g_.for_each_in_neighbor(v, [&](VertexId p) {
       if (is_shortest_parent(p, v)) ++count;
-    }
+    });
     shortest_parent_count_[v] = count;
     return count;
   }
@@ -190,22 +190,22 @@ class IncrementalBFS {
       if (last_affected_vertices_ > fallback_limit) return false;
       const auto u = invalidate_[head++];
       if (u >= dist_.size() || dist_[u] == unreachable) continue;
-      for (auto v : g_.neighbors(u)) {
-        if (v >= dist_.size() || dist_[v] != dist_[u] + 1) continue;
-        if (final_deletion_keys.contains(edge_key(u, v))) continue;
+      g_.for_each_neighbor(u, [&](VertexId v) {
+        if (v >= dist_.size() || dist_[v] != dist_[u] + 1) return;
+        if (final_deletion_keys.contains(edge_key(u, v))) return;
         record_parent_loss(v);
-      }
+      });
     }
     return last_affected_vertices_ <= fallback_limit;
   }
 
   [[nodiscard]] std::uint32_t best_boundary_distance(VertexId v) const {
     std::uint32_t best = unreachable;
-    for (auto p : g_.in_neighbors(v)) {
-      if (p >= dist_.size() || p >= affected_.size() || affected_[p] || dist_[p] == unreachable) continue;
+    g_.for_each_in_neighbor(v, [&](VertexId p) {
+      if (p >= dist_.size() || p >= affected_.size() || affected_[p] || dist_[p] == unreachable) return;
       const auto candidate = dist_[p] + 1;
       if (candidate < best) best = candidate;
-    }
+    });
     return best;
   }
 
@@ -228,14 +228,14 @@ class IncrementalBFS {
       const auto [du, u] = pq.top();
       pq.pop();
       if (u >= dist_.size() || du != dist_[u]) continue;
-      for (auto v : g_.neighbors(u)) {
-        if (v >= affected_.size() || !affected_[v]) continue;
+      g_.for_each_neighbor(u, [&](VertexId v) {
+        if (v >= affected_.size() || !affected_[v]) return;
         const auto candidate = du + 1;
         if (candidate < dist_[v]) {
           dist_[v] = candidate;
           pq.emplace(candidate, v);
         }
-      }
+      });
     }
 
     bfs_queue_.clear();
@@ -273,12 +273,12 @@ class IncrementalBFS {
     while (head < q.size()) {
       const auto u = q[head++];
       if (dist_[u] == unreachable) continue;
-      for (auto v : g_.neighbors(u)) {
+      g_.for_each_neighbor(u, [&](VertexId v) {
         if (dist_[u] + 1 < dist_[v]) {
           dist_[v] = dist_[u] + 1;
           q.push_back(v);
         }
-      }
+      });
     }
   }
 
