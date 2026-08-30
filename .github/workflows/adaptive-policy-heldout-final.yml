@@ -1,0 +1,86 @@
+name: Adaptive BFS Policy Held-out Final
+on:
+  push:
+    paths:
+      - '.github/workflows/adaptive-policy-heldout-final.yml'
+  workflow_dispatch:
+jobs:
+  heldout:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      SIMPLE_UPDATE_FRACTION: '0.01'
+      EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Dependencies and build
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+          python -m pip install --disable-pip-version-check matplotlib
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs
+      - name: Prepare pinned datasets
+        run: |
+          mkdir -p build/heldout/datasets build/heldout/runs build/heldout/summary
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/heldout/datasets --dataset web-Google >/dev/null
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/heldout/datasets --dataset ca-GrQc >/dev/null
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/heldout/datasets --dataset soc-Epinions1 >/dev/null
+          python tools/prepare_pinned_edge_stream.py --input build/heldout/datasets/web-Google.txt --output build/heldout/web-Google.txt --report build/heldout/web.json --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 --expected-vertices 875713 --expected-edges 5105039 >/dev/null
+          python tools/prepare_symmetric_pinned_edge_stream.py --input build/heldout/datasets/ca-GrQc.txt --output build/heldout/ca-GrQc.txt --report build/heldout/ca.json --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484 >/dev/null
+          gzip -dc build/heldout/datasets/soc-Epinions1.gz > build/heldout/ep.txt
+          test "$(sha256sum build/heldout/ep.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py --input build/heldout/ep.txt --output build/heldout/soc-Epinions1.txt --report build/heldout/ep.json --expected-sha256 "$EPINIONS_TEXT_SHA256" --expected-vertices 75879 --expected-edges 508837 >/dev/null
+      - name: Frozen unseen roots and update sizes
+        run: |
+          python - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          # Roots and batch sizes are disjoint from the 27-regime calibration/validation campaign.
+          configs=[
+            ('ca-GrQc',0.75,[364,1236,2108],[160,640,1280]),
+            ('soc-Epinions1',0.90,[18,737,1719],[640,2560,5120]),
+            ('web-Google',0.99,[0,2,5],[2560,8192,16384]),
+          ]
+          for ds,rate,roots,batches in configs:
+            for root in roots:
+              for batch in batches:
+                for rep in range(1,6):
+                  out=Path(f'build/heldout/runs/{ds}-r{root}__{batch}__{rep}.json')
+                  with out.open('w') as f: subprocess.run(['build/adaptive_policy_bfs',f'build/heldout/{ds}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
+                  d=json.load(out.open()); assert d['all_policies_exact']; assert all(p['exact'] for p in d['policies'])
+          PY
+      - name: Regret, oracle match, overhead and crossover
+        run: |
+          python tools/summarize_adaptive_policy.py --input-dir build/heldout/runs --output-dir build/heldout/summary > build/heldout/summary/stdout.json
+          python - <<'PY'
+          import glob,json,statistics
+          d=json.load(open('build/heldout/summary/summary.json')); assert d['all_results_exact']
+          a=[r for r in d['rows'] if r['policy']=='adaptive']; rel=[r['relative_to_regime_best']-1 for r in a]
+          batch_regrets=[]; matches=total=0; overhead=[]
+          for fn in glob.glob('build/heldout/runs/*.json'):
+            x=json.load(open(fn)); ps={p['name']:p for p in x['policies']}; ad=ps['adaptive']['batch_us']; inc=ps['always_incremental']['batch_us']; full=ps['always_full']['batch_us']; simple=ps['simple_threshold']['batch_us']
+            for i,v in enumerate(ad):
+              best=min(inc[i],full[i],simple[i]); batch_regrets.append((v-best)/best); matches += v <= best*1.01; total+=1
+              overhead.append(max(0.0,v-min(inc[i],full[i])))
+          batch_regrets.sort(); p95=batch_regrets[min(len(batch_regrets)-1,int(.95*(len(batch_regrets)-1)))]
+          summary={'all_exact':True,'regimes':len(a),'mean_regret_vs_best_policy':statistics.mean(rel),'p95_batch_regret':p95,'worst_regime_regret':max(rel),'oracle_decision_match_within_1pct':matches/total,'mean_adaptive_excess_us_vs_best_inc_full':statistics.mean(overhead),'crossovers':d['datasets']}
+          print(json.dumps(summary,indent=2)); open('build/heldout/summary/paper-metrics.json','w').write(json.dumps(summary,indent=2)+'\n')
+          # Paper target: mean <=5%, worst <=25%, exactness mandatory. p95 is reported, not silently optimized.
+          assert summary['mean_regret_vs_best_policy'] <= .05, summary
+          assert summary['worst_regime_regret'] <= .25, summary
+          PY
+      - name: Immutable pins
+        if: always()
+        run: |
+          { echo "sha=$(git rev-parse HEAD)"; echo "heldout_roots=ca:364,1236,2108;ep:18,737,1719;web:0,2,5"; echo "heldout_batches=ca:160,640,1280;ep:640,2560,5120;web:2560,8192,16384"; echo "repetitions=5"; } > build/heldout/pins.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adaptive-policy-heldout-final
+          path: build/heldout/
+          retention-days: 90
