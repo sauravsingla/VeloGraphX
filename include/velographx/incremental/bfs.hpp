@@ -48,8 +48,10 @@ class IncrementalBFS {
     }
 
     deletion_candidates_.reserve(final_deletions_.size() * (g_.directed() ? 1 : 2));
+    existing_deletions_.reserve(final_deletions_.size());
     for (const auto& [u, v] : final_deletions_) {
       if (!g_.has_edge(u, v)) continue;
+      existing_deletions_.emplace_back(u, v);
       if (is_shortest_parent(u, v)) deletion_candidates_.push_back(v);
       if (!g_.directed() && is_shortest_parent(v, u)) deletion_candidates_.push_back(u);
     }
@@ -62,7 +64,7 @@ class IncrementalBFS {
                                                       g_.vertex_count()));
     bool fallback_needed = false;
     if (!deletion_candidates_.empty()) {
-      fallback_needed = !compute_affected_prebatch(final_deletions_, final_deletion_keys_);
+      fallback_needed = !compute_affected_prebatch(existing_deletions_, final_deletion_keys_);
     }
 
     g_.apply(batch);
@@ -130,6 +132,7 @@ class IncrementalBFS {
     final_deletion_keys_.clear();
     final_additions_.clear();
     final_deletions_.clear();
+    existing_deletions_.clear();
     deletion_candidates_.clear();
     affected_vertices_.clear();
     old_affected_dist_.clear();
@@ -141,6 +144,7 @@ class IncrementalBFS {
     if (final_deletion_keys_.bucket_count() < operations + 1) final_deletion_keys_.reserve(operations + 1);
     if (final_additions_.capacity() < operations) final_additions_.reserve(operations);
     if (final_deletions_.capacity() < operations) final_deletions_.reserve(operations);
+    if (existing_deletions_.capacity() < operations) existing_deletions_.reserve(operations);
   }
 
   [[nodiscard]] bool is_shortest_parent(VertexId u, VertexId v) const noexcept {
@@ -160,11 +164,11 @@ class IncrementalBFS {
   }
 
   bool compute_affected_prebatch(
-      const std::vector<std::pair<VertexId, VertexId>>& final_deletions,
+      const std::vector<std::pair<VertexId, VertexId>>& existing_deletions,
       const std::unordered_set<std::uint64_t>& final_deletion_keys) {
     const auto fallback_limit = std::max<std::size_t>(
         1, static_cast<std::size_t>(static_cast<double>(g_.vertex_count()) * deletion_fallback_fraction_));
-    invalidate_.reserve(std::min<std::size_t>(final_deletions.size() * 2 + 8, g_.vertex_count()));
+    invalidate_.reserve(std::min<std::size_t>(existing_deletions.size() * 2 + 8, g_.vertex_count()));
 
     auto record_parent_loss = [&](VertexId v) {
       if (v >= dist_.size() || v == source_ || dist_[v] == unreachable || affected_[v]) return;
@@ -179,8 +183,7 @@ class IncrementalBFS {
       }
     };
 
-    for (const auto& [u, v] : final_deletions) {
-      if (!g_.has_edge(u, v)) continue;
+    for (const auto& [u, v] : existing_deletions) {
       if (is_shortest_parent(u, v)) record_parent_loss(v);
       if (!g_.directed() && is_shortest_parent(v, u)) record_parent_loss(u);
     }
@@ -295,6 +298,7 @@ class IncrementalBFS {
   std::unordered_set<std::uint64_t> final_deletion_keys_;
   std::vector<std::pair<VertexId, VertexId>> final_additions_;
   std::vector<std::pair<VertexId, VertexId>> final_deletions_;
+  std::vector<std::pair<VertexId, VertexId>> existing_deletions_;
   std::vector<VertexId> deletion_candidates_;
   std::vector<VertexId> affected_vertices_;
   std::vector<std::uint32_t> old_affected_dist_;
