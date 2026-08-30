@@ -1,0 +1,102 @@
+name: Adaptive BFS Policy Held-out Validation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/adaptive-policy-heldout-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  heldout-validation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      SIMPLE_UPDATE_FRACTION: '0.01'
+      CALIBRATED_AFFECTED_FRACTION: '0.10'
+      EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+          python -m pip install --disable-pip-version-check matplotlib
+
+      - name: Build held-out policy harness
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          mkdir -p build/heldout
+          sed 's/policy == "always_incremental" ? 2.0 : 0.35/policy == "always_incremental" ? 2.0 : 0.10/; s/adaptive_affected_fraction\\\":0.35/adaptive_affected_fraction\\\":0.10/' \
+            benchmarks/adaptive_policy_bfs.cpp > build/heldout/adaptive_policy_bfs.cpp
+          grep -q '2.0 : 0.10' build/heldout/adaptive_policy_bfs.cpp
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude build/heldout/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_heldout
+
+      - name: Prepare pinned datasets
+        run: |
+          mkdir -p build/heldout/datasets build/heldout/runs build/heldout/summary
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/heldout/datasets --dataset web-Google > build/heldout/web-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/heldout/datasets --dataset ca-GrQc > build/heldout/ca-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/heldout/datasets --dataset soc-Epinions1 > build/heldout/epinions-source.json
+          python tools/prepare_pinned_edge_stream.py --input build/heldout/datasets/web-Google.txt --output build/heldout/web-Google.txt --report build/heldout/web-normalization.json --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 --expected-vertices 875713 --expected-edges 5105039
+          python tools/prepare_symmetric_pinned_edge_stream.py --input build/heldout/datasets/ca-GrQc.txt --output build/heldout/ca-GrQc.txt --report build/heldout/ca-normalization.json --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484
+          gzip -dc build/heldout/datasets/soc-Epinions1.gz > build/heldout/epinions-source.txt
+          test "$(sha256sum build/heldout/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py --input build/heldout/epinions-source.txt --output build/heldout/soc-Epinions1.txt --report build/heldout/epinions-normalization.json --expected-sha256 "$EPINIONS_TEXT_SHA256" --expected-vertices 75879 --expected-edges 508837
+
+      - name: Run unseen regimes on held-out roots
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          configs = {
+              'ca-GrQc-r2465': ('ca-GrQc',2465,0.75,[64,256,1024]),
+              'soc-Epinions1-r634': ('soc-Epinions1',634,0.90,[256,1024,4096]),
+              'web-Google-r771121': ('web-Google',771121,0.99,[1024,4096,16384]),
+          }
+          for label,(dataset,root,rate,batches) in configs.items():
+              for batch in batches:
+                  for rep in range(1,6):
+                      out=Path(f'build/heldout/runs/{label}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run(['build/adaptive_policy_bfs_heldout',f'build/heldout/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
+                      d=json.load(out.open())
+                      assert d['all_policies_exact']
+                      assert all(p['exact'] for p in d['policies'])
+          PY
+
+      - name: Summarize held-out regret and crossover
+        run: |
+          python tools/summarize_adaptive_policy.py --input-dir build/heldout/runs --output-dir build/heldout/summary | tee build/heldout/summary/stdout-summary.json
+          python - <<'PY'
+          import json
+          d=json.load(open('build/heldout/summary/summary.json'))
+          assert d['all_results_exact']
+          assert len(d['datasets']) == 3
+          for name,row in d['datasets'].items():
+              assert row['regimes'] == 3, (name,row)
+          PY
+
+      - name: Capture validation pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "calibration_run=33311896406"
+            echo "calibrated_affected_fraction=$CALIBRATED_AFFECTED_FRACTION"
+            echo "simple_update_fraction=$SIMPLE_UPDATE_FRACTION"
+            echo "heldout_roots=ca-GrQc:2465,soc-Epinions1:634,web-Google:771121"
+            echo "repetitions_per_regime=5"
+            echo "one_thread=true"
+          } > build/heldout/pins.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-bfs-policy-heldout-validation
+          path: build/heldout/
+          retention-days: 90
