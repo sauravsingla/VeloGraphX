@@ -1,0 +1,116 @@
+name: Adaptive BFS Amazon0302 Frozen One-Shot Evaluation
+on:
+  push:
+    paths: ['.github/workflows/adaptive-policy-fifth-dataset-evaluation.yml']
+
+jobs:
+  frozen-evaluation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      FROZEN_SELECTOR_COMMIT: '4381113005c221e6db2c19bac753a57d872e6374'
+      FROZEN_BENCHMARK_BLOB: 'c30f3459d22e61fb95abdb077aa2fd0eda445690'
+      AMAZON_GZIP_SHA256: '5f1071ac04203b1bc8fc4af5fb473818a180ff1b97e3d7bd716d789801d1f2a3'
+      AMAZON_NORMALIZED_SHA256: '12fe44abf64966ad08b371bf4befd96df6aa8cd129ecb800dd6cc5dc1a753d30'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '4381113005c221e6db2c19bac753a57d872e6374'
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Verify frozen selector source
+        run: |
+          test "$(git rev-parse HEAD)" = "$FROZEN_SELECTOR_COMMIT"
+          test "$(git rev-parse HEAD:benchmarks/adaptive_policy_bfs.cpp)" = "$FROZEN_BENCHMARK_BLOB"
+          grep -q 'scale-conditioned-selector-owned-v3' benchmarks/adaptive_policy_bfs.cpp
+          grep -q 'vertices >= 200000' benchmarks/adaptive_policy_bfs.cpp
+      - name: Build frozen source unchanged
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+          cmake -S . -B build/fifth -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF
+          cmake --build build/fifth -j2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/fifth/libvelographx.a -pthread -o build/adaptive_policy_bfs
+      - name: Acquire and verify frozen amazon0302
+        run: |
+          mkdir -p build/amazon-one-shot/runs build/amazon-one-shot/summary
+          curl --fail --location --retry 3 https://snap.stanford.edu/data/amazon0302.txt.gz -o build/amazon-one-shot/amazon0302.txt.gz
+          test "$(sha256sum build/amazon-one-shot/amazon0302.txt.gz | awk '{print $1}')" = "$AMAZON_GZIP_SHA256"
+          gzip -dc build/amazon-one-shot/amazon0302.txt.gz > build/amazon-one-shot/raw.txt
+          python - <<'PY'
+          ids={}; edges=[]
+          for line in open('build/amazon-one-shot/raw.txt'):
+            if not line.strip() or line[0]=='#': continue
+            a,b=line.split()[:2]
+            if a not in ids: ids[a]=len(ids)
+            if b not in ids: ids[b]=len(ids)
+            edges.append((ids[a],ids[b]))
+          assert len(ids)==262111,(len(ids),len(edges))
+          assert len(edges)==1234877,(len(ids),len(edges))
+          with open('build/amazon-one-shot/amazon0302.txt','w') as f:
+            for a,b in edges: f.write(f'{a} {b}\n')
+          PY
+          test "$(sha256sum build/amazon-one-shot/amazon0302.txt | awk '{print $1}')" = "$AMAZON_NORMALIZED_SHA256"
+          sha256sum build/amazon-one-shot/amazon0302.txt.gz build/amazon-one-shot/raw.txt build/amazon-one-shot/amazon0302.txt > build/amazon-one-shot/checksums.txt
+      - name: Frozen one-shot performance evaluation
+        run: |
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          roots=[20802,99851,0]
+          batches=[512,2048,8192]
+          for root in roots:
+            for batch in batches:
+              for rep in range(1,6):
+                p=Path(f'build/amazon-one-shot/runs/amazon0302-r{root}__{batch}__{rep}.json')
+                with p.open('w') as f:
+                  subprocess.run(['build/adaptive_policy_bfs','build/amazon-one-shot/amazon0302.txt',str(root),'0.90',str(batch),'0.01'],stdout=f,check=True)
+                d=json.load(p.open())
+                assert d['selector']=='scale-conditioned-selector-owned-v3'
+                assert d['selector_feature_cost_included_in_adaptive_timing']
+                assert d['all_policies_exact']
+          PY
+      - name: Fixed publication acceptance
+        run: |
+          python - <<'PY'
+          import glob,json,statistics
+          regs=[]; batch_reg=[]; decisions=[]; setups=[]; by_root={}; by_batch={}
+          all_exact=True
+          for fn in glob.glob('build/amazon-one-shot/runs/*.json'):
+            x=json.load(open(fn)); all_exact &= x['all_policies_exact']
+            ps={p['name']:p for p in x['policies']}; a=ps['adaptive']
+            decisions.append(a['mean_decision_us']); setups.append(a['selector_setup_us'])
+            best=min(p['total_us'] for p in ps.values()); rr=a['total_us']/best-1; regs.append(rr)
+            root=str(x['root']); batch=str(x['batch_size'])
+            by_root.setdefault(root,[]).append(rr); by_batch.setdefault(batch,[]).append(rr)
+            for i,v in enumerate(a['batch_us']):
+              b=min(p['batch_us'][i] for p in ps.values()); batch_reg.append(v/b-1)
+          batch_reg.sort(); p95=batch_reg[min(len(batch_reg)-1,int(.95*(len(batch_reg)-1)))]
+          m={
+            'dataset':'amazon0302','one_shot':True,'selector':'scale-conditioned-selector-owned-v3',
+            'frozen_selector_commit':'4381113005c221e6db2c19bac753a57d872e6374',
+            'frozen_benchmark_blob':'c30f3459d22e61fb95abdb077aa2fd0eda445690',
+            'all_exact':all_exact,'regimes':len(regs),
+            'mean_regret':statistics.mean(regs),'p95_batch_regret':p95,'worst_regime_regret':max(regs),
+            'mean_decision_us':statistics.mean(decisions),'mean_selector_setup_us':statistics.mean(setups),
+            'root_mean_regret':{k:statistics.mean(v) for k,v in by_root.items()},
+            'batch_mean_regret':{k:statistics.mean(v) for k,v in by_batch.items()},
+            'targets':{'exact':True,'mean_regret_max':0.05,'p95_batch_regret_max':0.20,'worst_regime_regret_max':0.25}
+          }
+          print(json.dumps(m,indent=2)); open('build/amazon-one-shot/summary/paper-metrics.json','w').write(json.dumps(m,indent=2)+'\n')
+          assert m['all_exact'],m
+          assert m['mean_regret']<=0.05,m
+          assert m['p95_batch_regret']<=0.20,m
+          assert m['worst_regime_regret']<=0.25,m
+          PY
+      - name: Frozen provenance
+        if: always()
+        run: |
+          { echo evaluation=amazon0302-one-shot; echo selector_commit=$FROZEN_SELECTOR_COMMIT; echo benchmark_blob=$FROZEN_BENCHMARK_BLOB; echo selector=scale-conditioned-selector-owned-v3; echo source_transformation=false; echo tuning_after_freeze=false; echo roots=20802,99851,0; echo batches=512,2048,8192; echo repetitions=5; echo import_rate=0.90; echo gzip_sha256=$AMAZON_GZIP_SHA256; echo normalized_sha256=$AMAZON_NORMALIZED_SHA256; echo fixed_targets='exact=100%,mean<=5%,p95<=20%,worst<=25%'; } > build/amazon-one-shot/provenance.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adaptive-amazon0302-frozen-one-shot
+          path: build/amazon-one-shot/
+          retention-days: 90
