@@ -31,49 +31,38 @@ class IncrementalBFS {
     if (batch.empty()) return;
 
     ensure_workspace(g_.vertex_count());
-
-    std::unordered_set<std::uint64_t> seen_final_updates;
-    seen_final_updates.reserve(batch.updates.size() * 2 + 1);
-    std::unordered_set<std::uint64_t> final_deletion_keys;
-    final_deletion_keys.reserve(batch.updates.size() + 1);
-    std::vector<std::pair<VertexId, VertexId>> final_additions;
-    std::vector<std::pair<VertexId, VertexId>> final_deletions;
-    final_additions.reserve(batch.updates.size());
-    final_deletions.reserve(batch.updates.size());
+    prepare_batch_workspace(batch.updates.size());
 
     for (auto it = batch.updates.rbegin(); it != batch.updates.rend(); ++it) {
       auto u = it->src;
       auto v = it->dst;
       if (!g_.directed() && v < u) std::swap(u, v);
       const auto key = edge_key(u, v);
-      if (!seen_final_updates.insert(key).second) continue;
+      if (!seen_final_updates_.insert(key).second) continue;
       if (it->add) {
-        final_additions.emplace_back(it->src, it->dst);
+        final_additions_.emplace_back(it->src, it->dst);
       } else {
-        final_deletions.emplace_back(it->src, it->dst);
-        final_deletion_keys.insert(key);
+        final_deletions_.emplace_back(it->src, it->dst);
+        final_deletion_keys_.insert(key);
       }
     }
 
-    std::vector<VertexId> deletion_candidates;
-    deletion_candidates.reserve(final_deletions.size() * (g_.directed() ? 1 : 2));
-    for (const auto& [u, v] : final_deletions) {
+    deletion_candidates_.reserve(final_deletions_.size() * (g_.directed() ? 1 : 2));
+    for (const auto& [u, v] : final_deletions_) {
       if (!g_.has_edge(u, v)) continue;
-      if (is_shortest_parent(u, v)) deletion_candidates.push_back(v);
-      if (!g_.directed() && is_shortest_parent(v, u)) deletion_candidates.push_back(u);
+      if (is_shortest_parent(u, v)) deletion_candidates_.push_back(v);
+      if (!g_.directed() && is_shortest_parent(v, u)) deletion_candidates_.push_back(u);
     }
-    std::sort(deletion_candidates.begin(), deletion_candidates.end());
-    deletion_candidates.erase(std::unique(deletion_candidates.begin(), deletion_candidates.end()),
-                              deletion_candidates.end());
-    last_deletion_candidates_ = deletion_candidates.size();
+    std::sort(deletion_candidates_.begin(), deletion_candidates_.end());
+    deletion_candidates_.erase(std::unique(deletion_candidates_.begin(), deletion_candidates_.end()),
+                               deletion_candidates_.end());
+    last_deletion_candidates_ = deletion_candidates_.size();
 
-    std::vector<VertexId> affected_vertices;
-    affected_vertices.reserve(std::min<std::size_t>(deletion_candidates.size() * 2 + 8,
-                                                     g_.vertex_count()));
+    affected_vertices_.reserve(std::min<std::size_t>(deletion_candidates_.size() * 2 + 8,
+                                                      g_.vertex_count()));
     bool fallback_needed = false;
-    if (!deletion_candidates.empty()) {
-      fallback_needed = !compute_affected_prebatch(final_deletions, final_deletion_keys,
-                                                    affected_vertices);
+    if (!deletion_candidates_.empty()) {
+      fallback_needed = !compute_affected_prebatch(final_deletions_, final_deletion_keys_);
     }
 
     g_.apply(batch);
@@ -81,44 +70,44 @@ class IncrementalBFS {
     ensure_workspace(g_.vertex_count());
 
     if (fallback_needed) {
-      clear_workspace(affected_vertices);
+      clear_workspace();
       recompute();
       last_used_full_recompute_ = true;
       return;
     }
 
-    if (!affected_vertices.empty()) {
-      std::vector<std::uint32_t> old_affected_dist;
-      old_affected_dist.reserve(affected_vertices.size());
-      for (auto v : affected_vertices) {
-        old_affected_dist.push_back(v < dist_.size() ? dist_[v] : unreachable);
+    if (!affected_vertices_.empty()) {
+      old_affected_dist_.reserve(affected_vertices_.size());
+      for (auto v : affected_vertices_) {
+        old_affected_dist_.push_back(v < dist_.size() ? dist_[v] : unreachable);
       }
-      repair_affected(affected_vertices, old_affected_dist);
+      repair_affected();
     }
 
-    std::queue<VertexId> q;
-    for (const auto& [u, v] : final_additions) {
-      relax_edge(u, v, q);
-      if (!g_.directed()) relax_edge(v, u, q);
+    bfs_queue_.clear();
+    for (const auto& [u, v] : final_additions_) {
+      relax_edge(u, v, bfs_queue_);
+      if (!g_.directed()) relax_edge(v, u, bfs_queue_);
     }
-    propagate_decreases(q);
-    clear_workspace(affected_vertices);
+    propagate_decreases(bfs_queue_);
+    clear_workspace();
   }
 
   void recompute() {
     dist_.assign(g_.vertex_count(), unreachable);
     ensure_workspace(g_.vertex_count());
     if (source_ >= g_.vertex_count()) return;
-    std::queue<VertexId> q;
+    bfs_queue_.clear();
+    bfs_queue_.reserve(std::max(bfs_queue_.capacity(), g_.vertex_count()));
     dist_[source_] = 0;
-    q.push(source_);
-    while (!q.empty()) {
-      const auto u = q.front();
-      q.pop();
+    bfs_queue_.push_back(source_);
+    std::size_t head = 0;
+    while (head < bfs_queue_.size()) {
+      const auto u = bfs_queue_[head++];
       for (auto v : g_.neighbors(u)) {
         if (dist_[v] == unreachable) {
           dist_[v] = dist_[u] + 1;
-          q.push(v);
+          bfs_queue_.push_back(v);
         }
       }
     }
@@ -134,6 +123,24 @@ class IncrementalBFS {
     if (affected_.size() < vertices) affected_.resize(vertices, 0);
     if (lost_parent_count_.size() < vertices) lost_parent_count_.resize(vertices, 0);
     if (shortest_parent_count_.size() < vertices) shortest_parent_count_.resize(vertices, 0);
+  }
+
+  void prepare_batch_workspace(std::size_t operations) {
+    seen_final_updates_.clear();
+    final_deletion_keys_.clear();
+    final_additions_.clear();
+    final_deletions_.clear();
+    deletion_candidates_.clear();
+    affected_vertices_.clear();
+    old_affected_dist_.clear();
+    invalidate_.clear();
+    touched_loss_vertices_.clear();
+
+    const auto hash_capacity = operations * 2 + 1;
+    if (seen_final_updates_.bucket_count() < hash_capacity) seen_final_updates_.reserve(hash_capacity);
+    if (final_deletion_keys_.bucket_count() < operations + 1) final_deletion_keys_.reserve(operations + 1);
+    if (final_additions_.capacity() < operations) final_additions_.reserve(operations);
+    if (final_deletions_.capacity() < operations) final_deletions_.reserve(operations);
   }
 
   [[nodiscard]] bool is_shortest_parent(VertexId u, VertexId v) const noexcept {
@@ -154,12 +161,10 @@ class IncrementalBFS {
 
   bool compute_affected_prebatch(
       const std::vector<std::pair<VertexId, VertexId>>& final_deletions,
-      const std::unordered_set<std::uint64_t>& final_deletion_keys,
-      std::vector<VertexId>& affected_vertices) {
+      const std::unordered_set<std::uint64_t>& final_deletion_keys) {
     const auto fallback_limit = std::max<std::size_t>(
         1, static_cast<std::size_t>(static_cast<double>(g_.vertex_count()) * deletion_fallback_fraction_));
-    std::vector<VertexId> invalidate;
-    invalidate.reserve(std::min<std::size_t>(final_deletions.size() * 2 + 8, g_.vertex_count()));
+    invalidate_.reserve(std::min<std::size_t>(final_deletions.size() * 2 + 8, g_.vertex_count()));
 
     auto record_parent_loss = [&](VertexId v) {
       if (v >= dist_.size() || v == source_ || dist_[v] == unreachable || affected_[v]) return;
@@ -168,15 +173,12 @@ class IncrementalBFS {
       const auto support = shortest_parent_count(v);
       if (support != 0 && lost_parent_count_[v] >= support) {
         affected_[v] = 1;
-        affected_vertices.push_back(v);
-        invalidate.push_back(v);
+        affected_vertices_.push_back(v);
+        invalidate_.push_back(v);
         ++last_affected_vertices_;
       }
     };
 
-    // Account for every shortest-path-DAG edge that is absent in the final batch state
-    // before propagating parent loss. This avoids invalidating a vertex that still has
-    // another surviving shortest parent.
     for (const auto& [u, v] : final_deletions) {
       if (!g_.has_edge(u, v)) continue;
       if (is_shortest_parent(u, v)) record_parent_loss(v);
@@ -184,9 +186,9 @@ class IncrementalBFS {
     }
 
     std::size_t head = 0;
-    while (head < invalidate.size()) {
+    while (head < invalidate_.size()) {
       if (last_affected_vertices_ > fallback_limit) return false;
-      const auto u = invalidate[head++];
+      const auto u = invalidate_[head++];
       if (u >= dist_.size() || dist_[u] == unreachable) continue;
       for (auto v : g_.neighbors(u)) {
         if (v >= dist_.size() || dist_[v] != dist_[u] + 1) continue;
@@ -207,15 +209,14 @@ class IncrementalBFS {
     return best;
   }
 
-  void repair_affected(const std::vector<VertexId>& affected_vertices,
-                       const std::vector<std::uint32_t>& old_affected_dist) {
-    for (auto v : affected_vertices) {
+  void repair_affected() {
+    for (auto v : affected_vertices_) {
       if (v < dist_.size()) dist_[v] = unreachable;
     }
 
     using Item = std::pair<std::uint32_t, VertexId>;
     std::priority_queue<Item, std::vector<Item>, std::greater<Item>> pq;
-    for (auto v : affected_vertices) {
+    for (auto v : affected_vertices_) {
       const auto best = best_boundary_distance(v);
       if (best != unreachable) {
         dist_[v] = best;
@@ -237,19 +238,19 @@ class IncrementalBFS {
       }
     }
 
-    std::queue<VertexId> repaired_frontier;
-    for (std::size_t i = 0; i < affected_vertices.size(); ++i) {
-      const auto v = affected_vertices[i];
-      const auto old_dist = i < old_affected_dist.size() ? old_affected_dist[i] : unreachable;
+    bfs_queue_.clear();
+    for (std::size_t i = 0; i < affected_vertices_.size(); ++i) {
+      const auto v = affected_vertices_[i];
+      const auto old_dist = i < old_affected_dist_.size() ? old_affected_dist_[i] : unreachable;
       if (v < dist_.size() && dist_[v] != unreachable && dist_[v] < old_dist) {
-        repaired_frontier.push(v);
+        bfs_queue_.push_back(v);
       }
     }
-    propagate_decreases(repaired_frontier);
+    propagate_decreases(bfs_queue_);
   }
 
-  void clear_workspace(const std::vector<VertexId>& affected_vertices) {
-    for (auto v : affected_vertices) {
+  void clear_workspace() {
+    for (auto v : affected_vertices_) {
       if (v < affected_.size()) affected_[v] = 0;
     }
     for (auto v : touched_loss_vertices_) {
@@ -259,23 +260,23 @@ class IncrementalBFS {
     touched_loss_vertices_.clear();
   }
 
-  void relax_edge(VertexId u, VertexId v, std::queue<VertexId>& q) {
+  void relax_edge(VertexId u, VertexId v, std::vector<VertexId>& q) {
     if (u >= dist_.size() || v >= dist_.size() || dist_[u] == unreachable) return;
     if (dist_[u] + 1 < dist_[v]) {
       dist_[v] = dist_[u] + 1;
-      q.push(v);
+      q.push_back(v);
     }
   }
 
-  void propagate_decreases(std::queue<VertexId>& q) {
-    while (!q.empty()) {
-      const auto u = q.front();
-      q.pop();
+  void propagate_decreases(std::vector<VertexId>& q) {
+    std::size_t head = 0;
+    while (head < q.size()) {
+      const auto u = q[head++];
       if (dist_[u] == unreachable) continue;
       for (auto v : g_.neighbors(u)) {
         if (dist_[u] + 1 < dist_[v]) {
           dist_[v] = dist_[u] + 1;
-          q.push(v);
+          q.push_back(v);
         }
       }
     }
@@ -289,6 +290,17 @@ class IncrementalBFS {
   std::vector<std::uint32_t> lost_parent_count_;
   std::vector<std::uint32_t> shortest_parent_count_;
   std::vector<VertexId> touched_loss_vertices_;
+
+  std::unordered_set<std::uint64_t> seen_final_updates_;
+  std::unordered_set<std::uint64_t> final_deletion_keys_;
+  std::vector<std::pair<VertexId, VertexId>> final_additions_;
+  std::vector<std::pair<VertexId, VertexId>> final_deletions_;
+  std::vector<VertexId> deletion_candidates_;
+  std::vector<VertexId> affected_vertices_;
+  std::vector<std::uint32_t> old_affected_dist_;
+  std::vector<VertexId> invalidate_;
+  std::vector<VertexId> bfs_queue_;
+
   std::size_t last_deletion_candidates_{0};
   std::size_t last_affected_vertices_{0};
   bool last_used_full_recompute_{false};
