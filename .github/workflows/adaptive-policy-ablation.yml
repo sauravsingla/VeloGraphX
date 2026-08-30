@@ -1,0 +1,131 @@
+name: Adaptive BFS Policy Ablation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/adaptive-policy-ablation.yml'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/summarize_adaptive_policy.py'
+      - 'tools/prepare_dataset.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/prepare_symmetric_pinned_edge_stream.py'
+      - 'datasets/manifest.public-small.json'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/storage/**'
+  workflow_dispatch:
+
+jobs:
+  policy-ablation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      SIMPLE_UPDATE_FRACTION: '0.01'
+      EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build and plotting dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+          python -m pip install --disable-pip-version-check matplotlib
+
+      - name: Build VeloGraphX and policy harness
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs
+
+      - name: Prepare three checksum-pinned graph families
+        run: |
+          mkdir -p build/policy/datasets build/policy/runs build/policy/summary
+
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/policy/datasets --dataset web-Google > build/policy/web-Google-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/policy/datasets --dataset ca-GrQc > build/policy/ca-GrQc-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/policy/datasets --dataset soc-Epinions1 > build/policy/soc-Epinions1-source.json
+
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/policy/datasets/web-Google.txt \
+            --output build/policy/web-Google.txt \
+            --report build/policy/web-Google-normalization.json \
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 \
+            --expected-vertices 875713 --expected-edges 5105039
+
+          python tools/prepare_symmetric_pinned_edge_stream.py \
+            --input build/policy/datasets/ca-GrQc.txt \
+            --output build/policy/ca-GrQc.txt \
+            --report build/policy/ca-GrQc-normalization.json \
+            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
+            --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 \
+            --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484
+
+          gzip -dc build/policy/datasets/soc-Epinions1.gz > build/policy/epinions-source.txt
+          test "$(sha256sum build/policy/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/policy/epinions-source.txt \
+            --output build/policy/soc-Epinions1.txt \
+            --report build/policy/soc-Epinions1-normalization.json \
+            --expected-sha256 "$EPINIONS_TEXT_SHA256" \
+            --expected-vertices 75879 --expected-edges 508837
+
+      - name: Run four-policy sweep with five repetitions
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          configs = {
+              'ca-GrQc': {'root':4282, 'rate':0.75, 'batches':[32,128,512,2048], 'min_reachable':1000},
+              'soc-Epinions1': {'root':763, 'rate':0.90, 'batches':[128,512,2048,8192], 'min_reachable':20000},
+              'web-Google': {'root':481807, 'rate':0.99, 'batches':[512,2048,8192,32768], 'min_reachable':100000},
+          }
+          for dataset,cfg in configs.items():
+              for batch in cfg['batches']:
+                  for rep in range(1,6):
+                      out = Path(f'build/policy/runs/{dataset}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/adaptive_policy_bfs', f'build/policy/{dataset}.txt', str(cfg['root']),
+                              str(cfg['rate']), str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d=json.load(out.open())
+                      assert d['all_policies_exact'], (dataset,batch,rep)
+                      assert all(p['exact'] for p in d['policies'])
+          PY
+
+      - name: Summarize crossover and oracle regret
+        run: |
+          python tools/summarize_adaptive_policy.py --input-dir build/policy/runs --output-dir build/policy/summary | tee build/policy/summary/stdout-summary.json
+          python - <<'PY'
+          import json
+          d=json.load(open('build/policy/summary/summary.json'))
+          assert d['all_results_exact']
+          assert set(d['datasets']) == {'ca-GrQc','soc-Epinions1','web-Google'}
+          for name,row in d['datasets'].items():
+              assert row['regimes'] == 4, (name,row)
+          PY
+
+      - name: Capture immutable evidence pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "web_google_source_sha256=8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1"
+            echo "ca_grqc_source_sha256=513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5"
+            echo "epinions_gzip_sha256=69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938"
+            echo "epinions_text_sha256=$EPINIONS_TEXT_SHA256"
+            echo "simple_update_fraction=$SIMPLE_UPDATE_FRACTION"
+            echo "adaptive_affected_fraction=0.35"
+            echo "repetitions_per_regime=5"
+            echo "one_thread=true"
+          } > build/policy/pins.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-bfs-policy-ablation
+          path: build/policy/
+          retention-days: 90
