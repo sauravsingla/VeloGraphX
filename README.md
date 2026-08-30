@@ -4,156 +4,88 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 
-**VeloGraphX is a CPU-native C++20 research engine for incremental analytics on continuously changing graphs.** It combines dynamic graph storage, localized algorithm repair, adaptive full recomputation, SIMD, multicore/NUMA-aware execution, compression, Python interoperability, and reproducible benchmark tooling.
+**VeloGraphX is a CPU-native C++20 research engine for incremental analytics on changing graphs.** It combines dynamic graph storage, localized algorithm repair, adaptive full recomputation, CPU-aware execution, and reproducible benchmarking.
 
-The central research question is simple: **when should a changing graph be repaired incrementally, and when is full recomputation the better choice on modern CPUs?** VeloGraphX studies that decision together with the storage and execution architecture needed to make it practical. The project does not claim novelty from reimplementing individual graph algorithms.
+Its central question is: **when should a graph update be repaired incrementally, and when is full recomputation cheaper?** The project focuses on the systems architecture around that decision rather than claiming novelty from reimplementing individual graph algorithms.
 
-## Research focus
-
-VeloGraphX is organized around four related systems contributions:
-
-1. **Adaptive incremental execution** — estimate affected work and choose between localized maintenance and full recomputation.
-2. **Dynamic graph storage** — combine segmented CSR, packed sorted deltas, sparse row patches, reverse adjacency, and validated consolidation.
-3. **CPU-aware execution** — integrate SIMD intersection kernels, multicore scheduling, push/pull frontiers, work stealing, and NUMA-aware policies.
-4. **Reproducible evaluation** — pin datasets and competitor revisions, capture execution environments, enforce correctness gates, and retain benchmark artifacts.
-
-Conceptually:
+## Architecture
 
 ```text
 update stream
-    |
-    v
+    ↓
 dynamic graph storage
-    |
-    v
+    ↓
 affected-work estimation
-    |
-    +---- localized repair
-    |
-    +---- full recomputation
-    |
-    v
+    ↓
+localized repair  ↔  full recomputation
+    ↓
 CPU execution layer
-    |
-    v
-maintained graph result
+    ↓
+maintained result
 ```
 
-## Implemented systems
+## Implemented scope
 
-| Area | Implementation |
+| Area | Current implementation |
 | --- | --- |
-| Incremental analytics | Deletion-aware BFS / unweighted SSSP, weighted SSSP, exact triangle counting, connected components, k-core, localized PageRank repair |
-| Dynamic storage | Segmented CSR, packed sorted deltas, sparse row patches, reverse adjacency, validated CSR consolidation |
-| Adaptive execution | Affected-work estimation with incremental-vs-full fallback |
-| CPU acceleration | Scalar, AVX2, AVX-512 and ARM NEON intersection paths |
-| Multicore / NUMA | Push/pull frontiers, work stealing, topology discovery, affinity and locality-aware policies |
-| Compression | Delta, variable-byte, blocked variable-byte and fixed-width adjacency coding |
-| Python | pybind11 with NumPy, SciPy CSR and Apache Arrow ingestion |
-| Out-of-core | Partition files, mmap/fallback reads, bounded cache, async loading and optional Linux `io_uring` prefetch |
-| Reproducibility | Dataset checksums, immutable competitor pins, environment capture, correctness gates and retained artifacts |
+| Incremental analytics | BFS / unweighted SSSP, weighted SSSP, exact triangles, connected components, k-core, PageRank repair |
+| Dynamic storage | Segmented CSR, packed deltas, sparse row patches, reverse adjacency, validated consolidation |
+| Adaptive execution | Affected-work estimation and incremental-vs-full fallback |
+| CPU execution | SIMD intersections, multicore scheduling, push/pull frontiers, work stealing, NUMA-aware policies |
+| Interoperability | C++20 core, pybind11, NumPy, SciPy CSR and Apache Arrow ingestion |
+| Reproducibility | Dataset checksums, pinned competitor revisions, correctness gates, environment capture and retained artifacts |
 
-## Evidence
+## Selected evidence
 
-The measurements below are **hosted-CI engineering results with correctness gates**. They demonstrate reproducible behavior on the stated workloads, but they should not be interpreted as universal or publication-grade performance claims.
+All numbers below are **hosted-CI engineering measurements with correctness checks**, not universal performance claims. Full methodology and raw evidence are linked below.
 
 ### Exact dynamic triangle maintenance
 
-Deterministic update batches on canonical SNAP graphs are maintained incrementally and checked against exact full recomputation.
+On `com-LiveJournal` (34.7M base edges), exact incremental maintenance versus exact full recomputation produced:
 
-| Dataset | Base graph | Update batch | Incremental | Full recomputation | Speedup |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `com-LiveJournal` | 34,681,189 edges | 0.01% / 3,469 | 4.066 ms | 13.126 s | **3,228.66x** |
-| `com-LiveJournal` | 34,681,189 edges | 0.1% / 34,682 | 34.709 ms | 13.288 s | **382.85x** |
-| `com-LiveJournal` | 34,681,189 edges | 1% / 346,812 | 415.377 ms | 14.119 s | **33.99x** |
-
-The same campaign completed exact validation on **com-Orkut: 3,072,441 vertices, 117,185,083 edges, and 627,584,181 initial triangles**, establishing 100M-edge-class exact execution. See [CI-scale methodology and artifacts](docs/ci-scale-evidence.md).
-
-### Same-run published exact reference
-
-VeloGraphX was compared in the same process and on the same hosted runner with the pinned exact `GoldenCounter` reference distributed with public SIGMOD 2021 triangle-counting source code.
-
-| Update batch | VeloGraphX | Published exact reference | Latency ratio |
+| Update batch | Incremental | Full recomputation | Speedup |
 | --- | ---: | ---: | ---: |
-| 1% / 883 edges | 1.066 ms | 43.657 ms | **40.95x lower** |
-| 5% / 4,412 edges | 6.782 ms | 47.095 ms | **6.94x lower** |
-| 10% / 8,824 edges | 15.495 ms | 53.931 ms | **3.48x lower** |
+| 0.01% | 4.066 ms | 13.126 s | **3,228.66x** |
+| 0.1% | 34.709 ms | 13.288 s | **382.85x** |
+| 1% | 415.377 ms | 14.119 s | **33.99x** |
 
-All **15/15 measured results agreed exactly** across VeloGraphX incremental maintenance, the published exact reference, and VeloGraphX full recomputation. The comparison is specifically with the exact reference component at revision `1085ba049bb94451661d119284d7cd9b68687a81`; it is **not** a claim against the paper's approximate SWTC algorithm. See [full methodology](docs/same-run-published-baseline.md).
+Exact validation also completed on `com-Orkut` with **117,185,083 edges** and **627,584,181 initial triangles**.
 
-### Same-semantics dynamic BFS baselines
+### Published exact triangle reference
 
-External dynamic-BFS systems are admitted only when they can receive the same ordered graph/update workload and restore an exact BFS answer after every batch. Correctness and workload-nontriviality gates must pass before timing is accepted.
+Against the pinned exact `GoldenCounter` component from public SIGMOD 2021 source code, all **15/15 results matched exactly**. On the measured workload, VeloGraphX showed **3.48x–40.95x lower latency**, depending on update size. This comparison is only with that exact reference component, not with the paper's approximate SWTC algorithm.
 
-**RisGraph — native research-system comparison**
+### Native dynamic-BFS baselines
 
-On checksum-pinned `web-Google` with 99% initial import, 4,096-edge sliding-window batches and a deterministic root reaching 588,118 vertices:
+The accepted NetworKit campaign uses native C++, the same hosted runner, one thread, five paired repetitions per dataset, identical update streams and exact full-BFS validation after every batch.
 
-| System / policy | Mean answer-ready batch time |
-| --- | ---: |
-| VeloGraphX deletion-aware repair | **59.658 ms** |
-| VeloGraphX legacy full-recompute policy | **118.039 ms** |
-| RisGraph (`4e77f774...`) | **31.333 ms** |
+| Dataset | VeloGraphX | NetworKit 11.2.1 | Result |
+| --- | ---: | ---: | --- |
+| `web-Google` | 57.202 ms | 43.742 ms | NetworKit **1.31x faster** |
+| `ca-GrQc` | 0.3952 ms | 0.08127 ms | NetworKit **4.86x faster** |
 
-Deletion-aware repair is **1.98x faster than VeloGraphX's former deletion policy**, with 0/13 safety fallbacks. **RisGraph remains approximately 1.90x faster** than the measured VeloGraphX path. Final BFS layer histograms and independent full-BFS checks agree exactly.
+A separate native `web-Google` campaign measured RisGraph at **31.333 ms** versus VeloGraphX at **59.658 ms**. Because the RisGraph and NetworKit campaigns ran on different hosted runners, their absolute times are not combined into a three-system ranking.
 
-**NetworKit DynBFS — native C++, same-machine, repeated campaign**
-
-NetworKit 11.2.1 is pinned to commit `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`, built from source, and called through a native C++ `DynBFS` harness. VeloGraphX and NetworKit execute sequentially on the same hosted runner with one OpenMP thread and **five paired repetitions per dataset**. Full-BFS verification is outside the timed region and every repetition must agree exactly.
-
-| Dataset | Final reachable | VeloGraphX mean | NetworKit mean | Paired mean ratio |
-| --- | ---: | ---: | ---: | ---: |
-| `web-Google` | 588,118 | **57.202 ms** | **43.742 ms** | **1.308x** VX/NK |
-| `ca-GrQc` | 3,119 | **0.3952 ms** | **0.08127 ms** | **4.865x** VX/NK |
-
-NetworKit is therefore approximately **1.31x faster on web-Google** and **4.86x faster on ca-GrQc** in the accepted native hosted-CI campaign. This supersedes the earlier Python-binding NetworKit timing as the primary NetworKit evidence.
-
-For `ca-GrQc`, the checksum-pinned source is explicitly normalized from 28,980 rows: 12 self-loops are removed and 14,484 reciprocal non-loop undirected relationships are verified before emitting 28,968 symmetric directed edges. A sliding-window-aware root-selection policy produces root 4282, with initial/final out-degrees 79/69; the final BFS reaches 3,119 vertices and clears the 1,000-vertex acceptance floor. An earlier degenerate one-vertex run is intentionally excluded.
-
-Accepted NetworKit campaign: GitHub Actions `33291065285`, VeloGraphX head `2e2d84f549a147dd52b7be7cb44709b2ffe0046c`, artifact `9726044346`. The RisGraph campaign was run separately, so RisGraph and NetworKit absolute times must **not** be combined into a three-system ranking.
-
-Teseo/GFE, Aspen, Terrace, LiveGraph, GraphOne, STINGER, and LLAMA were screened as serious dynamic-graph systems but are kept out of this answer-ready incremental-BFS table because their public evaluation contracts differ.
-
-See [external baseline methodology and screening](docs/external-dynamic-baselines.md) and the machine-readable [baseline eligibility manifest](benchmarks/external-baseline-manifest.json).
-
-### Dynamic storage and steady-state maintenance
-
-The current segmented-CSR / packed-delta / sparse-row-patch layout was compared with the pre-upgrade storage reconstructed from commit `22d05c6b54b9199c852062395b3d6536abca02d9`.
-
-| Current / historical | 10M edges | 100M edges |
-| --- | ---: | ---: |
-| Loaded RSS | **0.967x** | **0.966x** |
-| Mixed update throughput | **1.069x** | **1.628x** |
-| Neighbor materialization latency | **0.780x** | **0.783x** |
-| Explicit sparse compaction time | **1.657x** | **1.492x** |
-
-The 10M case uses three repetitions. The 100M case is a single hosted execution and is treated as scale evidence rather than a low-noise performance result.
-
-On a 60-epoch `com-Orkut` steady-state run, a scale-aware **1.50x** owned-storage cap for graphs with at least 100M directed arcs reduced consolidations from **15 to 6**, reduced consolidation time from **386.6 s to 156.1 s**, and increased maintenance-amortized throughput from **19.1k to 43.1k ops/s (2.25x)** relative to the conservative 1.25x policy. The trade-off was a larger owned-storage high-water mark (**1.529x vs 1.306x**) and approximately **6.6% higher peak RSS**. Both runs preserved exactly **234,370,166 directed arcs** and passed correctness checks.
-
-For smaller graphs, the conservative **1.25x** storage cap remains the default. Full canonicalization is still an explicit validated O(E) operation; reducing that structural cost further remains an open systems optimization.
-
-[Storage A/B](docs/storage-ab-evidence.md) · [row-patch accumulation](docs/row-patch-accumulation-evidence.md) · [100M+ canonicalization A/B](docs/canonicalization-ab-evidence.md) · [storage architecture](docs/dynamic-storage.md)
-
-### CPU and adaptive execution
-
-On a recorded 4-logical-CPU hosted runner, independent-query BFS throughput increased from **5,215.62 queries/s at 1 thread** to **11,105.1 queries/s at 2 threads (2.13x)** and **10,930.3 queries/s at 4 threads**, with identical result digests.
-
-An adaptive-recomputation ablation places the incremental/full crossover around **20%** on the exercised Facebook workload. At a 50% insertion batch, forcing incremental execution was approximately **2.5x slower** than full recomputation. This identifies a decision boundary for the tested workload; it does not claim that the runtime policy always selects the oracle choice.
+The repository intentionally retains unfavorable external results. They define concrete optimization targets and make the evaluation more useful than selective benchmark reporting.
 
 ## Correctness and reproducibility
 
-Exact-maintenance experiments are checked against trusted exact results or independent full recomputation. Iterative algorithms such as PageRank use convergence tolerances and L1/L∞ error against a separately converged full reference.
+CI covers Ubuntu and macOS builds, Linux ASan/UBSan, dynamic mutation correctness, differential incremental-vs-full checks, storage consistency, SIMD/scalar agreement, scheduler and NUMA behavior, compression, I/O, Python interoperability, dataset checksums and benchmark contracts.
 
-CI covers Ubuntu and macOS builds, Linux ASan/UBSan, dynamic mutation correctness, forward/reverse storage consistency, optimized-vs-scalar kernels, scheduler/NUMA behavior, compression, native I/O, Python interoperability, dataset checksums, and benchmark artifact contracts. Deletion-aware BFS also has deterministic mixed-update differential testing against a fresh full BFS after every batch.
+Key evidence:
 
-Methodology and boundaries: [benchmark methodology](docs/benchmark-methodology.md) · [published-baseline eligibility](docs/published-baseline-eligibility.md) · [external dynamic baselines](docs/external-dynamic-baselines.md) · [current limitations](docs/limitations.md)
+- [External dynamic baselines](docs/external-dynamic-baselines.md)
+- [CI-scale evidence](docs/ci-scale-evidence.md)
+- [Published exact baseline](docs/same-run-published-baseline.md)
+- [Storage evidence](docs/storage-ab-evidence.md)
+- [Benchmark methodology](docs/benchmark-methodology.md)
+- [Current limitations](docs/limitations.md)
 
 ## Research boundary
 
-The current repository establishes reproducible hosted-CI execution, exact large-graph validation, a controlled same-run exact-reference comparison, a native repeated two-dataset same-machine NetworKit dynamic-BFS campaign, a separate native RisGraph comparison, 10M/100M storage measurements, repeated steady-state consolidation, and a 100M+-class canonicalization-policy A/B.
+VeloGraphX demonstrates exact large-graph execution, incremental maintenance, dynamic storage, adaptive recomputation and reproducible external comparisons. It does **not** establish universal superiority or production maturity.
 
-It does **not** establish universal superiority or full production maturity. In particular, the strongest current external dynamic-BFS evidence shows NetworKit ahead of VeloGraphX on both accepted native workloads and RisGraph ahead on its separate web-Google run. Publication-grade conclusions still require dedicated hardware, a same-machine native campaign including all serious same-semantics competitors, more public graph families/roots/update regimes, 8/16/32+ physical-core scaling, true multi-socket NUMA experiments, hardware-counter analysis, broader update-locality studies, and independent reproduction.
+Stronger publication claims still require dedicated hardware, more graph families and roots, repeated multi-seed workloads, same-machine native comparisons across serious same-semantics systems, physical-core scaling, multi-socket NUMA experiments, hardware counters and independent reproduction.
 
 ## Quick start
 
@@ -174,23 +106,9 @@ cmake -S . -B build-python \
 cmake --build build-python -j
 ```
 
-```python
-import numpy as np
-import velographx as vx
-
-edges = np.array([[0, 1], [1, 2], [2, 0]], dtype=np.uint32)
-graph = vx.from_numpy_edges(edges)
-bfs = vx.IncrementalBFS(graph, 0)
-
-update = vx.UpdateBatch()
-update.add(2, 3)
-bfs.apply(update)
-print(bfs.distances)
-```
-
 ## Contributing
 
-Contributions are welcome across dynamic graph algorithms, storage, correctness, CPU performance, SIMD/NUMA portability, benchmarking, datasets, and interoperability. Performance-sensitive changes should include reproducible measurements and preserve the relevant correctness contract.
+Contributions are welcome across dynamic algorithms, storage, correctness, CPU performance, benchmarking and interoperability. Performance-sensitive changes should preserve the relevant correctness contract and include reproducible measurements.
 
 ## License
 
