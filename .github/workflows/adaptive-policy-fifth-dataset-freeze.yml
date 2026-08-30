@@ -1,0 +1,78 @@
+name: Adaptive BFS Fifth Dataset Topology Freeze
+on:
+  push:
+    paths:
+      - '.github/workflows/adaptive-policy-fifth-dataset-freeze.yml'
+  workflow_dispatch:
+
+jobs:
+  freeze:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Acquire and validate SNAP amazon0302
+        run: |
+          mkdir -p build/fifth-freeze
+          curl --fail --location --retry 3 https://snap.stanford.edu/data/amazon0302.txt.gz -o build/fifth-freeze/amazon0302.txt.gz
+          gzip -dc build/fifth-freeze/amazon0302.txt.gz > build/fifth-freeze/raw.txt
+          python - <<'PY'
+          import hashlib,json
+          ids={};edges=[]
+          for line in open('build/fifth-freeze/raw.txt'):
+            if not line.strip() or line[0]=='#': continue
+            a,b=line.split()[:2]
+            if a not in ids: ids[a]=len(ids)
+            if b not in ids: ids[b]=len(ids)
+            edges.append((ids[a],ids[b]))
+          assert len(ids)==262111,(len(ids),len(edges))
+          assert len(edges)==1234877,(len(ids),len(edges))
+          with open('build/fifth-freeze/amazon0302.txt','w') as f:
+            for a,b in edges:f.write(f'{a} {b}\n')
+          print('validated',len(ids),len(edges))
+          PY
+          sha256sum build/fifth-freeze/amazon0302.txt.gz build/fifth-freeze/raw.txt build/fifth-freeze/amazon0302.txt > build/fifth-freeze/checksums.txt
+      - name: Topology-only root stratification
+        run: |
+          python - <<'PY'
+          import collections,json,math
+          path='build/fifth-freeze/amazon0302.txt'
+          edges=[];n=0
+          for line in open(path):
+            u,v=map(int,line.split());edges.append((u,v));n=max(n,u+1,v+1)
+          imported=int(len(edges)*0.90)
+          adj=[[] for _ in range(n)]
+          outdeg=[0]*n
+          for u,v in edges[:imported]:adj[u].append(v);outdeg[u]+=1
+          candidates=sorted(set(round(i*(n-1)/63) for i in range(64)))
+          def reach(root):
+            seen=bytearray(n);seen[root]=1;q=collections.deque([root]);count=1
+            while q:
+              u=q.popleft()
+              for v in adj[u]:
+                if not seen[v]:seen[v]=1;count+=1;q.append(v)
+            return count/n
+          scored=[{'root':r,'reachable_fraction':reach(r),'out_degree':outdeg[r]} for r in candidates]
+          ordered=sorted(scored,key=lambda x:(x['reachable_fraction'],x['out_degree'],x['root']))
+          picks=[]
+          for idx in [0,len(ordered)//2,len(ordered)-1]:
+            r=ordered[idx]
+            if r['root'] not in [x['root'] for x in picks]:picks.append(r)
+          if len(picks)<3:
+            for r in ordered:
+              if r['root'] not in [x['root'] for x in picks]:picks.append(r)
+              if len(picks)==3:break
+          freeze={'dataset':'amazon0302','selection_uses_performance_timings':False,'vertices':n,'edges':len(edges),'import_rate':0.90,'candidate_rule':'64 evenly spaced dense IDs','root_rule':'minimum, median, maximum initial reachable fraction; out-degree then ID tie-break','roots':picks,'batch_sizes':[512,2048,8192],'repetitions':5,'acceptance':{'exact':True,'mean_regret_max':0.05,'p95_batch_regret_max':0.20,'worst_regime_regret_max':0.25,'mean_decision_us_max':1.0}}
+          print(json.dumps(freeze,indent=2))
+          open('build/fifth-freeze/freeze.json','w').write(json.dumps(freeze,indent=2)+'\n')
+          PY
+      - name: Freeze provenance
+        run: |
+          { echo freeze_commit=$(git rev-parse HEAD); echo performance_timings_observed=false; echo prior_unseen_dataset=email-EuAll; echo fifth_dataset=amazon0302; } > build/fifth-freeze/provenance.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-fifth-dataset-topology-freeze
+          path: build/fifth-freeze/
+          retention-days: 90
