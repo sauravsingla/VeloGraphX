@@ -1,0 +1,80 @@
+name: Adaptive BFS Fourth Dataset Frozen Evaluation
+on:
+  push:
+    paths: ['.github/workflows/adaptive-policy-fourth-dataset.yml']
+  workflow_dispatch:
+jobs:
+  frozen-evaluation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env: {OMP_NUM_THREADS: '1', OMP_PROC_BIND: 'true'}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Build frozen selector
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+          python -m pip install --disable-pip-version-check matplotlib
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF
+          cmake --build build -j2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/libvelographx.a -pthread -o build/adaptive_policy_bfs
+      - name: Acquire unseen SNAP email-EuAll
+        run: |
+          mkdir -p build/fourth/runs build/fourth/summary
+          curl --fail --location --retry 3 https://snap.stanford.edu/data/email-EuAll.txt.gz -o build/fourth/email-EuAll.txt.gz
+          gzip -dc build/fourth/email-EuAll.txt.gz > build/fourth/raw.txt
+          python - <<'PY'
+          # Canonicalize to dense IDs so isolated numeric ID gaps do not distort state fractions.
+          ids={}; edges=[]
+          for line in open('build/fourth/raw.txt'):
+            if not line.strip() or line[0]=='#': continue
+            a,b=line.split()[:2]
+            if a not in ids: ids[a]=len(ids)
+            if b not in ids: ids[b]=len(ids)
+            edges.append((ids[a],ids[b]))
+          assert len(ids)==265214 and len(edges)==420045,(len(ids),len(edges))
+          with open('build/fourth/email-EuAll.txt','w') as f:
+            for a,b in edges:f.write(f'{a} {b}\n')
+          print('vertices',len(ids),'edges',len(edges))
+          PY
+          sha256sum build/fourth/email-EuAll.txt.gz build/fourth/raw.txt build/fourth/email-EuAll.txt > build/fourth/checksums.txt
+      - name: Frozen evaluation
+        run: |
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          # Fixed before measurement: three structurally distinct roots and update regimes.
+          roots=[0,1000,10000]
+          batches=[256,1024,4096]
+          for root in roots:
+            for batch in batches:
+              for rep in range(1,6):
+                p=Path(f'build/fourth/runs/email-EuAll-r{root}__{batch}__{rep}.json')
+                with p.open('w') as f: subprocess.run(['build/adaptive_policy_bfs','build/fourth/email-EuAll.txt',str(root),'0.90',str(batch),'0.01'],stdout=f,check=True)
+                d=json.load(p.open()); assert d['all_policies_exact']
+          PY
+      - name: Publication metrics and fixed acceptance
+        run: |
+          python - <<'PY'
+          import glob,json,statistics
+          regs=[]; batch_reg=[]; matches=tot=0; decision=[]
+          for fn in glob.glob('build/fourth/runs/*.json'):
+            x=json.load(open(fn)); ps={p['name']:p for p in x['policies']}; a=ps['adaptive']; decision.append(a['mean_decision_us'])
+            totals={k:v['total_us'] for k,v in ps.items()}; best=min(totals.values()); regs.append(a['total_us']/best-1)
+            for i,v in enumerate(a['batch_us']):
+              bestb=min(p['batch_us'][i] for p in ps.values()); r=v/bestb-1;batch_reg.append(r);matches+=r<=.01;tot+=1
+          batch_reg.sort();p95=batch_reg[min(len(batch_reg)-1,int(.95*(len(batch_reg)-1)))]
+          m={'dataset':'email-EuAll','all_exact':True,'regimes':len(regs),'mean_regret':statistics.mean(regs),'p95_batch_regret':p95,'worst_regime_regret':max(regs),'oracle_match_within_1pct':matches/tot,'mean_decision_us':statistics.mean(decision),'targets':{'mean_regret':.05,'p95_batch_regret':.20,'worst_regime_regret':.25}}
+          print(json.dumps(m,indent=2));open('build/fourth/summary/paper-metrics.json','w').write(json.dumps(m,indent=2)+'\n')
+          assert m['mean_regret']<=.05,m
+          assert m['p95_batch_regret']<=.20,m
+          assert m['worst_regime_regret']<=.25,m
+          PY
+      - name: Freeze provenance
+        if: always()
+        run: |
+          { echo selector_commit=$(git rev-parse HEAD); echo dataset=email-EuAll; echo expected_vertices=265214; echo expected_edges=420045; echo roots=0,1000,10000; echo batches=256,1024,4096; echo repetitions=5; echo targets=mean5%,p95-20%,worst25%; } > build/fourth/provenance.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: adaptive-fourth-dataset-frozen, path: build/fourth/, retention-days: 90}
