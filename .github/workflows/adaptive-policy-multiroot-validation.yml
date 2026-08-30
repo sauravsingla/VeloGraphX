@@ -1,0 +1,114 @@
+name: Adaptive BFS Policy Multi-root Validation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/adaptive-policy-multiroot-validation.yml'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/summarize_adaptive_policy.py'
+      - 'datasets/manifest.public-small.json'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/storage/**'
+  workflow_dispatch:
+
+jobs:
+  multiroot-policy:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      SIMPLE_UPDATE_FRACTION: '0.01'
+      EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+          python -m pip install --disable-pip-version-check matplotlib
+
+      - name: Build policy harness
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs
+
+      - name: Prepare checksum-pinned datasets
+        run: |
+          mkdir -p build/multiroot-policy/datasets build/multiroot-policy/runs build/multiroot-policy/summary
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/multiroot-policy/datasets --dataset web-Google > build/multiroot-policy/web-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/multiroot-policy/datasets --dataset ca-GrQc > build/multiroot-policy/ca-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/multiroot-policy/datasets --dataset soc-Epinions1 > build/multiroot-policy/epinions-source.json
+          python tools/prepare_pinned_edge_stream.py --input build/multiroot-policy/datasets/web-Google.txt --output build/multiroot-policy/web-Google.txt --report build/multiroot-policy/web-normalization.json --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 --expected-vertices 875713 --expected-edges 5105039
+          python tools/prepare_symmetric_pinned_edge_stream.py --input build/multiroot-policy/datasets/ca-GrQc.txt --output build/multiroot-policy/ca-GrQc.txt --report build/multiroot-policy/ca-normalization.json --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484
+          gzip -dc build/multiroot-policy/datasets/soc-Epinions1.gz > build/multiroot-policy/epinions-source.txt
+          test "$(sha256sum build/multiroot-policy/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py --input build/multiroot-policy/epinions-source.txt --output build/multiroot-policy/soc-Epinions1.txt --report build/multiroot-policy/epinions-normalization.json --expected-sha256 "$EPINIONS_TEXT_SHA256" --expected-vertices 75879 --expected-edges 508837
+
+      - name: Run three roots across low mid high regimes
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          configs = [
+              ('ca-GrQc', 0.75, [4282,2465,1974], [96,384,1536]),
+              ('soc-Epinions1', 0.90, [763,634,71391], [384,1536,6144]),
+              ('web-Google', 0.99, [481807,771121,391806], [1536,6144,24576]),
+          ]
+          for dataset,rate,roots,batches in configs:
+              for root in roots:
+                  label=f'{dataset}-r{root}'
+                  for batch in batches:
+                      for rep in range(1,6):
+                          out=Path(f'build/multiroot-policy/runs/{label}__{batch}__{rep}.json')
+                          with out.open('w') as f:
+                              subprocess.run(['build/adaptive_policy_bfs',f'build/multiroot-policy/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
+                          d=json.load(out.open())
+                          assert d['all_policies_exact']
+                          assert d['adaptive_affected_fraction'] == 0.05
+                          assert d['adaptive_preflight_update_fraction'] == 0.05
+                          assert all(p['exact'] for p in d['policies'])
+          PY
+
+      - name: Summarize multi-root policy quality
+        run: |
+          python tools/summarize_adaptive_policy.py --input-dir build/multiroot-policy/runs --output-dir build/multiroot-policy/summary | tee build/multiroot-policy/summary/stdout-summary.json
+          python - <<'PY'
+          import json
+          d=json.load(open('build/multiroot-policy/summary/summary.json'))
+          assert d['all_results_exact']
+          adaptive=[r for r in d['rows'] if r['policy']=='adaptive']
+          mean_relative=sum(r['relative_to_regime_best'] for r in adaptive)/len(adaptive)
+          worst=max(r['relative_to_regime_best'] for r in adaptive)
+          wins=sum(r['fastest_policy_for_regime']=='adaptive' for r in adaptive)
+          print(f'adaptive_mean_relative_to_regime_best_all={mean_relative}')
+          print(f'adaptive_worst_relative_to_regime_best={worst}')
+          print(f'adaptive_regime_wins={wins}/{len(adaptive)}')
+          assert mean_relative <= 1.10, mean_relative
+          assert worst <= 1.30, worst
+          Path='build/multiroot-policy/summary/acceptance.txt'
+          open(Path,'w').write(f'mean_relative={mean_relative}\nworst_relative={worst}\nwins={wins}/{len(adaptive)}\n')
+          PY
+
+      - name: Capture immutable pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "adaptive_affected_fraction=0.05"
+            echo "adaptive_preflight_update_fraction=0.05"
+            echo "simple_update_fraction=$SIMPLE_UPDATE_FRACTION"
+            echo "roots=ca-GrQc:4282,2465,1974;soc-Epinions1:763,634,71391;web-Google:481807,771121,391806"
+            echo "repetitions_per_regime=5"
+            echo "one_thread=true"
+          } > build/multiroot-policy/pins.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-bfs-policy-multiroot-validation
+          path: build/multiroot-policy/
+          retention-days: 90
