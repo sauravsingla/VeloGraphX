@@ -1,0 +1,98 @@
+name: Adaptive BFS Policy Final Validation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/adaptive-policy-final-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  final-validation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      SIMPLE_UPDATE_FRACTION: '0.01'
+      CANDIDATE_AFFECTED_FRACTION: '0.05'
+      EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+          python -m pip install --disable-pip-version-check matplotlib
+      - name: Build five-percent candidate harness
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          mkdir -p build/final-validation
+          sed 's/policy == "always_incremental" ? 2.0 : 0.35/policy == "always_incremental" ? 2.0 : 0.05/; s/adaptive_affected_fraction\\\":0.35/adaptive_affected_fraction\\\":0.05/' benchmarks/adaptive_policy_bfs.cpp > build/final-validation/adaptive_policy_bfs.cpp
+          grep -q '2.0 : 0.05' build/final-validation/adaptive_policy_bfs.cpp
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude build/final-validation/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_final
+      - name: Prepare pinned datasets
+        run: |
+          mkdir -p build/final-validation/datasets build/final-validation/runs build/final-validation/summary
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/final-validation/datasets --dataset web-Google > build/final-validation/web-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/final-validation/datasets --dataset ca-GrQc > build/final-validation/ca-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/final-validation/datasets --dataset soc-Epinions1 > build/final-validation/epinions-source.json
+          python tools/prepare_pinned_edge_stream.py --input build/final-validation/datasets/web-Google.txt --output build/final-validation/web-Google.txt --report build/final-validation/web-normalization.json --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 --expected-vertices 875713 --expected-edges 5105039
+          python tools/prepare_symmetric_pinned_edge_stream.py --input build/final-validation/datasets/ca-GrQc.txt --output build/final-validation/ca-GrQc.txt --report build/final-validation/ca-normalization.json --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484
+          gzip -dc build/final-validation/datasets/soc-Epinions1.gz > build/final-validation/epinions-source.txt
+          test "$(sha256sum build/final-validation/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py --input build/final-validation/epinions-source.txt --output build/final-validation/soc-Epinions1.txt --report build/final-validation/epinions-normalization.json --expected-sha256 "$EPINIONS_TEXT_SHA256" --expected-vertices 75879 --expected-edges 508837
+      - name: Run blind third-root regimes
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          configs = {
+              'ca-GrQc-r1974': ('ca-GrQc',1974,0.75,[96,384,1536]),
+              'soc-Epinions1-r71391': ('soc-Epinions1',71391,0.90,[384,1536,6144]),
+              'web-Google-r391806': ('web-Google',391806,0.99,[1536,6144,24576]),
+          }
+          for label,(dataset,root,rate,batches) in configs.items():
+              for batch in batches:
+                  for rep in range(1,6):
+                      out=Path(f'build/final-validation/runs/{label}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run(['build/adaptive_policy_bfs_final',f'build/final-validation/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
+                      d=json.load(out.open())
+                      assert d['all_policies_exact']
+                      assert all(p['exact'] for p in d['policies'])
+          PY
+      - name: Summarize blind validation
+        run: |
+          python tools/summarize_adaptive_policy.py --input-dir build/final-validation/runs --output-dir build/final-validation/summary | tee build/final-validation/summary/stdout-summary.json
+          python - <<'PY'
+          import json
+          d=json.load(open('build/final-validation/summary/summary.json'))
+          assert d['all_results_exact']
+          assert len(d['datasets']) == 3
+          for name,row in d['datasets'].items(): assert row['regimes'] == 3
+          adaptive=[r for r in d['rows'] if r['policy']=='adaptive']
+          mean_relative=sum(r['relative_to_regime_best'] for r in adaptive)/len(adaptive)
+          print('adaptive_mean_relative_to_regime_best_all=',mean_relative)
+          assert mean_relative <= 1.10, mean_relative
+          assert max(r['relative_to_regime_best'] for r in adaptive) <= 1.30
+          PY
+      - name: Capture final validation pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "calibration_run=33311896406"
+            echo "heldout_validation_run=33312313428"
+            echo "candidate_affected_fraction=$CANDIDATE_AFFECTED_FRACTION"
+            echo "third_roots=ca-GrQc:1974,soc-Epinions1:71391,web-Google:391806"
+            echo "repetitions_per_regime=5"
+            echo "one_thread=true"
+          } > build/final-validation/pins.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-bfs-policy-final-validation
+          path: build/final-validation/
+          retention-days: 90
