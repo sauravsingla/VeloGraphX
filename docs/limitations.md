@@ -52,9 +52,13 @@ The bindings are suitable for experimentation and interoperability, but the Pyth
 
 ## Competitor evaluation
 
-The repository contains normalized competitor adapters and reproducibility contracts for builtin/reference execution, NetworkX, igraph, NetworKit, rustworkx, and external/native runners such as LAGraph/GraphBLAS and GAP.
+The repository now has matched hosted-CI dynamic-BFS evidence against two serious external systems: the native SIGMOD 2021 RisGraph implementation and NetworKit 11.2.1 `DynBFS`. Both comparisons use checksum-pinned `web-Google`, the same source-order sliding-window semantics, deterministic root selection, answer-ready timing, and exact correctness gates. See [`external-dynamic-baselines.md`](external-dynamic-baselines.md).
 
-Hosted-CI evidence currently covers only the competitors available in that environment. Native LAGraph/GAP builds, immutable version pins, and complete same-hardware comparisons still need to be executed before making publication-grade comparative claims.
+These results still have important limits. The RisGraph and NetworKit campaigns were separate hosted-runner executions and therefore cannot be combined into a three-system ranking. The NetworKit baseline is invoked through Python bindings, so its graph-mutation timing includes Python API overhead while its dynamic BFS maintenance is native; a native C++ harness is required before treating that pairwise ratio as publication-grade language-neutral evidence.
+
+Teseo/GFE, Aspen, Terrace, LiveGraph, GraphOne, STINGER, and LLAMA have been screened as serious dynamic-graph systems. Their public evaluation contracts emphasize structural updates and/or graph kernels over updated snapshots rather than exact BFS-state maintenance after every identical batch. They should therefore be evaluated in separately labelled structural-update or snapshot-query experiments rather than inserted into the same incremental-BFS speedup table.
+
+The repository also contains normalized competitor adapters and reproducibility contracts for NetworkX, igraph, NetworKit, rustworkx, LAGraph/GraphBLAS, and GAP. Publication-grade comparative claims still require repeated same-hardware runs, native timing envelopes where available, immutable pins, controlled thread placement, multiple graph families and seeds, and retained statistical artifacts.
 
 ## Public-dataset and large-scale evidence
 
@@ -66,7 +70,7 @@ The project does not yet claim results for:
 - publication-grade repeated 100M+-edge comparisons across multiple algorithms, datasets, seeds, and external systems;
 - publication-grade 1/2/4/8/16/32+ thread scaling;
 - controlled multi-socket NUMA locality and remote-traffic studies;
-- complete same-hardware comparisons with native LAGraph/GAP and other serious CPU graph systems;
+- a dedicated-hardware native same-run comparison against the full serious dynamic-system baseline set;
 - comprehensive hardware-counter and ablation campaigns;
 - research-scale compression calibration; or
 - dedicated NVMe / `io_uring` throughput evaluation.
