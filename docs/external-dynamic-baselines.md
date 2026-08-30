@@ -29,16 +29,11 @@ This remains a separate hosted-runner campaign and therefore must not be numeric
 
 ## Native C++ NetworKit repeated campaign
 
-NetworKit is pinned to **11.2.1**, Git commit `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`. The workflow initializes and records its pinned submodules, builds the C++ core from source, compiles a native VeloGraphX comparison harness against `NetworKit::DynBFS`, and runs VeloGraphX and NetworKit sequentially on the **same GitHub-hosted runner**.
+NetworKit is pinned to **11.2.1**, Git commit `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`. The workflow builds the C++ core from source and runs VeloGraphX and `NetworKit::DynBFS` sequentially on the **same GitHub-hosted runner**.
 
-The timed envelope for both systems includes graph mutation plus restoration of the dynamic BFS answer. Fresh full-BFS verification is outside the timed region. `OMP_NUM_THREADS=1` is applied to the paired campaign. Each dataset is executed **five times**, and every repetition must satisfy:
+The timed envelope includes graph mutation plus restoration of the dynamic BFS answer. Fresh full-BFS verification is outside the timed region. `OMP_NUM_THREADS=1` and `OMP_PROC_BIND=true` are applied. Each dataset runs **five paired repetitions**; every repetition must match exact full BFS and pass a nontrivial final-reachability gate.
 
-- NetworKit `DynBFS` exactly matches a fresh full NetworKit BFS after every batch;
-- VeloGraphX matches its independent full-BFS reference;
-- root, initial/final edge counts, batch boundaries and final layer histogram agree across systems; and
-- final reachability clears a dataset-specific nontriviality gate.
-
-Accepted evidence run: **GitHub Actions `33291065285`**, VeloGraphX head `2e2d84f549a147dd52b7be7cb44709b2ffe0046c`, artifact **`9726044346`**, artifact SHA-256 `92146c420f47c38aa4e5992b3c7b845c94acbb1089334381c6eb195d522fb26b`.
+Accepted evidence run: **GitHub Actions `33294575513`**, VeloGraphX head `2ebcd9107afeb977b41ad11be0ec4734ce767f63`, artifact **`9727073670`**, artifact SHA-256 `7c1e04ad40c8e4b94f980bd8e4b9c44c282120dfada040d31fb2eec467cc5bdd`.
 
 ### web-Google
 
@@ -52,14 +47,14 @@ Source SHA-256: `8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d
 
 | System | Mean batch | Median batch | Std. dev. |
 | --- | ---: | ---: | ---: |
-| VeloGraphX | **57.202 ms** | 56.814 ms | 1.473 ms |
-| NetworKit 11.2.1 `DynBFS` | **43.742 ms** | 43.833 ms | 0.387 ms |
+| VeloGraphX | **44.531 ms** | 44.303 ms | 1.426 ms |
+| NetworKit 11.2.1 `DynBFS` | **43.607 ms** | 43.763 ms | 0.407 ms |
 
-Five VeloGraphX samples were `59.653, 57.125, 56.730, 55.689, 56.814 ms`; NetworKit samples were `44.195, 43.595, 43.167, 43.920, 43.833 ms`. The mean paired VeloGraphX/NetworKit ratio is **1.308x** and the median paired ratio is **1.310x**. Thus **NetworKit is about 1.31x faster** on this native same-machine hosted-CI workload.
+VeloGraphX samples were `46.039, 43.136, 44.303, 43.198, 45.978 ms`; NetworKit samples were `43.911, 43.256, 43.763, 44.011, 43.096 ms`. The mean paired VeloGraphX/NetworKit ratio is **1.021x** and the median paired ratio is **1.012x**. On this hosted runner, VeloGraphX is therefore within about **2.1% of NetworKit**.
 
 ### ca-GrQc
 
-The checksum-pinned source has 5,242 vertices and 28,980 rows. The provenance gate explicitly verifies 12 self-loops plus 14,484 unique non-loop undirected relationships represented reciprocally. Self-loops are removed, reciprocal representation is verified, vertices are dense-relabelled deterministically, and each unique relationship is emitted once in each direction.
+The checksum-pinned source has 5,242 vertices and 28,980 rows. The provenance gate verifies 12 self-loops plus 14,484 unique non-loop undirected relationships represented reciprocally. Self-loops are removed and each verified relationship is emitted once in each direction.
 
 Source SHA-256: `513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5`. Derived symmetric-stream SHA-256: `b6e16b41991049365670ac6407055034d2e29e21c8b000b9ecb0ff0ac8964192`.
 
@@ -67,25 +62,23 @@ Source SHA-256: `513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d
 - 75% initial import = 21,726 edges
 - batch size 256 / 29 batches
 - sliding-window-aware deterministic root 4282
-- root out-degree: 79 in the initial window and 69 in the final window
+- root out-degree: 79 initially and 69 in the final window
 - final reachable vertices 3,119; acceptance floor 1,000
 
 | System | Mean batch | Median batch | Std. dev. |
 | --- | ---: | ---: | ---: |
-| VeloGraphX | **0.3952 ms** | 0.3944 ms | 0.0018 ms |
-| NetworKit 11.2.1 `DynBFS` | **0.08127 ms** | 0.08078 ms | 0.00219 ms |
+| VeloGraphX | **0.3884 ms** | 0.3896 ms | 0.0030 ms |
+| NetworKit 11.2.1 `DynBFS` | **0.08792 ms** | 0.08808 ms | 0.00043 ms |
 
-Five VeloGraphX samples were `0.3944, 0.3938, 0.3958, 0.3938, 0.3981 ms`; NetworKit samples were `0.07893, 0.08030, 0.08154, 0.08078, 0.08479 ms`. The mean paired VeloGraphX/NetworKit ratio is **4.865x** and the median paired ratio is **4.875x**. Thus **NetworKit is about 4.86x faster** on this smaller collaboration-network workload.
+VeloGraphX samples were `0.3896, 0.3919, 0.3896, 0.3860, 0.3846 ms`; NetworKit samples were `0.08835, 0.08808, 0.08766, 0.08732, 0.08821 ms`. The mean paired VeloGraphX/NetworKit ratio is **4.417x**. NetworKit remains materially faster on this small-graph workload.
 
-The earlier ca-GrQc attempt that ended with only one reachable vertex is intentionally excluded; the workflow was hardened to select a root robust across the initial and final sliding windows and to fail when final reachability is below 1,000 vertices.
+The earlier degenerate ca-GrQc run is excluded; the workflow now selects a root robust across the initial and final sliding windows and rejects final reachability below 1,000 vertices.
 
 ## Interpretation
 
-The native C++ campaign supersedes the earlier Python-binding NetworKit timing as the primary NetworKit evidence. The earlier Python result remains historical only; its timing included Python-level mutation overhead and should not be used for performance claims.
+The clean optimized campaign supersedes the earlier native NetworKit campaign as the primary NetworKit evidence. It shows **near parity on web-Google**, while the smaller ca-GrQc workload remains a clear optimization gap.
 
-The new campaign materially improves fairness: both implementations are native C++, pinned, executed on the same runner, repeated five times, and checked for exact answers and nontrivial reachability. It also shows that **VeloGraphX does not currently outperform NetworKit DynBFS on either accepted workload**.
-
-These remain **hosted-CI engineering measurements**, not publication-grade universal conclusions. The runner is virtualized and uncontrolled, only one thread is used, there are two graph families, and the RisGraph campaign is not on the same machine as this NetworKit campaign. Publication-level conclusions require dedicated hardware, controlled CPU placement/frequency, more graph families and roots/update regimes, more repetitions, multicore scaling, and a same-machine campaign containing all native competitors.
+These are **hosted-CI engineering measurements**, not publication-grade universal conclusions. Pairwise same-run ratios are more informative than absolute comparisons across different hosted runners. Publication-level conclusions require dedicated hardware, more graph families and roots/update regimes, multicore scaling, hardware counters, and a same-machine campaign containing all native competitors.
 
 ## Serious systems screened but excluded from the same-semantics table
 
