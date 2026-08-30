@@ -556,6 +556,16 @@ class DynamicGraph {
     return materialize_row(base_in_, patches_in_, delta_in_, v);
   }
 
+  template <class Fn>
+  void for_each_neighbor(VertexId u, Fn&& fn) const {
+    for_each_effective_row(base_out_, patches_out_, delta_out_, u, std::forward<Fn>(fn));
+  }
+
+  template <class Fn>
+  void for_each_in_neighbor(VertexId v, Fn&& fn) const {
+    for_each_effective_row(base_in_, patches_in_, delta_in_, v, std::forward<Fn>(fn));
+  }
+
   [[nodiscard]] bool is_compact() const noexcept {
     return delta_out_.empty() && delta_in_.empty();
   }
@@ -644,6 +654,30 @@ class DynamicGraph {
                                VertexId u, VertexId v) noexcept {
     const auto row = compact_row(base, patches, u);
     return std::binary_search(row.begin(), row.end(), v);
+  }
+
+  template <class Fn>
+  static void for_each_effective_row(const storage_detail::SegmentedCsr& base,
+                                     const storage_detail::CompactRowPatches& patches,
+                                     const storage_detail::PackedDeltaStore& delta,
+                                     VertexId u,
+                                     Fn&& fn) {
+    const auto base_row = compact_row(base, patches, u);
+    const auto overlay = delta.row(u);
+    std::size_t i = 0;
+    std::size_t j = 0;
+    while (i < base_row.size() || j < overlay.size()) {
+      if (j == overlay.size() || (i < base_row.size() && base_row[i] < overlay[j].dst)) {
+        fn(base_row[i++]);
+      } else if (i == base_row.size() || overlay[j].dst < base_row[i]) {
+        if (overlay[j].present) fn(overlay[j].dst);
+        ++j;
+      } else {
+        if (overlay[j].present) fn(base_row[i]);
+        ++i;
+        ++j;
+      }
+    }
   }
 
   static std::vector<VertexId> materialize_row(const storage_detail::SegmentedCsr& base,
