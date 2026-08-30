@@ -52,25 +52,33 @@ The bindings are suitable for experimentation and interoperability, but the Pyth
 
 ## Competitor evaluation
 
-The repository now has matched hosted-CI dynamic-BFS evidence against two serious external systems: the native SIGMOD 2021 RisGraph implementation and NetworKit 11.2.1 `DynBFS`. Both comparisons use checksum-pinned `web-Google`, the same source-order sliding-window semantics, deterministic root selection, answer-ready timing, and exact correctness gates. See [`external-dynamic-baselines.md`](external-dynamic-baselines.md).
+The repository has matched dynamic-BFS evidence against two serious external systems: the native SIGMOD 2021 RisGraph implementation and NetworKit 11.2.1 `DynBFS`. The NetworKit comparison is now **native C++**, repeated five times per dataset, and executed sequentially with VeloGraphX on the same hosted runner. It covers checksum-pinned `web-Google` and `ca-GrQc`, exact correctness after every batch, cross-system layer-histogram equality, captured environment/pins, and explicit nontrivial-reachability gates. See [`external-dynamic-baselines.md`](external-dynamic-baselines.md).
 
-These results still have important limits. The RisGraph and NetworKit campaigns were separate hosted-runner executions and therefore cannot be combined into a three-system ranking. The NetworKit baseline is invoked through Python bindings, so its graph-mutation timing includes Python API overhead while its dynamic BFS maintenance is native; a native C++ harness is required before treating that pairwise ratio as publication-grade language-neutral evidence.
+The native NetworKit campaign is substantially stronger than the earlier Python-binding comparison and supersedes it as the primary NetworKit performance evidence. On accepted run `33291065285`, NetworKit was approximately **1.31x faster on web-Google** and **4.86x faster on ca-GrQc**. These results are retained precisely because the benchmark framework must report unfavorable external outcomes as readily as favorable ones.
+
+Important limits remain:
+
+- the native NetworKit campaign is still hosted CI rather than dedicated hardware;
+- it uses one OpenMP thread and only two public graph families;
+- one deterministic root/workload is used per dataset;
+- the existing RisGraph result is from a separate hosted runner, so RisGraph and NetworKit cannot yet be placed into one absolute three-system ranking; and
+- publication-grade evidence still requires dedicated same-machine native runs, controlled CPU placement/frequency, more repetitions, multiple roots/seeds/update regimes, and multicore scaling.
 
 Teseo/GFE, Aspen, Terrace, LiveGraph, GraphOne, STINGER, and LLAMA have been screened as serious dynamic-graph systems. Their public evaluation contracts emphasize structural updates and/or graph kernels over updated snapshots rather than exact BFS-state maintenance after every identical batch. They should therefore be evaluated in separately labelled structural-update or snapshot-query experiments rather than inserted into the same incremental-BFS speedup table.
 
-The repository also contains normalized competitor adapters and reproducibility contracts for NetworkX, igraph, NetworKit, rustworkx, LAGraph/GraphBLAS, and GAP. Publication-grade comparative claims still require repeated same-hardware runs, native timing envelopes where available, immutable pins, controlled thread placement, multiple graph families and seeds, and retained statistical artifacts.
+The repository also contains normalized competitor adapters and reproducibility contracts for NetworkX, igraph, NetworKit, rustworkx, LAGraph/GraphBLAS, and GAP. Broad comparative claims still require semantic equivalence, native timing envelopes where available, immutable pins, controlled hardware, and retained statistical artifacts.
 
 ## Public-dataset and large-scale evidence
 
-Public-dataset engineering evidence now includes exact 100M-edge-class triangle validation, 10M/100M storage measurements, repeated steady-state maintenance, and a 100M+-class canonicalization-policy A/B. These results establish engineering and scale evidence on the stated workloads, but the overall evaluation remains incomplete.
+Public-dataset engineering evidence includes exact 100M-edge-class triangle validation, 10M/100M storage measurements, repeated steady-state maintenance, a 100M+-class canonicalization-policy A/B, and a repeated native two-dataset external dynamic-BFS campaign. These establish engineering and scale evidence on the stated workloads, but the overall evaluation remains incomplete.
 
 The project does not yet claim results for:
 
-- a broad multi-dataset incremental crossover campaign across substantially different graph families;
-- publication-grade repeated 100M+-edge comparisons across multiple algorithms, datasets, seeds, and external systems;
+- a broad incremental campaign across many substantially different graph families, roots, seeds and update-locality patterns;
+- publication-grade repeated 100M+-edge comparisons across multiple algorithms and external systems;
 - publication-grade 1/2/4/8/16/32+ thread scaling;
 - controlled multi-socket NUMA locality and remote-traffic studies;
-- a dedicated-hardware native same-run comparison against the full serious dynamic-system baseline set;
+- a dedicated-hardware native same-run comparison containing VeloGraphX, RisGraph and NetworKit together;
 - comprehensive hardware-counter and ablation campaigns;
 - research-scale compression calibration; or
 - dedicated NVMe / `io_uring` throughput evaluation.
