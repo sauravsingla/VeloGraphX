@@ -1,0 +1,181 @@
+name: Native NetworKit Multi-dataset Campaign
+
+on:
+  push:
+    paths:
+      - '.github/workflows/external-networkit-native-multidataset.yml'
+      - 'benchmarks/external_networkit_native_bfs.cpp'
+      - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'tools/prepare_dataset.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/select_bfs_root.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'datasets/manifest.public-small.json'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/storage/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  native-multidataset:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      NETWORKIT_SHA: 359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c
+      NETWORKIT_VERSION: 11.2.1
+      REPEATS: '5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libomp-dev
+
+      - name: Build VeloGraphX matched harness
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+
+      - name: Build pinned NetworKit C++ core
+        run: |
+          git clone --filter=blob:none https://github.com/networkit/networkit.git build/networkit
+          git -C build/networkit checkout --detach "$NETWORKIT_SHA"
+          test "$(git -C build/networkit rev-parse HEAD)" = "$NETWORKIT_SHA"
+          cmake -S build/networkit -B build/networkit-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/build/networkit-install" \
+            -DNETWORKIT_BUILD_TESTS=OFF
+          cmake --build build/networkit-build -j 2
+          cmake --install build/networkit-build
+          test -f build/networkit-install/include/networkit/distance/DynBFS.hpp
+          LIB=$(find build/networkit-install -type f \( -name 'libnetworkit.so' -o -name 'libnetworkit.a' \) | head -1)
+          test -n "$LIB"
+          echo "NETWORKIT_LIB=$LIB" >> "$GITHUB_ENV"
+          echo "NETWORKIT_LIBDIR=$(dirname "$LIB")" >> "$GITHUB_ENV"
+
+      - name: Compile native NetworKit comparison harness
+        run: |
+          c++ -O3 -DNDEBUG -std=c++20 -fopenmp \
+            -Ibuild/networkit-install/include \
+            benchmarks/external_networkit_native_bfs.cpp \
+            -L"$NETWORKIT_LIBDIR" -Wl,-rpath,"$NETWORKIT_LIBDIR" -lnetworkit \
+            -o build/networkit_native_bfs
+          ldd build/networkit_native_bfs || true
+
+      - name: Capture shared hardware and software environment
+        run: |
+          mkdir -p build/native-campaign
+          python tools/capture_benchmark_environment.py \
+            --label native-networkit-multidataset \
+            --output build/native-campaign/environment.json
+          lscpu > build/native-campaign/lscpu.txt
+          c++ --version > build/native-campaign/compiler.txt
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "networkit_sha=$NETWORKIT_SHA"
+            echo "networkit_version=$NETWORKIT_VERSION"
+            echo "repeats=$REPEATS"
+          } > build/native-campaign/pins.txt
+
+      - name: Prepare checksum-pinned public datasets
+        run: |
+          mkdir -p build/native-campaign/datasets
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+            --output-dir build/native-campaign/datasets --dataset web-Google \
+            > build/native-campaign/web-Google-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+            --output-dir build/native-campaign/datasets --dataset ca-GrQc \
+            > build/native-campaign/ca-GrQc-source.json
+
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/native-campaign/datasets/web-Google.txt \
+            --output build/native-campaign/web-Google.txt \
+            --report build/native-campaign/web-Google-normalization.json \
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/native-campaign/datasets/ca-GrQc.txt \
+            --output build/native-campaign/ca-GrQc.txt \
+            --report build/native-campaign/ca-GrQc-normalization.json \
+            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5
+
+          python - <<'PY'
+          import json, subprocess
+          for name, rate in [('web-Google','0.99'), ('ca-GrQc','0.90')]:
+              n=json.load(open(f'build/native-campaign/{name}-normalization.json'))
+              subprocess.run(['python','tools/select_bfs_root.py','--input',f'build/native-campaign/{name}.txt',
+                              '--imported-rate',rate,'--total-edges',str(n['edge_count']),
+                              '--output',f'build/native-campaign/{name}-root.json'],check=True)
+          PY
+
+      - name: Run five same-machine repetitions on both datasets
+        env:
+          OMP_NUM_THREADS: '1'
+          OMP_PROC_BIND: 'true'
+        run: |
+          mkdir -p build/native-campaign/runs
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          configs=[('web-Google',0.99,4096),('ca-GrQc',0.90,256)]
+          repeats=5
+          for name,rate,batch in configs:
+              root=json.load(open(f'build/native-campaign/{name}-root.json'))['root']
+              for rep in range(1,repeats+1):
+                  vx=Path(f'build/native-campaign/runs/{name}-r{rep}-velographx.json')
+                  nk=Path(f'build/native-campaign/runs/{name}-r{rep}-networkit.json')
+                  with vx.open('w') as out:
+                      subprocess.run(['build/vx/velographx_external_risgraph_bfs',f'build/native-campaign/{name}.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
+                  with nk.open('w') as out:
+                      subprocess.run(['build/networkit_native_bfs',f'build/native-campaign/{name}.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
+                  a=json.load(vx.open()); b=json.load(nk.open())
+                  assert a['correct'] and a['legacy_correct']
+                  assert b['native_cpp'] and b['all_batches_correct_against_fresh_full_bfs']
+                  assert a['root']==b['root'] and a['batch_size']==b['batch_size'] and a['batches']==b['batches']
+                  assert a['initial_edges']==b['initial_edges'] and a['final_edges']==b['final_edges']
+                  assert a['layer_counts']==b['layer_counts']
+          PY
+
+      - name: Build repeated-run statistical summary
+        run: |
+          python - <<'PY'
+          import json, statistics
+          from pathlib import Path
+          configs=['web-Google','ca-GrQc']
+          summary={'schema_version':1,'artifact_type':'velographx-native-networkit-multidataset-campaign',
+                   'networkit_revision':'359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c',
+                   'networkit_version':'11.2.1','native_cpp':True,'same_machine':True,
+                   'repetitions_per_dataset':5,'research_claim':False,'datasets':{}}
+          for name in configs:
+              vx=[]; nk=[]; visited=None; batches=None
+              for rep in range(1,6):
+                  a=json.load(open(f'build/native-campaign/runs/{name}-r{rep}-velographx.json'))
+                  b=json.load(open(f'build/native-campaign/runs/{name}-r{rep}-networkit.json'))
+                  vx.append(a['wall_mean_us']); nk.append(b['wall_mean_us'])
+                  visited=b['visited_vertices']; batches=b['batches']
+              ratios=[a/b for a,b in zip(vx,nk)]
+              summary['datasets'][name]={
+                  'batches':batches,'visited_vertices':visited,
+                  'velographx_mean_batch_us':statistics.mean(vx),
+                  'velographx_median_batch_us':statistics.median(vx),
+                  'velographx_stdev_batch_us':statistics.stdev(vx),
+                  'networkit_mean_batch_us':statistics.mean(nk),
+                  'networkit_median_batch_us':statistics.median(nk),
+                  'networkit_stdev_batch_us':statistics.stdev(nk),
+                  'paired_ratio_velographx_over_networkit_mean':statistics.mean(ratios),
+                  'paired_ratio_velographx_over_networkit_median':statistics.median(ratios),
+                  'all_repetitions_exact':True,
+                  'velographx_samples_us':vx,'networkit_samples_us':nk
+              }
+          Path('build/native-campaign/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-native-networkit-multidataset
+          path: build/native-campaign/
+          retention-days: 90
