@@ -128,9 +128,12 @@ jobs:
                   assert n['source_reciprocal_pairs_verified'] == 14484
                   assert n['edge_count'] == 28968
                   assert n['directed_representation_of_undirected_graph'] is True
-              subprocess.run(['python','tools/select_bfs_root.py','--input',f'build/native-campaign/{name}.txt',
-                              '--imported-rate',rate,'--total-edges',str(n['edge_count']),
-                              '--output',f'build/native-campaign/{name}-root.json'],check=True)
+              cmd=['python','tools/select_bfs_root.py','--input',f'build/native-campaign/{name}.txt',
+                   '--imported-rate',rate,'--total-edges',str(n['edge_count']),
+                   '--output',f'build/native-campaign/{name}-root.json']
+              if name == 'ca-GrQc':
+                  cmd.append('--sliding-window-aware')
+              subprocess.run(cmd,check=True)
           PY
 
       - name: Run five same-machine repetitions on both datasets
@@ -142,9 +145,9 @@ jobs:
           python - <<'PY'
           import json, subprocess
           from pathlib import Path
-          configs=[('web-Google',0.99,4096),('ca-GrQc',0.75,256)]
+          configs=[('web-Google',0.99,4096,100000),('ca-GrQc',0.75,256,1000)]
           repeats=5
-          for name,rate,batch in configs:
+          for name,rate,batch,min_reachable in configs:
               root=json.load(open(f'build/native-campaign/{name}-root.json'))['root']
               for rep in range(1,repeats+1):
                   vx=Path(f'build/native-campaign/runs/{name}-r{rep}-velographx.json')
@@ -159,6 +162,7 @@ jobs:
                   assert a['root']==b['root'] and a['batch_size']==b['batch_size'] and a['batches']==b['batches']
                   assert a['initial_edges']==b['initial_edges'] and a['final_edges']==b['final_edges']
                   assert a['layer_counts']==b['layer_counts']
+                  assert b['visited_vertices'] >= min_reachable, (name, b['visited_vertices'], min_reachable)
           PY
 
       - name: Build repeated-run statistical summary
@@ -166,12 +170,12 @@ jobs:
           python - <<'PY'
           import json, statistics
           from pathlib import Path
-          configs=['web-Google','ca-GrQc']
-          summary={'schema_version':1,'artifact_type':'velographx-native-networkit-multidataset-campaign',
+          configs=[('web-Google',100000),('ca-GrQc',1000)]
+          summary={'schema_version':2,'artifact_type':'velographx-native-networkit-multidataset-campaign',
                    'networkit_revision':'359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c',
                    'networkit_version':'11.2.1','native_cpp':True,'same_machine':True,
                    'repetitions_per_dataset':5,'research_claim':False,'datasets':{}}
-          for name in configs:
+          for name,min_reachable in configs:
               vx=[]; nk=[]; visited=None; batches=None
               for rep in range(1,6):
                   a=json.load(open(f'build/native-campaign/runs/{name}-r{rep}-velographx.json'))
@@ -181,6 +185,8 @@ jobs:
               ratios=[a/b for a,b in zip(vx,nk)]
               summary['datasets'][name]={
                   'batches':batches,'visited_vertices':visited,
+                  'minimum_accepted_reachable_vertices':min_reachable,
+                  'nontrivial_reachability_gate_passed':visited >= min_reachable,
                   'velographx_mean_batch_us':statistics.mean(vx),
                   'velographx_median_batch_us':statistics.median(vx),
                   'velographx_stdev_batch_us':statistics.stdev(vx),
