@@ -80,6 +80,7 @@ def main() -> int:
             out.write(f"{du} {dv}\n")
             out.write(f"{dv} {du}\n")
 
+    directed_edges = len(undirected) * 2
     output_hash = sha256(args.output)
     report = {
         "schema_version": 1,
@@ -93,7 +94,8 @@ def main() -> int:
         "dense_min_vertex": 0,
         "dense_max_vertex": len(vertices) - 1,
         "output_path": str(args.output),
-        "output_directed_edges": len(undirected) * 2,
+        "edge_count": directed_edges,
+        "output_directed_edges": directed_edges,
         "output_sha256": output_hash,
         "preparation": "checksum-pinned source; self-loops removed; duplicate undirected pairs rejected; ascending-ID dense relabel; each source-order undirected edge emitted forward then reverse",
         "directed_representation_of_undirected_graph": True,
