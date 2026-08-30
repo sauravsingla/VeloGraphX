@@ -1,0 +1,12 @@
+diff --git a/benchmarks/adaptive_policy_bfs.cpp b/benchmarks/adaptive_policy_bfs.cpp
+--- a/benchmarks/adaptive_policy_bfs.cpp
++++ b/benchmarks/adaptive_policy_bfs.cpp
+@@
+-      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&
+-          update_fraction >= kLargeGraphUpdateGuard;
++      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&
++          update_fraction >= kLargeGraphUpdateGuard && fresh_model &&
++          predicted_incremental > predicted_full * 1.05;
+@@
+-        trace.reason = "large_graph_update_guard";
++        trace.reason = "confidence_large_graph_update_guard";
