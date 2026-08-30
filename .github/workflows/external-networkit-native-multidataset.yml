@@ -98,12 +98,16 @@ jobs:
             --input build/native-campaign/datasets/web-Google.txt \
             --output build/native-campaign/web-Google.txt \
             --report build/native-campaign/web-Google-normalization.json \
-            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 \
+            --expected-vertices 875713 \
+            --expected-edges 5105039
           python tools/prepare_pinned_edge_stream.py \
             --input build/native-campaign/datasets/ca-GrQc.txt \
             --output build/native-campaign/ca-GrQc.txt \
             --report build/native-campaign/ca-GrQc-normalization.json \
-            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5
+            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
+            --expected-vertices 5242 \
+            --expected-edges 14496
 
           python - <<'PY'
           import json, subprocess
