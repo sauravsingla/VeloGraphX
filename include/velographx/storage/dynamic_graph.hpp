@@ -258,6 +258,55 @@ class PackedDeltaStore {
     else upsert(u, v, desired_present);
   }
 
+  bool set_if_changed(VertexId u, VertexId v, bool desired_present, bool base_present) {
+    resize_vertices(static_cast<std::size_t>(u) + 1);
+    auto& meta = rows_[u];
+    const auto entries = row(u);
+    const auto it = std::lower_bound(entries.begin(), entries.end(), v,
+                                     [](const Entry& e, VertexId target) { return e.dst < target; });
+    const auto pos = static_cast<std::size_t>(it - entries.begin());
+    const bool found = it != entries.end() && it->dst == v;
+    const bool current = found ? it->present : base_present;
+    if (current == desired_present) return false;
+
+    if (desired_present == base_present) {
+      if (!found) return false;
+      const bool old_present = it->present;
+      if (old_present) --present_entries_;
+      else --absent_entries_;
+      for (std::size_t i = pos + 1; i < meta.count; ++i) {
+        arena_[meta.offset + i - 1] = arena_[meta.offset + i];
+      }
+      --meta.count;
+      --live_entries_;
+      return true;
+    }
+
+    if (found) {
+      if (it->present) {
+        --present_entries_;
+        ++absent_entries_;
+      } else {
+        --absent_entries_;
+        ++present_entries_;
+      }
+      arena_[meta.offset + pos].present = desired_present;
+      return true;
+    }
+
+    ensure_capacity(u, meta.count + 1);
+    auto& refreshed = rows_[u];
+    for (std::size_t i = refreshed.count; i > pos; --i) {
+      arena_[refreshed.offset + i] = arena_[refreshed.offset + i - 1];
+    }
+    arena_[refreshed.offset + pos] = {v, desired_present};
+    ++refreshed.count;
+    ++live_entries_;
+    if (desired_present) ++present_entries_;
+    else ++absent_entries_;
+    return true;
+  }
+
   [[nodiscard]] std::size_t size() const noexcept { return live_entries_; }
   [[nodiscard]] std::size_t additions() const noexcept { return present_entries_; }
   [[nodiscard]] std::size_t deletions() const noexcept { return absent_entries_; }
@@ -639,11 +688,8 @@ class DynamicGraph {
 
   void apply_arc(VertexId u, VertexId v, bool present) {
     const auto base_present_out = compact_contains(base_out_, patches_out_, u, v);
-    const auto overlay = delta_out_.override_for(u, v);
-    const bool current = overlay.has_value() ? *overlay : base_present_out;
-    if (current == present) return;
+    if (!delta_out_.set_if_changed(u, v, present, base_present_out)) return;
 
-    delta_out_.set(u, v, present, base_present_out);
     delta_in_.set(v, u, present, compact_contains(base_in_, patches_in_, v, u));
     dirty_out_rows_.push_back(u);
     dirty_in_rows_.push_back(v);
