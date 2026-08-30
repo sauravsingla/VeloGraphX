@@ -4,7 +4,6 @@
 #include <functional>
 #include <limits>
 #include <queue>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 #include "velographx/storage/dynamic_graph.hpp"
@@ -38,7 +37,7 @@ class IncrementalBFS {
       auto v = it->dst;
       if (!g_.directed() && v < u) std::swap(u, v);
       const auto key = edge_key(u, v);
-      if (!seen_final_updates_.insert(key).second) continue;
+      if (!seen_final_updates_.insert(key)) continue;
       if (it->add) {
         final_additions_.emplace_back(it->src, it->dst);
       } else {
@@ -116,6 +115,61 @@ class IncrementalBFS {
   }
 
  private:
+  class ReusableKeySet {
+   public:
+    void reset(std::size_t expected_entries) {
+      std::size_t required = 8;
+      const auto target = expected_entries * 2 + 1;
+      while (required < target) required <<= 1;
+      if (keys_.size() < required) {
+        keys_.assign(required, 0);
+        stamps_.assign(required, 0);
+        mask_ = required - 1;
+        generation_ = 1;
+        return;
+      }
+      ++generation_;
+      if (generation_ == 0) {
+        std::fill(stamps_.begin(), stamps_.end(), 0);
+        generation_ = 1;
+      }
+    }
+
+    bool insert(std::uint64_t key) noexcept {
+      std::size_t slot = static_cast<std::size_t>(mix(key)) & mask_;
+      while (stamps_[slot] == generation_) {
+        if (keys_[slot] == key) return false;
+        slot = (slot + 1) & mask_;
+      }
+      keys_[slot] = key;
+      stamps_[slot] = generation_;
+      return true;
+    }
+
+    [[nodiscard]] bool contains(std::uint64_t key) const noexcept {
+      if (keys_.empty()) return false;
+      std::size_t slot = static_cast<std::size_t>(mix(key)) & mask_;
+      while (stamps_[slot] == generation_) {
+        if (keys_[slot] == key) return true;
+        slot = (slot + 1) & mask_;
+      }
+      return false;
+    }
+
+   private:
+    static std::uint64_t mix(std::uint64_t value) noexcept {
+      value += 0x9e3779b97f4a7c15ULL;
+      value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
+      value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
+      return value ^ (value >> 31);
+    }
+
+    std::vector<std::uint64_t> keys_;
+    std::vector<std::uint32_t> stamps_;
+    std::size_t mask_{0};
+    std::uint32_t generation_{0};
+  };
+
   [[nodiscard]] std::uint64_t edge_key(VertexId u, VertexId v) const noexcept {
     if (!g_.directed() && v < u) std::swap(u, v);
     return (static_cast<std::uint64_t>(u) << 32) | static_cast<std::uint64_t>(v);
@@ -128,8 +182,8 @@ class IncrementalBFS {
   }
 
   void prepare_batch_workspace(std::size_t operations) {
-    seen_final_updates_.clear();
-    final_deletion_keys_.clear();
+    seen_final_updates_.reset(operations);
+    final_deletion_keys_.reset(operations);
     final_additions_.clear();
     final_deletions_.clear();
     existing_deletions_.clear();
@@ -139,9 +193,6 @@ class IncrementalBFS {
     invalidate_.clear();
     touched_loss_vertices_.clear();
 
-    const auto hash_capacity = operations * 2 + 1;
-    if (seen_final_updates_.bucket_count() < hash_capacity) seen_final_updates_.reserve(hash_capacity);
-    if (final_deletion_keys_.bucket_count() < operations + 1) final_deletion_keys_.reserve(operations + 1);
     if (final_additions_.capacity() < operations) final_additions_.reserve(operations);
     if (final_deletions_.capacity() < operations) final_deletions_.reserve(operations);
     if (existing_deletions_.capacity() < operations) existing_deletions_.reserve(operations);
@@ -165,7 +216,7 @@ class IncrementalBFS {
 
   bool compute_affected_prebatch(
       const std::vector<std::pair<VertexId, VertexId>>& existing_deletions,
-      const std::unordered_set<std::uint64_t>& final_deletion_keys) {
+      const ReusableKeySet& final_deletion_keys) {
     const auto fallback_limit = std::max<std::size_t>(
         1, static_cast<std::size_t>(static_cast<double>(g_.vertex_count()) * deletion_fallback_fraction_));
     invalidate_.reserve(std::min<std::size_t>(existing_deletions.size() * 2 + 8, g_.vertex_count()));
@@ -301,8 +352,8 @@ class IncrementalBFS {
   std::vector<std::uint32_t> shortest_parent_count_;
   std::vector<VertexId> touched_loss_vertices_;
 
-  std::unordered_set<std::uint64_t> seen_final_updates_;
-  std::unordered_set<std::uint64_t> final_deletion_keys_;
+  ReusableKeySet seen_final_updates_;
+  ReusableKeySet final_deletion_keys_;
   std::vector<std::pair<VertexId, VertexId>> final_additions_;
   std::vector<std::pair<VertexId, VertexId>> final_deletions_;
   std::vector<std::pair<VertexId, VertexId>> existing_deletions_;
