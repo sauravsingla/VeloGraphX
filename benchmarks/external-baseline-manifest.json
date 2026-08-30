@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "purpose": "Record immutable external-system identities and comparison eligibility for dynamic BFS evidence.",
   "accepted_same_semantics": [
     {
@@ -9,19 +9,24 @@
       "algorithm": "official bfs_inc_batch",
       "scope": "directed unweighted exact BFS under batched sliding-window insertions and deletions",
       "timing_contract": "graph mutation plus answer maintenance",
-      "status": "measured",
-      "notes": "Native incremental-maintenance research-system baseline."
+      "status": "measured-native",
+      "notes": "Native incremental-maintenance research-system baseline; existing result is a separate hosted-CI campaign."
     },
     {
       "system": "NetworKit",
       "repository": "https://github.com/networkit/networkit",
       "version": "11.2.1",
       "revision": "359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c",
-      "algorithm": "networkit.distance.DynBFS",
+      "algorithm": "NetworKit::DynBFS",
       "scope": "directed unweighted exact BFS under batched sliding-window insertions and deletions",
-      "timing_contract": "graph mutation plus DynBFS.updateBatch; independent full BFS verification excluded from timing",
-      "status": "workflow-backed",
-      "notes": "Exact dynamic BFS implementation; Python binding invocation is explicitly recorded as a measurement limitation."
+      "timing_contract": "native C++ graph mutation plus DynBFS.updateBatch; independent full BFS verification excluded from timing",
+      "status": "measured-native-repeated-multidataset",
+      "campaign_run_id": 33291065285,
+      "campaign_head_sha": "2e2d84f549a147dd52b7be7cb44709b2ffe0046c",
+      "artifact_id": 9726044346,
+      "repetitions_per_dataset": 5,
+      "datasets": ["web-Google", "ca-GrQc"],
+      "notes": "Native C++ same-machine repeated campaign. All repetitions require exact correctness and nontrivial final reachability before timing is accepted."
     }
   ],
   "accepted_secondary_system_baselines": [
@@ -57,5 +62,5 @@
       "reason": "Credible structural dynamic graph systems, but GFE separates update experiments from Graphalytics BFS kernels instead of restoring BFS after each identical batch."
     }
   ],
-  "claim_rule": "Only systems in accepted_same_semantics may appear in the main dynamic-BFS latency table. Secondary systems must be reported in separately labelled experiments with their different execution semantics stated explicitly."
+  "claim_rule": "Only systems in accepted_same_semantics may appear in the main dynamic-BFS latency evidence. Same-machine paired ratios may be reported for a campaign; results from different hosted runners must not be combined into a cross-system ranking. Hosted-CI measurements remain engineering evidence, not universal or publication-grade superiority claims."
 }
