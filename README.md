@@ -4,7 +4,24 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 
-**VeloGraphX is a CPU-native C++20 research engine for exact analytics on changing graphs.** It combines compact mutable graph storage, localized incremental repair, workload-aware execution, and reproducible benchmarking in one system.
+**VeloGraphX is a CPU-native C++20 research engine for exact analytics on changing graphs.** It combines compact mutable graph storage, localized exact repair, workload-aware incremental-vs-recomputation control, and reproducible benchmarking in one system.
+
+## Research focus
+
+VeloGraphX studies a practical systems question:
+
+> **When a graph changes, when is it better to repair the current exact result incrementally, and when is full recomputation the better execution strategy?**
+
+The project explores this question through a CPU-native architecture that couples:
+
+- compact mutable graph storage,
+- exact localized repair,
+- graph-scale-conditioned online cost estimation,
+- uncertainty-aware incremental/full selection,
+- selector-owned recomputation control, and
+- reproducible evaluation against full recomputation and external exact baselines.
+
+The contribution is the **integration and evaluation of these mechanisms as one exact dynamic-graph execution architecture**. Individual graph algorithms such as BFS, SSSP, connected components, k-core, PageRank, and triangle counting are established techniques and are not presented as new algorithms.
 
 ## Architecture
 
@@ -13,7 +30,7 @@ update stream
     ↓
 compact mutable graph storage
     ↓
-work estimation
+work and cost estimation
     ↓
 localized exact repair  ↔  full recomputation
     ↓
@@ -26,7 +43,7 @@ exact maintained result
 | --- | --- |
 | Dynamic storage | Segmented CSR, packed deltas, sparse row patches, reverse adjacency, validated consolidation |
 | Incremental analytics | BFS / unweighted SSSP, weighted SSSP, exact triangles, connected components, k-core, PageRank repair |
-| Workload-aware execution | Update-density preflight, affected-work estimation, incremental/full fallback mechanisms |
+| Adaptive execution | Update-density preflight, affected-work signals, graph-scale conditioning, online cost estimates, uncertainty-aware selection |
 | CPU execution | SIMD intersections, multicore scheduling, push/pull frontiers, work stealing, NUMA-aware policies |
 | Interoperability | C++20, pybind11, NumPy, SciPy CSR, Apache Arrow |
 | Reproducibility | Checksum-pinned datasets, pinned baselines, exactness gates, environment capture, retained artifacts |
@@ -35,7 +52,7 @@ exact maintained result
 
 Measurements below use reproducible benchmark contracts and independent exactness checks.
 
-### Dynamic BFS
+### Dynamic BFS vs NetworKit
 
 A native C++ comparison with NetworKit 11.2.1 uses the same hosted runner, one thread, identical update streams, five paired repetitions, and independent full-BFS verification after every batch.
 
@@ -51,7 +68,7 @@ Canonical run: `33301190847`, artifact `9729078197`.
 
 ### Adaptive BFS policy
 
-A development-suite evaluation across checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` workloads measures the workload-aware selector against the best measured execution policy while including selector feature cost in adaptive timing.
+A development-suite evaluation across checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` workloads compares the workload-aware selector with the best measured execution policy while including selector feature cost in adaptive timing.
 
 | Metric | Result |
 | --- | ---: |
@@ -61,17 +78,22 @@ A development-suite evaluation across checksum-pinned `ca-GrQc`, `soc-Epinions1`
 | Worst-regime regret | **18.25%** |
 | Mean selector decision cost | **7.49 µs** |
 
-All pre-specified development acceptance criteria were satisfied: exactness = 100%, mean regret ≤ 5%, p95 batch regret ≤ 20%, and worst-regime regret ≤ 25%. The selector uses graph-scale conditioning, online cost estimates, uncertainty-aware decisions, and selector-owned large-graph repair/recompute control.
+All pre-specified development acceptance criteria were satisfied: exactness = 100%, mean regret ≤ 5%, p95 batch regret ≤ 20%, and worst-regime regret ≤ 25%.
 
-These figures are **development-suite adaptive-policy results** and are reported separately from external-baseline measurements.
+The evaluated selector combines graph-scale conditioning, online cost estimation, uncertainty-aware decisions, and selector-owned large-graph repair/recompute control. These figures are **development-suite adaptive-policy results** and are reported separately from external-baseline measurements.
 
 ### Incremental vs recomputation crossover
 
-The benchmark suite directly compares four execution strategies: always incremental, always full recomputation, a fixed update threshold, and workload-aware adaptive execution.
+The benchmark suite directly compares four execution strategies:
 
-A controlled campaign covered **3 checksum-pinned graph families × 3 roots × 3 update regimes × 5 repetitions**. All policy outputs passed independent full-BFS verification. The experiment demonstrates measurable crossover behavior: the most efficient execution strategy changes with graph structure, root, and update intensity.
+- always incremental,
+- always full recomputation,
+- a fixed update threshold, and
+- workload-aware adaptive execution.
 
-This benchmark infrastructure records per-batch latency, affected work, recomputation decisions, oracle-relative regret, and crossover points, providing a reproducible foundation for studying dynamic execution policies.
+A controlled campaign covered **3 checksum-pinned graph families × 3 roots × 3 update regimes × 5 repetitions**. All policy outputs passed independent full-BFS verification.
+
+The measurements show clear crossover behavior: the most efficient strategy changes with graph structure, root state, and update intensity. The benchmark records per-batch latency, affected work, recomputation decisions, oracle-relative regret, and crossover points.
 
 ### Exact dynamic triangles
 
@@ -89,16 +111,7 @@ Against the pinned exact `GoldenCounter` component from the public SIGMOD 2021 s
 
 ## Correctness
 
-VeloGraphX uses differential and independent-reference validation throughout its test and benchmark infrastructure. CI covers:
-
-- Ubuntu and macOS builds
-- Linux ASan/UBSan
-- dynamic graph mutation and storage consistency
-- incremental-vs-full differential correctness
-- SIMD/scalar agreement
-- scheduler and NUMA behavior
-- Python interoperability
-- dataset provenance and benchmark contracts
+VeloGraphX uses differential and independent-reference validation throughout its test and benchmark infrastructure. CI covers Ubuntu and macOS builds, Linux ASan/UBSan, dynamic graph mutation and storage consistency, incremental-vs-full differential correctness, SIMD/scalar agreement, scheduler and NUMA behavior, Python interoperability, dataset provenance, and benchmark contracts.
 
 ## Reproducibility
 
