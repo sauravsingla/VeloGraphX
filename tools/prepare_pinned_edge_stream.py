@@ -48,9 +48,6 @@ def main() -> int:
     if actual_sha != expected_sha:
         raise ValueError(f"source sha256 mismatch: expected {expected_sha}, got {actual_sha}")
 
-    # First pass validates the exact pinned source and discovers its vertex set.
-    # SNAP datasets may use sparse/non-contiguous raw IDs, so the published node
-    # count must not be interpreted as an upper bound on a raw vertex identifier.
     vertices = set()
     edge_count = 0
     raw_min_vertex = None
@@ -73,9 +70,6 @@ def main() -> int:
     if vertex_count != args.expected_vertices:
         raise ValueError(f"vertex count mismatch: expected {args.expected_vertices}, got {vertex_count}")
 
-    # Ascending raw-ID relabeling is deterministic and independent of edge
-    # arrival order. The second pass emits edges in their ORIGINAL source order;
-    # there is no edge sorting, deduplication, or direction change.
     ordered_vertices = sorted(vertices)
     remap = {vertex: dense for dense, vertex in enumerate(ordered_vertices)}
 
@@ -96,10 +90,7 @@ def main() -> int:
         "source_sha256": actual_sha,
         "output_path": str(args.output),
         "output_sha256": sha256_file(args.output),
-        "preparation": (
-            "checksum-pinned source order; comments stripped; deterministic dense vertex relabel "
-            "by ascending original ID; no edge reordering"
-        ),
+        "preparation": "checksum-pinned source order; comments stripped; no edge reordering",
         "vertex_count": vertex_count,
         "edge_count": edge_count,
         "self_loop_rows": 0,
