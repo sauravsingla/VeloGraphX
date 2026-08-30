@@ -4,6 +4,7 @@ on:
     paths:
       - '.github/workflows/adaptive-policy-v2-calibration.yml'
       - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'benchmarks/adaptive_policy_v3_guard.patch'
   workflow_dispatch:
 
 jobs:
@@ -19,6 +20,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
+      - name: Apply final confidence-aware guard patch
+        run: git apply benchmarks/adaptive_policy_v3_guard.patch
       - name: Build selector v2
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
@@ -58,7 +61,7 @@ jobs:
                   assert d['selector_feature_cost_included_in_adaptive_timing']
                   assert d['all_policies_exact']
           PY
-      - name: Calibration diagnostics
+      - name: Calibration diagnostics and fixed acceptance
         run: |
           python - <<'PY'
           import glob,json,statistics
@@ -73,14 +76,18 @@ jobs:
               if r>.20:
                 t=a['trace'][i].copy();t.update({'file':fn,'batch_index':i,'regret':r,'actual_incremental_us':ps['always_incremental']['batch_us'][i],'actual_full_us':ps['always_full']['batch_us'][i],'actual_simple_us':ps['simple_threshold']['batch_us'][i],'actual_adaptive_us':v});tail.append(t)
           batches.sort();p95=batches[min(len(batches)-1,int(.95*(len(batches)-1)))]
-          summary={'all_exact':True,'development_only':True,'email_EuAll_used_for_tuning':False,'regime_mean_regret':statistics.mean(regs),'p95_batch_regret':p95,'worst_regime_regret':max(regs),'mean_decision_us':statistics.mean(decisions),'mean_selector_setup_us':statistics.mean(setups),'tail_batches_over_20pct':len(tail),'dataset_mean_regret':{k:statistics.mean(v) for k,v in by_dataset.items()}}
+          summary={'all_exact':True,'development_only':True,'email_EuAll_used_for_tuning':False,'regime_mean_regret':statistics.mean(regs),'p95_batch_regret':p95,'worst_regime_regret':max(regs),'mean_decision_us':statistics.mean(decisions),'mean_selector_setup_us':statistics.mean(setups),'tail_batches_over_20pct':len(tail),'dataset_mean_regret':{k:statistics.mean(v) for k,v in by_dataset.items()},'targets':{'mean_regret':0.05,'p95_batch_regret':0.20,'worst_regime_regret':0.25,'exactness':1.0}}
           print(json.dumps(summary,indent=2));open('build/v2-calibration/summary/summary.json','w').write(json.dumps(summary,indent=2)+'\n')
           tail.sort(key=lambda x:x['regret'],reverse=True);open('build/v2-calibration/summary/tail-cases.json','w').write(json.dumps(tail,indent=2)+'\n')
+          assert summary['all_exact']
+          assert summary['regime_mean_regret'] <= 0.05, summary
+          assert summary['p95_batch_regret'] <= 0.20, summary
+          assert summary['worst_regime_regret'] <= 0.25, summary
           PY
       - name: Development provenance
         if: always()
         run: |
-          { echo selector_commit=$(git rev-parse HEAD); echo development_datasets=ca-GrQc,soc-Epinions1,web-Google; echo email_EuAll_used_for_tuning=false; echo repetitions=3; echo feature_cost_in_adaptive_timing=true; } > build/v2-calibration/provenance.txt
+          { echo selector_commit=$(git rev-parse HEAD); echo guard_patch=benchmarks/adaptive_policy_v3_guard.patch; echo development_datasets=ca-GrQc,soc-Epinions1,web-Google; echo email_EuAll_used_for_tuning=false; echo repetitions=3; echo feature_cost_in_adaptive_timing=true; echo fixed_targets='mean<=0.05,p95<=0.20,worst<=0.25,exact=100%'; } > build/v2-calibration/provenance.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: adaptive-selector-v2-calibration, path: build/v2-calibration/, retention-days: 90}
