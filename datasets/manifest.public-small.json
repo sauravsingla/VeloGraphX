@@ -10,6 +10,14 @@
       "weighted": false
     },
     {
+      "name": "soc-Epinions1",
+      "url": "https://snap.stanford.edu/data/soc-Epinions1.txt.gz",
+      "sha256": "69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938",
+      "format": "edge-list-gzip",
+      "directed": true,
+      "weighted": false
+    },
+    {
       "name": "web-Google",
       "url": "https://raw.githubusercontent.com/ease-lab/dbg/3737683c0a0bcff6469a4691c16f51425a6bbfd3/datasets/web-Google.txt",
       "sha256": "8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1",
