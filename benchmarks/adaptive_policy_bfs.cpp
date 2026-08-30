@@ -16,6 +16,8 @@
 namespace {
 using Edge = std::pair<velographx::VertexId, velographx::VertexId>;
 using Clock = std::chrono::steady_clock;
+constexpr double kAdaptiveAffectedFraction = 0.05;
+constexpr double kAdaptivePreflightUpdateFraction = 0.05;
 
 struct PolicyResult {
   std::string name;
@@ -96,7 +98,7 @@ PolicyResult run_policy(const std::string& policy,
   velographx::DynamicGraph graph(vertices, true);
   graph.bulk_load_edges(initial);
 
-  const double fallback_fraction = policy == "always_incremental" ? 2.0 : 0.35;
+  const double fallback_fraction = policy == "always_incremental" ? 2.0 : kAdaptiveAffectedFraction;
   velographx::IncrementalBFS bfs(graph, root, fallback_fraction);
   PolicyResult result;
   result.name = policy;
@@ -104,6 +106,9 @@ PolicyResult run_policy(const std::string& policy,
   for (std::size_t local_begin = imported_edges; local_begin < edges.size(); local_begin += batch_size) {
     const auto local_end = std::min(local_begin + batch_size, edges.size());
     auto updates = make_batch(edges, imported_edges, local_begin, local_end);
+    const auto denominator = std::max<std::size_t>(1, graph.edge_count_directed());
+    const double update_fraction = static_cast<double>(updates.updates.size()) /
+                                   static_cast<double>(denominator);
 
     const auto begin = Clock::now();
     if (policy == "always_full") {
@@ -111,9 +116,6 @@ PolicyResult run_policy(const std::string& policy,
       bfs.recompute();
       ++result.full_recompute_batches;
     } else if (policy == "simple_threshold") {
-      const auto denominator = std::max<std::size_t>(1, graph.edge_count_directed());
-      const double update_fraction = static_cast<double>(updates.updates.size()) /
-                                     static_cast<double>(denominator);
       if (update_fraction >= simple_update_fraction) {
         graph.apply(updates);
         bfs.recompute();
@@ -121,6 +123,20 @@ PolicyResult run_policy(const std::string& policy,
       } else {
         bfs.apply(updates);
         result.affected_vertices += bfs.last_affected_vertices();
+      }
+    } else if (policy == "adaptive") {
+      // Stage 1: a cheap preflight gate avoids paying repair-discovery cost when
+      // the input update itself is already large relative to the live graph.
+      // Stage 2: for smaller inputs, exact repair is abortable once affected
+      // work expands beyond the calibrated vertex budget.
+      if (update_fraction >= kAdaptivePreflightUpdateFraction) {
+        graph.apply(updates);
+        bfs.recompute();
+        ++result.full_recompute_batches;
+      } else {
+        bfs.apply(updates);
+        result.affected_vertices += bfs.last_affected_vertices();
+        result.full_recompute_batches += bfs.last_used_full_recompute() ? 1 : 0;
       }
     } else {
       bfs.apply(updates);
@@ -194,12 +210,14 @@ int main(int argc, char** argv) {
   for (const auto value : oracle) oracle_total += value;
 
   bool all_exact = true;
-  std::cout << "{\"schema_version\":1,\"artifact_type\":\"velographx-adaptive-policy-ablation\","
+  std::cout << "{\"schema_version\":2,\"artifact_type\":\"velographx-adaptive-policy-ablation\","
             << "\"root\":" << root64 << ",\"vertices\":" << vertices
             << ",\"source_edges\":" << edges.size() << ",\"initial_edges\":" << imported_edges
             << ",\"imported_rate\":" << imported_rate << ",\"batch_size\":" << batch_size
             << ",\"simple_update_fraction\":" << simple_update_fraction
-            << ",\"adaptive_affected_fraction\":0.35,\"batches\":" << batches
+            << ",\"adaptive_affected_fraction\":" << kAdaptiveAffectedFraction
+            << ",\"adaptive_preflight_update_fraction\":" << kAdaptivePreflightUpdateFraction
+            << ",\"batches\":" << batches
             << ",\"verification_excluded_from_timing\":true,\"policies\":[";
 
   for (std::size_t p = 0; p < results.size(); ++p) {
