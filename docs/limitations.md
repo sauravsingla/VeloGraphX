@@ -38,7 +38,9 @@ Python bindings support NumPy, SciPy CSR and Apache Arrow ingestion when optiona
 
 The repository has same-semantics dynamic-BFS evidence against RisGraph and NetworKit 11.2.1 `DynBFS`. The NetworKit campaign is native C++, uses one OpenMP thread, runs five paired repetitions per dataset on the same hosted runner, and requires exact correctness plus nontrivial reachability before timing is accepted. See [`external-dynamic-baselines.md`](external-dynamic-baselines.md).
 
-The latest accepted clean campaign is GitHub Actions `33294575513`, VeloGraphX commit `2ebcd9107afeb977b41ad11be0ec4734ce767f63`, artifact `9727073670`. On that run, VeloGraphX measured **44.531 ms vs 43.607 ms NetworKit on web-Google (1.021x VX/NK)** and **0.3884 ms vs 0.08792 ms on ca-GrQc (4.417x VX/NK)**. Thus web-Google is near parity on this hosted runner, while ca-GrQc remains a material optimization gap.
+The latest accepted campaign is GitHub Actions `33295590400`, VeloGraphX commit `c05bfcb9fa071ccee487d186fe92fdad9ad3ef66`, artifact `9727429231`. It measured **39.661 ms vs 39.628 ms NetworKit on web-Google (1.001x paired VX/NK)** and **0.3054 ms vs 0.0753 ms on ca-GrQc (4.05x paired VX/NK)**. The small-graph storage-policy and packed-delta changes reduced VeloGraphX ca-GrQc mean latency from the prior clean 0.3884 ms to 0.3054 ms while retaining exact results. web-Google remains at same-run hosted-CI parity.
+
+ca-GrQc therefore remains a material optimization gap. The two obvious fixed-overhead issues—premature percentage-only compaction and duplicate forward-delta lookup—have been reduced, so further substantial progress is likely to require deeper storage or mutation-path work rather than changing BFS semantics.
 
 Important limits remain:
 
