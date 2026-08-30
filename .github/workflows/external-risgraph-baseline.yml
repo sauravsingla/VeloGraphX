@@ -7,6 +7,7 @@ on:
       - 'benchmarks/external_risgraph_bfs.cpp'
       - 'tools/prepare_risgraph_compat.py'
       - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/select_bfs_root.py'
       - 'include/velographx/incremental/bfs.hpp'
       - 'include/velographx/storage/**'
       - 'datasets/manifest.public-small.json'
@@ -21,7 +22,6 @@ jobs:
       RISGRAPH_SHA: 4e77f774d4aa7cd0bf3011e713496573b70c91ab
       IMPORTED_RATE: '0.99'
       BATCH_SIZE: '4096'
-      ROOT: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -60,7 +60,7 @@ jobs:
           cmake -S build/risgraph -B build/risgraph-build -DCMAKE_BUILD_TYPE=Release
           cmake --build build/risgraph-build --target bfs_inc_batch convert_to_binary -j 2
 
-      - name: Acquire checksum-pinned web-Google
+      - name: Acquire checksum-pinned web-Google and select root
         run: |
           mkdir -p build/external-risgraph/source
           EXPECTED_SHA=8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1
@@ -103,7 +103,17 @@ jobs:
           assert n['edge_count']==5105039
           assert n['source_sha256']=='8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1'
           assert n['preparation']=='checksum-pinned source order; comments stripped; no edge reordering'
+          assert n['dense_min_vertex']==0 and n['dense_max_vertex']==875712
+          assert n['source_vertex_zero_present'] is True and n['source_vertex_zero_dense_id']==0
           PY
+          python tools/select_bfs_root.py \
+            --input build/external-risgraph/web-Google-normalized.txt \
+            --imported-rate "$IMPORTED_RATE" \
+            --total-edges 5105039 \
+            --output build/external-risgraph/root-selection.json
+          ROOT=$(python -c "import json; print(json.load(open('build/external-risgraph/root-selection.json'))['root'])")
+          test "$ROOT" != "0"
+          echo "ROOT=$ROOT" >> "$GITHUB_ENV"
           build/risgraph-build/convert_to_binary < build/external-risgraph/web-Google-normalized.txt > build/external-risgraph/web-Google.bin
 
       - name: Capture environment
@@ -133,6 +143,7 @@ jobs:
           assert r['deletion_candidates']>=0 and r['affected_vertices']>=0
           assert r['full_recompute_batches']<=r['batches']
           assert r['legacy_full_recompute_wall_us']>0
+          assert sum(r['layer_counts'])>1000
           PY
 
       - name: Run official RisGraph
@@ -149,6 +160,7 @@ jobs:
           from pathlib import Path
           vx=json.load(open('build/external-risgraph/velographx.json'))
           compat=json.load(open('build/external-risgraph/compatibility-manifest.json'))
+          root_selection=json.load(open('build/external-risgraph/root-selection.json'))
           stdout=[x.strip() for x in Path('build/external-risgraph/risgraph.stdout').read_text().splitlines() if x.strip()]
           stderr=Path('build/external-risgraph/risgraph.stderr').read_text()
           assert len(stdout)>=2
@@ -158,16 +170,19 @@ jobs:
           assert vx['layer_counts']==rg_full
           mean=re.search(r'wall_mean = ([0-9.eE+-]+) us',stderr)
           total=re.search(r'wall_times = ([0-9.eE+-]+) us',stderr)
-          visited=re.findall(r'0 visited vertices: ([0-9]+)',stderr)
+          visited=re.findall(r'[0-9]+ visited vertices: ([0-9]+)',stderr)
           assert mean and total and visited
           rg_mean=float(mean.group(1)); rg_total=float(total.group(1))
+          visited_vertices=int(visited[-1])
+          assert visited_vertices>1000
           result={
-            'schema_version':2,'artifact_type':'velographx-external-risgraph-baseline',
+            'schema_version':3,'artifact_type':'velographx-external-risgraph-baseline',
             'dataset':'web-Google','dataset_vertices':875713,'dataset_edges':5105039,'directed':True,
-            'root':int(vx['root']),'imported_rate':vx['imported_rate'],'batch_size':vx['batch_size'],'batches':vx['batches'],
+            'root':int(vx['root']),'root_selection':root_selection,
+            'imported_rate':vx['imported_rate'],'batch_size':vx['batch_size'],'batches':vx['batches'],
             'initial_edges':vx['initial_edges'],'final_edges':vx['final_edges'],
             'update_semantics':'per batch: add next source-order window edges, remove equally many oldest source-order window edges, then maintain exact BFS',
-            'velographx_deletion_policy':'pre-batch shortest-path-DAG support invalidation, boundary repair, final-state insertion relaxation, and 35% affected-region fallback',
+            'velographx_deletion_policy':'conservative pre-batch shortest-path-DAG closure invalidation, boundary repair, final-state insertion relaxation, and 35% affected-region fallback',
             'legacy_velographx_policy':'full BFS recomputation after every deletion-containing batch',
             'deletion_candidates':vx['deletion_candidates'],'affected_vertices':vx['affected_vertices'],
             'full_recompute_batches':vx['full_recompute_batches'],
@@ -178,7 +193,7 @@ jobs:
             'velographx_wall_mean_us':vx['wall_mean_us'],'risgraph_wall_mean_us':rg_mean,
             'velographx_wall_total_us':vx['wall_us'],'risgraph_wall_total_us':rg_total,
             'latency_ratio_velographx_over_risgraph':vx['wall_mean_us']/rg_mean if rg_mean else None,
-            'visited_vertices':int(visited[-1]),'layer_counts':rg_full,
+            'visited_vertices':visited_vertices,'layer_counts':rg_full,
             'velographx_correct_against_independent_full_bfs':True,
             'legacy_velographx_correct_against_independent_full_bfs':True,
             'risgraph_incremental_equals_risgraph_full_recompute':True,'cross_system_layer_histogram_equal':True,
@@ -194,6 +209,7 @@ jobs:
           path: |
             build/external-risgraph/dataset-prepared.json
             build/external-risgraph/normalization.json
+            build/external-risgraph/root-selection.json
             build/external-risgraph/environment.json
             build/external-risgraph/lscpu.txt
             build/external-risgraph/pins.txt
