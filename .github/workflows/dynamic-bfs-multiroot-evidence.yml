@@ -68,27 +68,47 @@ jobs:
             --expected-nonloop-pair-multiplicity 2 \
             --expected-unique-nonloop-pairs 14484
 
-      - name: Select three deterministic reachability-screened roots per dataset
+      - name: Select three deterministic final-graph reachable roots per dataset
         run: |
           python - <<'PY'
-          import json, subprocess
-          from collections import Counter
+          import json
+          from collections import Counter, deque
           from pathlib import Path
 
-          def edges(path):
+          def read_edges(path):
+              result=[]
               with open(path) as f:
                   for line in f:
                       if not line.strip() or line.startswith('#'):
                           continue
                       u,v=map(int,line.split()[:2])
-                      yield u,v
+                      result.append((u,v))
+              return result
 
-          web=list(edges('build/multiroot/web-Google.txt'))
+          def reachable_count(edges, imported_rate, root):
+              width=int(len(edges)*imported_rate)
+              final_edges=edges[len(edges)-width:]
+              max_v=max(max(u,v) for u,v in edges)
+              adj=[[] for _ in range(max_v+1)]
+              for u,v in final_edges:
+                  adj[u].append(v)
+              if root >= len(adj):
+                  return 0
+              seen=bytearray(len(adj)); seen[root]=1
+              q=deque([root]); count=1
+              while q:
+                  u=q.popleft()
+                  for v in adj[u]:
+                      if not seen[v]:
+                          seen[v]=1; count+=1; q.append(v)
+              return count
+
+          web=read_edges('build/multiroot/web-Google.txt')
           web_n=int(len(web)*0.99)
           web_deg=Counter(u for u,_ in web[:web_n])
           web_candidates=[481807] + [u for u,_ in sorted(web_deg.items(), key=lambda kv:(-kv[1],kv[0]))]
 
-          ca=list(edges('build/multiroot/ca-GrQc.txt'))
+          ca=read_edges('build/multiroot/ca-GrQc.txt')
           width=int(len(ca)*0.75)
           initial=Counter(u for u,_ in ca[:width])
           final=Counter(u for u,_ in ca[len(ca)-width:])
@@ -97,38 +117,24 @@ jobs:
           ca_candidates=[4282] + ca_ranked
 
           configs={
-              'web-Google':(web_candidates,0.99,4096,100000),
-              'ca-GrQc':(ca_candidates,0.75,256,1000),
+              'web-Google':(web,web_candidates,0.99,100000),
+              'ca-GrQc':(ca,ca_candidates,0.75,1000),
           }
-          selected={}
-          screens={}
-          Path('build/multiroot/root-screen').mkdir(parents=True,exist_ok=True)
-          for name,(candidates,rate,batch,min_reachable) in configs.items():
-              picked=[]
-              seen=set()
-              records=[]
+          selected={}; screens={}
+          for name,(edges,candidates,rate,min_reachable) in configs.items():
+              picked=[]; records=[]; seen=set()
               for root in candidates:
-                  if root in seen:
-                      continue
+                  if root in seen: continue
                   seen.add(root)
-                  out=Path(f'build/multiroot/root-screen/{name}-root-{root}.json')
-                  with out.open('w') as f:
-                      subprocess.run(['build/vx/velographx_external_risgraph_bfs',
-                                      f'build/multiroot/{name}.txt',str(root),str(rate),str(batch)],
-                                     stdout=f,check=True)
-                  d=json.load(out.open())
-                  exact=bool(d['correct'] and d['legacy_correct'])
-                  reachable=int(d['visited_vertices'])
-                  records.append({'root':root,'visited_vertices':reachable,'all_exact':exact})
-                  if exact and reachable >= min_reachable:
+                  reachable=reachable_count(edges,rate,root)
+                  records.append({'root':root,'final_graph_reachable_vertices':reachable})
+                  if reachable >= min_reachable:
                       picked.append(root)
-                      if len(picked) == 3:
-                          break
-                  if len(records) >= 200 and len(picked) < 3:
-                      raise RuntimeError(f'could not find three qualifying roots for {name}: {records[-5:]}')
-              assert len(picked) == 3, (name,picked)
-              selected[name]=picked
-              screens[name]=records
+                      if len(picked)==3: break
+                  if len(records)>=500 and len(picked)<3:
+                      raise RuntimeError(f'could not find three qualifying roots for {name}')
+              assert len(picked)==3,(name,picked)
+              selected[name]=picked; screens[name]=records
           Path('build/multiroot/roots.json').write_text(json.dumps(selected,indent=2,sort_keys=True)+'\n')
           Path('build/multiroot/root-screen.json').write_text(json.dumps(screens,indent=2,sort_keys=True)+'\n')
           print(json.dumps(selected,sort_keys=True))
@@ -146,7 +152,7 @@ jobs:
               'web-Google':(0.99,4096,100000),
               'ca-GrQc':(0.75,256,1000),
           }
-          summary={'schema_version':2,'artifact_type':'velographx-exact-dynamic-bfs-multiroot','selection':'deterministic reachability-screened high-support roots','datasets':{}}
+          summary={'schema_version':3,'artifact_type':'velographx-exact-dynamic-bfs-multiroot','selection':'deterministic high-support roots screened by final-graph reachability only','datasets':{}}
           for name,(rate,batch,min_reachable) in configs.items():
               rows=[]
               for root in roots[name]:
@@ -163,7 +169,7 @@ jobs:
                       'visited_vertices':d['visited_vertices'],
                       'batches':d['batches'],
                       'wall_mean_us':d['wall_mean_us'],
-                      'affected_vertices_total':d.get('incremental_affected_vertices_total'),
+                      'affected_vertices_total':d.get('affected_vertices'),
                       'all_exact':True,
                   })
               summary['datasets'][name]={
