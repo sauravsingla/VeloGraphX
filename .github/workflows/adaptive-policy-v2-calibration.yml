@@ -33,7 +33,8 @@ jobs:
           s=s.replace(old,new,1)
           s=s.replace('trace.reason = "large_graph_update_guard";','trace.reason = previous_chose_full ? "hysteresis_hold_full" : "hysteresis_enter_full";',1)
           s=s.replace('''      result.traces.push_back(trace);''','''      previous_chose_full = choose_full;\n      result.traces.push_back(trace);''',1)
-          s=s.replace('''\"schema_version\":6,\"selector\":\"root-state-confidence-v2-fair\"''','''\"schema_version\":7,\"selector\":\"root-state-hysteresis-v2-final\"''',1)
+          assert 'root-state-confidence-v2-fair' in s
+          s=s.replace('root-state-confidence-v2-fair','root-state-hysteresis-v2-final',1)
           p.write_text(s)
           PY
       - name: Build selector v2
