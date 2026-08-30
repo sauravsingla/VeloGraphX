@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "purpose": "Record immutable external-system identities and comparison eligibility for dynamic BFS evidence.",
+  "accepted_same_semantics": [
+    {
+      "system": "RisGraph",
+      "repository": "https://github.com/thu-pacman/RisGraph",
+      "revision": "4e77f774d4aa7cd0bf3011e713496573b70c91ab",
+      "algorithm": "official bfs_inc_batch",
+      "scope": "directed unweighted exact BFS under batched sliding-window insertions and deletions",
+      "timing_contract": "graph mutation plus answer maintenance",
+      "status": "measured",
+      "notes": "Native incremental-maintenance research-system baseline."
+    },
+    {
+      "system": "NetworKit",
+      "repository": "https://github.com/networkit/networkit",
+      "version": "11.2.1",
+      "revision": "359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c",
+      "algorithm": "networkit.distance.DynBFS",
+      "scope": "directed unweighted exact BFS under batched sliding-window insertions and deletions",
+      "timing_contract": "graph mutation plus DynBFS.updateBatch; independent full BFS verification excluded from timing",
+      "status": "workflow-backed",
+      "notes": "Exact dynamic BFS implementation; Python binding invocation is explicitly recorded as a measurement limitation."
+    }
+  ],
+  "accepted_secondary_system_baselines": [
+    {
+      "system": "Teseo",
+      "repository": "https://github.com/cwida/teseo",
+      "revision": "2c37c2831c4d2acaaa838a86e1318363ce68c45b",
+      "evaluation_driver": "https://github.com/cwida/gfe_driver",
+      "evaluation_driver_revision": "9cbb186c9b06f6e214ba0102beba2ec3080f8b95",
+      "scope": "dynamic structural updates plus Graphalytics BFS over an updated snapshot",
+      "status": "screened-not-in-speedup-table",
+      "notes": "Serious VLDB 2021 dynamic-graph system, but its public evaluation contract does not maintain BFS incrementally after every update batch. Use only for a separately labelled snapshot/structural comparison."
+    },
+    {
+      "system": "Aspen",
+      "repository": "https://github.com/ldhulipala/aspen",
+      "revision": "ecc3193da05aef3b4e5f5de7cab77b215c0b8211",
+      "scope": "dynamic graph updates with BFS over acquired snapshots",
+      "status": "screened-not-in-speedup-table",
+      "notes": "Strong graph-streaming research system, but the public artifact exposes snapshot BFS rather than incremental BFS-state maintenance and relies on legacy Cilk Plus tooling."
+    }
+  ],
+  "rejected_for_same_semantics_table": [
+    {
+      "system": "Terrace",
+      "repository": "https://github.com/PASSIONLab/terrace",
+      "reason": "Dynamic storage system with graph kernels, but no public RisGraph-like exact incremental BFS maintenance contract; also depends on OpenCilk/Tapir-specific build tooling."
+    },
+    {
+      "system": "LiveGraph / GraphOne / STINGER via GFE Driver",
+      "evaluation_driver": "https://github.com/cwida/gfe_driver",
+      "evaluation_driver_revision": "9cbb186c9b06f6e214ba0102beba2ec3080f8b95",
+      "reason": "Credible structural dynamic graph systems, but GFE separates update experiments from Graphalytics BFS kernels instead of restoring BFS after each identical batch."
+    }
+  ],
+  "claim_rule": "Only systems in accepted_same_semantics may appear in the main dynamic-BFS latency table. Secondary systems must be reported in separately labelled experiments with their different execution semantics stated explicitly."
+}
