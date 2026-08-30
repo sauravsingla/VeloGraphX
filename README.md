@@ -49,6 +49,22 @@ The canonical run completed with exact results in all paired repetitions. Multi-
 
 Canonical run: `33301190847`, artifact `9729078197`.
 
+### Adaptive BFS policy
+
+A development-suite evaluation across checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` workloads measures the workload-aware selector against the best measured execution policy while including selector feature cost in adaptive timing.
+
+| Metric | Result |
+| --- | ---: |
+| Exactness | **100%** |
+| Mean oracle-relative regret | **3.15%** |
+| p95 batch regret | **19.78%** |
+| Worst-regime regret | **18.25%** |
+| Mean selector decision cost | **7.49 µs** |
+
+All pre-specified development acceptance criteria were satisfied: exactness = 100%, mean regret ≤ 5%, p95 batch regret ≤ 20%, and worst-regime regret ≤ 25%. The selector uses graph-scale conditioning, online cost estimates, uncertainty-aware decisions, and selector-owned large-graph repair/recompute control.
+
+These figures are **development-suite adaptive-policy results** and are reported separately from external-baseline measurements.
+
 ### Incremental vs recomputation crossover
 
 The benchmark suite directly compares four execution strategies: always incremental, always full recomputation, a fixed update threshold, and workload-aware adaptive execution.
