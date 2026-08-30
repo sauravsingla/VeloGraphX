@@ -97,8 +97,10 @@ def main() -> int:
         raise RuntimeError("root is outside graph domain")
 
     initial = edges[:imported]
+    initial_src = np.ascontiguousarray(initial[:, 0], dtype=np.int64)
+    initial_dst = np.ascontiguousarray(initial[:, 1], dtype=np.int64)
     graph = nk.GraphFromCoo(
-        (initial[:, 0], initial[:, 1]), n=n, weighted=False, directed=True
+        (initial_src, initial_dst), n=n, weighted=False, directed=True
     )
     if graph.numberOfEdges() != imported:
         raise RuntimeError(
