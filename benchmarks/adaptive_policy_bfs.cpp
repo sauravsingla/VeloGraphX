@@ -14,19 +14,335 @@
 #include "velographx/storage/dynamic_graph.hpp"
 
 namespace {
-using Edge=std::pair<velographx::VertexId,velographx::VertexId>; using Clock=std::chrono::steady_clock;
-constexpr double kAffectedBudget=.05, kPreflight=.05, kSparseReach=.20, kSparseReachFullUpdate=.0025, kEma=.25;
-struct PolicyResult{std::string name;std::vector<double> batch_us,decision_us;std::size_t full_recompute_batches{0},affected_vertices{0},oracle_matches{0};bool exact{true};};
-std::vector<Edge> read_edges(const std::string&p,std::size_t&n){std::ifstream in(p);if(!in)throw std::runtime_error("cannot open edge list");std::vector<Edge>e;std::string l;std::uint64_t m=0;bool s=false;while(std::getline(in,l)){if(l.empty()||l[0]=='#')continue;std::istringstream r(l);std::uint64_t u,v;if(!(r>>u>>v))continue;e.emplace_back((velographx::VertexId)u,(velographx::VertexId)v);m=std::max(m,std::max(u,v));s=true;}n=s?(std::size_t)m+1:0;return e;}
-std::vector<std::uint32_t> full_bfs(const velographx::DynamicGraph&g,velographx::VertexId s){auto inf=std::numeric_limits<std::uint32_t>::max();std::vector<std::uint32_t>d(g.vertex_count(),inf);if(s>=g.vertex_count())return d;std::queue<velographx::VertexId>q;d[s]=0;q.push(s);while(!q.empty()){auto u=q.front();q.pop();g.for_each_neighbor(u,[&](auto v){if(d[v]==inf){d[v]=d[u]+1;q.push(v);}});}return d;}
-std::size_t reachable(const std::vector<std::uint32_t>&d){auto inf=std::numeric_limits<std::uint32_t>::max();return std::count_if(d.begin(),d.end(),[&](auto x){return x!=inf;});}
-velographx::UpdateBatch batch(const std::vector<Edge>&e,std::size_t imp,std::size_t b,std::size_t z){velographx::UpdateBatch u;u.updates.reserve((z-b)*2);for(auto i=b;i<z;++i)u.add(e[i].first,e[i].second);for(auto i=b;i<z;++i){auto j=i-imp;u.remove(e[j].first,e[j].second);}return u;}
-PolicyResult run(const std::string&p,const std::vector<Edge>&e,std::size_t n,velographx::VertexId root,std::size_t imp,std::size_t bs,double simple){std::vector<Edge>init(e.begin(),e.begin()+imp);velographx::DynamicGraph g(n,true);g.bulk_load_edges(init);velographx::IncrementalBFS bfs(g,root,p=="always_incremental"?2.0:kAffectedBudget);PolicyResult R;R.name=p;double prev_aff=0,ema_inc=0,ema_full=0;bool have_inc=false,have_full=false;
- for(std::size_t b=imp;b<e.size();b+=bs){auto z=std::min(b+bs,e.size());auto u=batch(e,imp,b,z);auto t0=Clock::now();double uf=(double)u.updates.size()/std::max<std::size_t>(1,g.edge_count_directed());double rf=(double)reachable(bfs.distances())/std::max<std::size_t>(1,n);bool choose_full=false;
-  auto d0=Clock::now();if(p=="simple_threshold")choose_full=uf>=simple;else if(p=="adaptive"){double predicted_inc=have_inc?ema_inc*(1.0+2.0*prev_aff):0;double predicted_full=have_full?ema_full:0;bool learned=have_inc&&have_full&&predicted_full>0;choose_full=(rf<kSparseReach&&uf>=kSparseReachFullUpdate)||(uf>=kPreflight)||(learned&&predicted_inc>predicted_full*.95);}auto d1=Clock::now();R.decision_us.push_back(std::chrono::duration<double,std::micro>(d1-d0).count());
-  auto x0=Clock::now();if(p=="always_full"||choose_full){g.apply(u);bfs.recompute();++R.full_recompute_batches;}else{bfs.apply(u);R.affected_vertices+=bfs.last_affected_vertices();R.full_recompute_batches+=bfs.last_used_full_recompute()?1:0;}auto x1=Clock::now();double exec=std::chrono::duration<double,std::micro>(x1-x0).count();R.batch_us.push_back(std::chrono::duration<double,std::micro>(x1-t0).count());
-  if(p=="adaptive"){if(choose_full){ema_full=have_full?(1-kEma)*ema_full+kEma*exec:exec;have_full=true;}else{ema_inc=have_inc?(1-kEma)*ema_inc+kEma*exec:exec;have_inc=true;}prev_aff=(double)bfs.last_affected_vertices()/std::max<std::size_t>(1,n);}auto ref=full_bfs(g,root);if(ref!=bfs.distances())R.exact=false;
- }return R;}
-void arr(const std::vector<double>&v){std::cout<<'[';for(size_t i=0;i<v.size();++i){if(i)std::cout<<',';std::cout<<v[i];}std::cout<<']';}
+using Edge = std::pair<velographx::VertexId, velographx::VertexId>;
+using Clock = std::chrono::steady_clock;
+
+constexpr double kAffectedBudget = 0.05;
+constexpr double kPreflightFullUpdate = 0.05;
+constexpr double kVerySparseReach = 0.02;
+constexpr double kSparseReach = 0.20;
+constexpr double kSparseReachFullUpdate = 0.0025;
+constexpr double kEmaAlpha = 0.25;
+constexpr double kLearnedFullMargin = 1.25;
+constexpr std::size_t kFreshAge = 4;
+
+struct Trace {
+  double update_fraction{0.0};
+  double reachable_fraction{0.0};
+  double previous_affected_fraction{0.0};
+  double predicted_incremental_us{0.0};
+  double predicted_full_us{0.0};
+  std::size_t incremental_age{0};
+  std::size_t full_age{0};
+  bool chose_full{false};
+  std::string reason;
+};
+
+struct PolicyResult {
+  std::string name;
+  std::vector<double> batch_us;
+  std::vector<double> decision_us;
+  std::vector<Trace> traces;
+  std::size_t full_recompute_batches{0};
+  std::size_t affected_vertices{0};
+  bool exact{true};
+};
+
+std::vector<Edge> read_edges(const std::string& path, std::size_t& vertices) {
+  std::ifstream in(path);
+  if (!in) throw std::runtime_error("cannot open edge list");
+  std::vector<Edge> edges;
+  std::string line;
+  std::uint64_t max_vertex = 0;
+  bool saw = false;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    std::istringstream row(line);
+    std::uint64_t u = 0, v = 0;
+    if (!(row >> u >> v)) continue;
+    if (u > std::numeric_limits<velographx::VertexId>::max() ||
+        v > std::numeric_limits<velographx::VertexId>::max()) {
+      throw std::runtime_error("vertex id exceeds VertexId range");
+    }
+    edges.emplace_back(static_cast<velographx::VertexId>(u),
+                       static_cast<velographx::VertexId>(v));
+    max_vertex = std::max(max_vertex, std::max(u, v));
+    saw = true;
+  }
+  vertices = saw ? static_cast<std::size_t>(max_vertex + 1) : 0;
+  return edges;
 }
-int main(int ac,char**av){if(ac!=6)return 2;std::string path=av[1];auto root=(velographx::VertexId)std::stoull(av[2]);double rate=std::stod(av[3]);auto bs=(std::size_t)std::stoull(av[4]);double simple=std::stod(av[5]);std::size_t n=0;auto e=read_edges(path,n);auto imp=(std::size_t)(e.size()*rate);std::vector<std::string>names={"always_incremental","always_full","simple_threshold","adaptive"};std::vector<PolicyResult>rs;for(auto&p:names)rs.push_back(run(p,e,n,root,imp,bs,simple));auto nb=rs[0].batch_us.size();std::vector<double>oracle(nb,std::numeric_limits<double>::infinity());for(auto&r:rs)for(size_t i=0;i<nb;++i)oracle[i]=std::min(oracle[i],r.batch_us[i]);bool exact=true;std::cout<<"{\"schema_version\":4,\"selector\":\"root-state-online-v1\",\"root\":"<<root<<",\"vertices\":"<<n<<",\"batch_size\":"<<bs<<",\"batches\":"<<nb<<",\"policies\":[";for(size_t j=0;j<rs.size();++j){auto&r=rs[j];if(j)std::cout<<',';double total=0,du=0;for(auto x:r.batch_us)total+=x;for(auto x:r.decision_us)du+=x;exact&=r.exact;std::cout<<"{\"name\":\""<<r.name<<"\",\"exact\":"<<(r.exact?"true":"false")<<",\"total_us\":"<<total<<",\"mean_batch_us\":"<<total/std::max<size_t>(1,nb)<<",\"mean_decision_us\":"<<du/std::max<size_t>(1,nb)<<",\"full_recompute_batches\":"<<r.full_recompute_batches<<",\"affected_vertices\":"<<r.affected_vertices<<",\"batch_us\":";arr(r.batch_us);std::cout<<'}';}std::cout<<"],\"oracle_batch_us\":";arr(oracle);std::cout<<",\"all_policies_exact\":"<<(exact?"true":"false")<<"}\n";return exact?0:1;}
+
+std::vector<std::uint32_t> full_bfs(const velographx::DynamicGraph& graph,
+                                    velographx::VertexId source) {
+  const auto unreachable = std::numeric_limits<std::uint32_t>::max();
+  std::vector<std::uint32_t> dist(graph.vertex_count(), unreachable);
+  if (source >= graph.vertex_count()) return dist;
+  std::queue<velographx::VertexId> q;
+  dist[source] = 0;
+  q.push(source);
+  while (!q.empty()) {
+    const auto u = q.front();
+    q.pop();
+    graph.for_each_neighbor(u, [&](velographx::VertexId v) {
+      if (dist[v] == unreachable) {
+        dist[v] = dist[u] + 1;
+        q.push(v);
+      }
+    });
+  }
+  return dist;
+}
+
+std::size_t reachable_vertices(const std::vector<std::uint32_t>& distances) {
+  const auto unreachable = std::numeric_limits<std::uint32_t>::max();
+  return static_cast<std::size_t>(std::count_if(
+      distances.begin(), distances.end(),
+      [&](std::uint32_t x) { return x != unreachable; }));
+}
+
+velographx::UpdateBatch make_batch(const std::vector<Edge>& edges,
+                                   std::size_t imported_edges,
+                                   std::size_t begin,
+                                   std::size_t end) {
+  velographx::UpdateBatch updates;
+  updates.updates.reserve((end - begin) * 2);
+  for (std::size_t i = begin; i < end; ++i) {
+    updates.add(edges[i].first, edges[i].second);
+  }
+  for (std::size_t i = begin; i < end; ++i) {
+    const auto remove_index = i - imported_edges;
+    updates.remove(edges[remove_index].first, edges[remove_index].second);
+  }
+  return updates;
+}
+
+PolicyResult run_policy(const std::string& policy,
+                        const std::vector<Edge>& edges,
+                        std::size_t vertices,
+                        velographx::VertexId root,
+                        std::size_t imported_edges,
+                        std::size_t batch_size,
+                        double simple_update_fraction) {
+  std::vector<Edge> initial(edges.begin(), edges.begin() + imported_edges);
+  velographx::DynamicGraph graph(vertices, true);
+  graph.bulk_load_edges(initial);
+  velographx::IncrementalBFS bfs(
+      graph, root, policy == "always_incremental" ? 2.0 : kAffectedBudget);
+
+  PolicyResult result;
+  result.name = policy;
+
+  double previous_affected_fraction = 0.0;
+  double ema_incremental_us = 0.0;
+  double ema_full_us = 0.0;
+  bool have_incremental = false;
+  bool have_full = false;
+  std::size_t incremental_age = kFreshAge + 1;
+  std::size_t full_age = kFreshAge + 1;
+
+  for (std::size_t begin = imported_edges; begin < edges.size(); begin += batch_size) {
+    const auto end = std::min(begin + batch_size, edges.size());
+    auto updates = make_batch(edges, imported_edges, begin, end);
+    const auto total_begin = Clock::now();
+
+    const double update_fraction = static_cast<double>(updates.updates.size()) /
+        static_cast<double>(std::max<std::size_t>(1, graph.edge_count_directed()));
+    const double reachable_fraction = static_cast<double>(reachable_vertices(bfs.distances())) /
+        static_cast<double>(std::max<std::size_t>(1, vertices));
+
+    bool choose_full = false;
+    Trace trace;
+    trace.update_fraction = update_fraction;
+    trace.reachable_fraction = reachable_fraction;
+    trace.previous_affected_fraction = previous_affected_fraction;
+    trace.incremental_age = incremental_age;
+    trace.full_age = full_age;
+
+    const auto decision_begin = Clock::now();
+    if (policy == "simple_threshold") {
+      choose_full = update_fraction >= simple_update_fraction;
+    } else if (policy == "adaptive") {
+      const double predicted_incremental = have_incremental
+          ? ema_incremental_us * (1.0 + 2.0 * previous_affected_fraction)
+          : 0.0;
+      const double predicted_full = have_full ? ema_full_us : 0.0;
+      trace.predicted_incremental_us = predicted_incremental;
+      trace.predicted_full_us = predicted_full;
+
+      const bool fresh_model = have_incremental && have_full &&
+          incremental_age <= kFreshAge && full_age <= kFreshAge;
+
+      if (update_fraction >= kPreflightFullUpdate) {
+        choose_full = true;
+        trace.reason = "preflight_full";
+      } else if (reachable_fraction <= kVerySparseReach) {
+        choose_full = true;
+        trace.reason = "very_sparse_reach";
+      } else if (reachable_fraction < kSparseReach &&
+                 update_fraction >= kSparseReachFullUpdate) {
+        choose_full = true;
+        trace.reason = "sparse_reach_guard";
+      } else if (fresh_model && predicted_incremental >
+                                  predicted_full * kLearnedFullMargin) {
+        choose_full = true;
+        trace.reason = "fresh_cost_model";
+      } else {
+        choose_full = false;
+        trace.reason = fresh_model ? "confidence_incremental" : "insufficient_evidence_incremental";
+      }
+      trace.chose_full = choose_full;
+    }
+    const auto decision_end = Clock::now();
+    result.decision_us.push_back(
+        std::chrono::duration<double, std::micro>(decision_end - decision_begin).count());
+
+    const auto execution_begin = Clock::now();
+    if (policy == "always_full" || choose_full) {
+      graph.apply(updates);
+      bfs.recompute();
+      ++result.full_recompute_batches;
+    } else {
+      bfs.apply(updates);
+      result.affected_vertices += bfs.last_affected_vertices();
+      result.full_recompute_batches += bfs.last_used_full_recompute() ? 1 : 0;
+    }
+    const auto execution_end = Clock::now();
+    const double execution_us =
+        std::chrono::duration<double, std::micro>(execution_end - execution_begin).count();
+    result.batch_us.push_back(
+        std::chrono::duration<double, std::micro>(execution_end - total_begin).count());
+
+    if (policy == "adaptive") {
+      ++incremental_age;
+      ++full_age;
+      if (choose_full) {
+        ema_full_us = have_full
+            ? (1.0 - kEmaAlpha) * ema_full_us + kEmaAlpha * execution_us
+            : execution_us;
+        have_full = true;
+        full_age = 0;
+        previous_affected_fraction = 0.0;
+      } else {
+        ema_incremental_us = have_incremental
+            ? (1.0 - kEmaAlpha) * ema_incremental_us + kEmaAlpha * execution_us
+            : execution_us;
+        have_incremental = true;
+        incremental_age = 0;
+        previous_affected_fraction = static_cast<double>(bfs.last_affected_vertices()) /
+            static_cast<double>(std::max<std::size_t>(1, vertices));
+      }
+      result.traces.push_back(trace);
+    }
+
+    const auto reference = full_bfs(graph, root);
+    if (reference != bfs.distances()) result.exact = false;
+  }
+  return result;
+}
+
+void print_array(const std::vector<double>& values) {
+  std::cout << '[';
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i) std::cout << ',';
+    std::cout << values[i];
+  }
+  std::cout << ']';
+}
+
+void print_trace_array(const std::vector<Trace>& traces) {
+  std::cout << '[';
+  for (std::size_t i = 0; i < traces.size(); ++i) {
+    if (i) std::cout << ',';
+    const auto& t = traces[i];
+    std::cout << "{\"update_fraction\":" << t.update_fraction
+              << ",\"reachable_fraction\":" << t.reachable_fraction
+              << ",\"previous_affected_fraction\":" << t.previous_affected_fraction
+              << ",\"predicted_incremental_us\":" << t.predicted_incremental_us
+              << ",\"predicted_full_us\":" << t.predicted_full_us
+              << ",\"incremental_age\":" << t.incremental_age
+              << ",\"full_age\":" << t.full_age
+              << ",\"chose_full\":" << (t.chose_full ? "true" : "false")
+              << ",\"reason\":\"" << t.reason << "\"}";
+  }
+  std::cout << ']';
+}
+}  // namespace
+
+int main(int argc, char** argv) {
+  if (argc != 6) return 2;
+  const std::string path = argv[1];
+  const auto root64 = std::stoull(argv[2]);
+  const double imported_rate = std::stod(argv[3]);
+  const auto batch_size = static_cast<std::size_t>(std::stoull(argv[4]));
+  const double simple_update_fraction = std::stod(argv[5]);
+  if (root64 > std::numeric_limits<velographx::VertexId>::max()) return 2;
+  const auto root = static_cast<velographx::VertexId>(root64);
+
+  std::size_t vertices = 0;
+  const auto edges = read_edges(path, vertices);
+  const auto imported_edges = static_cast<std::size_t>(edges.size() * imported_rate);
+  if (edges.empty() || imported_edges == 0 || imported_edges >= edges.size() || batch_size == 0) return 2;
+
+  const std::vector<std::string> names = {
+      "always_incremental", "always_full", "simple_threshold", "adaptive"};
+  std::vector<PolicyResult> results;
+  for (const auto& name : names) {
+    results.push_back(run_policy(name, edges, vertices, root, imported_edges,
+                                 batch_size, simple_update_fraction));
+  }
+
+  const auto batches = results.front().batch_us.size();
+  std::vector<double> oracle(batches, std::numeric_limits<double>::infinity());
+  for (const auto& result : results) {
+    for (std::size_t i = 0; i < batches; ++i) {
+      oracle[i] = std::min(oracle[i], result.batch_us[i]);
+    }
+  }
+
+  bool all_exact = true;
+  std::cout << "{\"schema_version\":5,\"selector\":\"root-state-confidence-v2\""
+            << ",\"root\":" << root64
+            << ",\"vertices\":" << vertices
+            << ",\"batch_size\":" << batch_size
+            << ",\"batches\":" << batches
+            << ",\"thresholds\":{\"affected_budget\":" << kAffectedBudget
+            << ",\"preflight_full_update\":" << kPreflightFullUpdate
+            << ",\"very_sparse_reach\":" << kVerySparseReach
+            << ",\"sparse_reach\":" << kSparseReach
+            << ",\"sparse_reach_full_update\":" << kSparseReachFullUpdate
+            << ",\"learned_full_margin\":" << kLearnedFullMargin
+            << ",\"fresh_age\":" << kFreshAge << "}"
+            << ",\"policies\":[";
+
+  for (std::size_t p = 0; p < results.size(); ++p) {
+    const auto& result = results[p];
+    if (p) std::cout << ',';
+    double total_us = 0.0;
+    double decision_us = 0.0;
+    for (double x : result.batch_us) total_us += x;
+    for (double x : result.decision_us) decision_us += x;
+    all_exact = all_exact && result.exact;
+    std::cout << "{\"name\":\"" << result.name << "\""
+              << ",\"exact\":" << (result.exact ? "true" : "false")
+              << ",\"total_us\":" << total_us
+              << ",\"mean_batch_us\":" << total_us / std::max<std::size_t>(1, batches)
+              << ",\"mean_decision_us\":" << decision_us / std::max<std::size_t>(1, batches)
+              << ",\"full_recompute_batches\":" << result.full_recompute_batches
+              << ",\"affected_vertices\":" << result.affected_vertices
+              << ",\"batch_us\":";
+    print_array(result.batch_us);
+    if (result.name == "adaptive") {
+      std::cout << ",\"trace\":";
+      print_trace_array(result.traces);
+    }
+    std::cout << '}';
+  }
+
+  std::cout << "],\"oracle_batch_us\":";
+  print_array(oracle);
+  std::cout << ",\"verification_excluded_from_timing\":true"
+            << ",\"all_policies_exact\":" << (all_exact ? "true" : "false")
+            << "}\n";
+  return all_exact ? 0 : 1;
+}
