@@ -218,25 +218,32 @@ class IncrementalBFS {
     }
 
     using Item = std::pair<std::uint32_t, VertexId>;
-    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> pq;
+    const auto compare = std::greater<Item>{};
+    repair_heap_.clear();
+    if (repair_heap_.capacity() < affected_vertices_.size()) {
+      repair_heap_.reserve(affected_vertices_.size());
+    }
     for (auto v : affected_vertices_) {
       const auto best = best_boundary_distance(v);
       if (best != unreachable) {
         dist_[v] = best;
-        pq.emplace(best, v);
+        repair_heap_.emplace_back(best, v);
+        std::push_heap(repair_heap_.begin(), repair_heap_.end(), compare);
       }
     }
 
-    while (!pq.empty()) {
-      const auto [du, u] = pq.top();
-      pq.pop();
+    while (!repair_heap_.empty()) {
+      std::pop_heap(repair_heap_.begin(), repair_heap_.end(), compare);
+      const auto [du, u] = repair_heap_.back();
+      repair_heap_.pop_back();
       if (u >= dist_.size() || du != dist_[u]) continue;
       g_.for_each_neighbor(u, [&](VertexId v) {
         if (v >= affected_.size() || !affected_[v]) return;
         const auto candidate = du + 1;
         if (candidate < dist_[v]) {
           dist_[v] = candidate;
-          pq.emplace(candidate, v);
+          repair_heap_.emplace_back(candidate, v);
+          std::push_heap(repair_heap_.begin(), repair_heap_.end(), compare);
         }
       });
     }
@@ -304,6 +311,7 @@ class IncrementalBFS {
   std::vector<std::uint32_t> old_affected_dist_;
   std::vector<VertexId> invalidate_;
   std::vector<VertexId> bfs_queue_;
+  std::vector<std::pair<std::uint32_t, VertexId>> repair_heap_;
 
   std::size_t last_deletion_candidates_{0};
   std::size_t last_affected_vertices_{0};
