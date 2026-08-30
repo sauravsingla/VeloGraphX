@@ -1,0 +1,153 @@
+name: Exact Dynamic BFS Multi-root Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/dynamic-bfs-multiroot-evidence.yml'
+      - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/storage/**'
+      - 'tools/prepare_dataset.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/prepare_symmetric_pinned_edge_stream.py'
+      - 'datasets/manifest.public-small.json'
+  workflow_dispatch:
+
+jobs:
+  multiroot:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Build exact dynamic BFS harness
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+
+      - name: Prepare checksum-pinned datasets
+        run: |
+          mkdir -p build/multiroot/datasets
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+            --output-dir build/multiroot/datasets --dataset web-Google \
+            > build/multiroot/web-Google-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+            --output-dir build/multiroot/datasets --dataset ca-GrQc \
+            > build/multiroot/ca-GrQc-source.json
+
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/multiroot/datasets/web-Google.txt \
+            --output build/multiroot/web-Google.txt \
+            --report build/multiroot/web-Google-normalization.json \
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 \
+            --expected-vertices 875713 \
+            --expected-edges 5105039
+
+          python tools/prepare_symmetric_pinned_edge_stream.py \
+            --input build/multiroot/datasets/ca-GrQc.txt \
+            --output build/multiroot/ca-GrQc.txt \
+            --report build/multiroot/ca-GrQc-normalization.json \
+            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
+            --expected-vertices 5242 \
+            --expected-source-rows 28980 \
+            --expected-self-loops 12 \
+            --expected-nonloop-pair-multiplicity 2 \
+            --expected-unique-nonloop-pairs 14484
+
+      - name: Select three deterministic high-support roots per dataset
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          def edges(path):
+              with open(path) as f:
+                  for line in f:
+                      if not line.strip() or line.startswith('#'):
+                          continue
+                      u,v=map(int,line.split()[:2])
+                      yield u,v
+
+          # web-Google: top three out-degrees in the exact 99% imported prefix.
+          web=list(edges('build/multiroot/web-Google.txt'))
+          n=int(len(web)*0.99)
+          deg=Counter(u for u,_ in web[:n])
+          web_roots=[u for u,_ in sorted(deg.items(), key=lambda kv:(-kv[1],kv[0]))[:3]]
+
+          # ca-GrQc: top three roots by min(initial-window, final-window) out-degree,
+          # with summed support secondary and vertex ID tie-break.
+          ca=list(edges('build/multiroot/ca-GrQc.txt'))
+          width=int(len(ca)*0.75)
+          initial=Counter(u for u,_ in ca[:width])
+          final=Counter(u for u,_ in ca[len(ca)-width:])
+          vertices=sorted(set(initial)|set(final))
+          ranked=sorted(vertices, key=lambda u:(-min(initial[u],final[u]),-(initial[u]+final[u]),u))
+          ca_roots=ranked[:3]
+
+          data={'web-Google':web_roots,'ca-GrQc':ca_roots}
+          Path('build/multiroot/roots.json').write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(data,sort_keys=True))
+          PY
+
+      - name: Run exact multi-root evidence
+        run: |
+          mkdir -p build/multiroot/runs
+          python - <<'PY'
+          import json, statistics, subprocess
+          from pathlib import Path
+
+          roots=json.load(open('build/multiroot/roots.json'))
+          configs={
+              'web-Google':(0.99,4096,100000),
+              'ca-GrQc':(0.75,256,1000),
+          }
+          summary={'schema_version':1,'artifact_type':'velographx-exact-dynamic-bfs-multiroot','datasets':{}}
+          for name,(rate,batch,min_reachable) in configs.items():
+              rows=[]
+              for root in roots[name]:
+                  out=Path(f'build/multiroot/runs/{name}-root-{root}.json')
+                  with out.open('w') as f:
+                      subprocess.run(['build/vx/velographx_external_risgraph_bfs',
+                                      f'build/multiroot/{name}.txt',str(root),str(rate),str(batch)],
+                                     stdout=f,check=True)
+                  d=json.load(out.open())
+                  assert d['correct'] and d['legacy_correct'], (name,root)
+                  assert d['visited_vertices'] >= min_reachable, (name,root,d['visited_vertices'])
+                  rows.append({
+                      'root':root,
+                      'visited_vertices':d['visited_vertices'],
+                      'batches':d['batches'],
+                      'wall_mean_us':d['wall_mean_us'],
+                      'affected_vertices_total':d.get('incremental_affected_vertices_total'),
+                      'all_exact':True,
+                  })
+              summary['datasets'][name]={
+                  'minimum_accepted_reachable_vertices':min_reachable,
+                  'roots':rows,
+                  'mean_of_root_mean_us':statistics.mean(r['wall_mean_us'] for r in rows),
+                  'all_roots_exact':True,
+              }
+          Path('build/multiroot/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exact-dynamic-bfs-multiroot
+          path: build/multiroot/
+          retention-days: 90
