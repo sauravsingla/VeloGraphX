@@ -27,76 +27,57 @@ jobs:
       MIN_REACHABLE: '20000'
       EPINIONS_GZIP_SHA256: 69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938
       EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+      EPINIONS_STREAM_SHA256: a56649d8455dd645a66b59ef9676fad21e0d898210bfe038e89db24e81f9dc27
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build libomp-dev
-
       - name: Build VeloGraphX matched harness
         run: |
           cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
-
       - name: Build pinned NetworKit C++ core
         run: |
           git clone https://github.com/networkit/networkit.git build/networkit
           git -C build/networkit checkout --detach "$NETWORKIT_SHA"
           test "$(git -C build/networkit rev-parse HEAD)" = "$NETWORKIT_SHA"
           git -C build/networkit submodule update --init --recursive
-          cmake -S build/networkit -B build/networkit-build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PWD/build/networkit-install" -DNETWORKIT_BUILD_TESTS=OFF
+          cmake -S build/networkit -B build/networkit-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PWD/build/networkit-install" -DNETWORKIT_BUILD_TESTS=OFF
           cmake --build build/networkit-build -j 2
           cmake --install build/networkit-build
           LIB=$(find build/networkit-install -type f \( -name 'libnetworkit.so' -o -name 'libnetworkit.a' \) | head -1)
           test -n "$LIB"
           echo "NETWORKIT_LIBDIR=$(dirname "$LIB")" >> "$GITHUB_ENV"
-
       - name: Compile native NetworKit harness
         run: |
-          c++ -O3 -DNDEBUG -std=c++20 -fopenmp \
-            -Ibuild/networkit-install/include benchmarks/external_networkit_native_bfs.cpp \
-            -L"$NETWORKIT_LIBDIR" -Wl,-rpath,"$NETWORKIT_LIBDIR" -lnetworkit \
-            -o build/networkit_native_bfs
-
+          c++ -O3 -DNDEBUG -std=c++20 -fopenmp -Ibuild/networkit-install/include benchmarks/external_networkit_native_bfs.cpp -L"$NETWORKIT_LIBDIR" -Wl,-rpath,"$NETWORKIT_LIBDIR" -lnetworkit -o build/networkit_native_bfs
       - name: Prepare checksum-pinned SNAP Epinions stream
         run: |
           mkdir -p build/epinions/datasets
-          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
-            --output-dir build/epinions/datasets --dataset soc-Epinions1 > build/epinions/source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/epinions/datasets --dataset soc-Epinions1 > build/epinions/source.json
           test "$(sha256sum build/epinions/datasets/soc-Epinions1.gz | awk '{print $1}')" = "$EPINIONS_GZIP_SHA256"
           gzip -dc build/epinions/datasets/soc-Epinions1.gz > build/epinions/source.txt
           test "$(sha256sum build/epinions/source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
-          python tools/prepare_pinned_edge_stream.py \
-            --input build/epinions/source.txt \
-            --output build/epinions/soc-Epinions1.txt \
-            --report build/epinions/normalization.json \
-            --expected-sha256 "$EPINIONS_TEXT_SHA256" \
-            --expected-vertices 75879 --expected-edges 508837
-
+          python tools/prepare_pinned_edge_stream.py --input build/epinions/source.txt --output build/epinions/soc-Epinions1.txt --report build/epinions/normalization.json --expected-sha256 "$EPINIONS_TEXT_SHA256" --expected-vertices 75879 --expected-edges 508837
+          test "$(sha256sum build/epinions/soc-Epinions1.txt | awk '{print $1}')" = "$EPINIONS_STREAM_SHA256"
       - name: Select three deterministic reachability-screened roots
         run: |
           python - <<'PY'
           import json, os
           from collections import Counter, deque
           from pathlib import Path
-          edges=[]
-          for raw in open('build/epinions/soc-Epinions1.txt'):
-              if raw.strip(): edges.append(tuple(map(int,raw.split()[:2])))
+          edges=[tuple(map(int,r.split()[:2])) for r in open('build/epinions/soc-Epinions1.txt') if r.strip()]
           rate=float(os.environ['IMPORTED_RATE']); width=int(len(edges)*rate)
-          initial=edges[:width]; final=edges[len(edges)-width:]
-          n=1+max(max(u,v) for u,v in edges)
+          initial=edges[:width]; final=edges[len(edges)-width:]; n=1+max(max(u,v) for u,v in edges)
           adj=[[] for _ in range(n)]
           for u,v in final: adj[u].append(v)
-          deg=Counter(u for u,_ in initial)
-          candidates=[u for u,_ in sorted(deg.items(), key=lambda kv:(-kv[1],kv[0]))]
-          minimum=int(os.environ['MIN_REACHABLE'])
-          picked=[]; screen=[]
+          deg=Counter(u for u,_ in initial); candidates=[u for u,_ in sorted(deg.items(),key=lambda kv:(-kv[1],kv[0]))]
+          minimum=int(os.environ['MIN_REACHABLE']); picked=[]; screen=[]
           for root in candidates[:1000]:
               seen=bytearray(n); seen[root]=1; q=deque([root]); count=1
               while q:
@@ -104,15 +85,14 @@ jobs:
                   for v in adj[u]:
                       if not seen[v]: seen[v]=1; count+=1; q.append(v)
               screen.append({'root':root,'initial_out_degree':deg[root],'final_reachable_vertices':count})
-              if count >= minimum:
+              if count>=minimum:
                   picked.append(root)
                   if len(picked)==3: break
-          assert len(picked)==3, picked
+          assert len(picked)==3,picked
           Path('build/epinions/roots.json').write_text(json.dumps({'roots':picked},indent=2)+'\n')
           Path('build/epinions/root-screen.json').write_text(json.dumps(screen,indent=2)+'\n')
           print('selected_roots='+','.join(map(str,picked)))
           PY
-
       - name: Run five paired same-machine repetitions for all three roots
         env:
           OMP_NUM_THREADS: '1'
@@ -122,55 +102,25 @@ jobs:
           python - <<'PY'
           import json, os, statistics, subprocess
           from pathlib import Path
-          roots=json.load(open('build/epinions/roots.json'))['roots']
-          rate=float(os.environ['IMPORTED_RATE']); batch=int(os.environ['BATCH_SIZE']); minimum=int(os.environ['MIN_REACHABLE'])
-          rows=[]
+          roots=json.load(open('build/epinions/roots.json'))['roots']; rate=float(os.environ['IMPORTED_RATE']); batch=int(os.environ['BATCH_SIZE']); minimum=int(os.environ['MIN_REACHABLE']); rows=[]
           for root in roots:
               vx=[]; nk=[]; visited=None; batches=None
               for rep in range(1,6):
-                  vp=Path(f'build/epinions/runs/root-{root}-r{rep}-velographx.json')
-                  np=Path(f'build/epinions/runs/root-{root}-r{rep}-networkit.json')
-                  with vp.open('w') as out:
-                      subprocess.run(['build/vx/velographx_external_risgraph_bfs','build/epinions/soc-Epinions1.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
-                  with np.open('w') as out:
-                      subprocess.run(['build/networkit_native_bfs','build/epinions/soc-Epinions1.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
+                  vp=Path(f'build/epinions/runs/root-{root}-r{rep}-velographx.json'); np=Path(f'build/epinions/runs/root-{root}-r{rep}-networkit.json')
+                  with vp.open('w') as out: subprocess.run(['build/vx/velographx_external_risgraph_bfs','build/epinions/soc-Epinions1.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
+                  with np.open('w') as out: subprocess.run(['build/networkit_native_bfs','build/epinions/soc-Epinions1.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
                   a=json.load(vp.open()); b=json.load(np.open())
-                  assert a['correct'] and a['legacy_correct']
-                  assert b['native_cpp'] and b['all_batches_correct_against_fresh_full_bfs']
-                  assert a['root']==b['root'] and a['batch_size']==b['batch_size'] and a['batches']==b['batches']
-                  assert a['initial_edges']==b['initial_edges'] and a['final_edges']==b['final_edges']
-                  assert a['layer_counts']==b['layer_counts']
-                  assert b['visited_vertices'] >= minimum
+                  assert a['correct'] and a['legacy_correct'] and b['native_cpp'] and b['all_batches_correct_against_fresh_full_bfs']
+                  assert a['root']==b['root'] and a['batch_size']==b['batch_size'] and a['batches']==b['batches'] and a['initial_edges']==b['initial_edges'] and a['final_edges']==b['final_edges'] and a['layer_counts']==b['layer_counts'] and b['visited_vertices']>=minimum
                   vx.append(a['wall_mean_us']); nk.append(b['wall_mean_us']); visited=b['visited_vertices']; batches=b['batches']
               ratios=[a/b for a,b in zip(vx,nk)]
-              rows.append({'root':root,'visited_vertices':visited,'batches':batches,
-                           'velographx_mean_batch_us':statistics.mean(vx),'networkit_mean_batch_us':statistics.mean(nk),
-                           'paired_ratio_mean':statistics.mean(ratios),'velographx_samples_us':vx,'networkit_samples_us':nk,
-                           'all_five_repetitions_exact':True})
-          summary={'schema_version':1,'artifact_type':'velographx-native-networkit-epinions-multiroot',
-                   'dataset':'soc-Epinions1','source_gzip_sha256':os.environ['EPINIONS_GZIP_SHA256'],
-                   'source_text_sha256':os.environ['EPINIONS_TEXT_SHA256'],'networkit_version':os.environ['NETWORKIT_VERSION'],
-                   'networkit_revision':os.environ['NETWORKIT_SHA'],'same_machine':True,'one_thread':True,
-                   'repetitions_per_root':5,'imported_rate':rate,'batch_size':batch,'roots':rows,
-                   'all_roots_all_repetitions_exact':True,
-                   'mean_of_root_velographx_means_us':statistics.mean(r['velographx_mean_batch_us'] for r in rows),
-                   'mean_of_root_networkit_means_us':statistics.mean(r['networkit_mean_batch_us'] for r in rows),
-                   'mean_of_root_paired_ratios':statistics.mean(r['paired_ratio_mean'] for r in rows)}
-          Path('build/epinions/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
-          print(json.dumps(summary,sort_keys=True))
+              rows.append({'root':root,'visited_vertices':visited,'batches':batches,'velographx_mean_batch_us':statistics.mean(vx),'networkit_mean_batch_us':statistics.mean(nk),'paired_ratio_mean':statistics.mean(ratios),'velographx_samples_us':vx,'networkit_samples_us':nk,'all_five_repetitions_exact':True})
+          summary={'schema_version':2,'artifact_type':'velographx-native-networkit-epinions-multiroot','dataset':'soc-Epinions1','source_gzip_sha256':os.environ['EPINIONS_GZIP_SHA256'],'source_text_sha256':os.environ['EPINIONS_TEXT_SHA256'],'normalized_stream_sha256':os.environ['EPINIONS_STREAM_SHA256'],'networkit_version':os.environ['NETWORKIT_VERSION'],'networkit_revision':os.environ['NETWORKIT_SHA'],'same_machine':True,'one_thread':True,'repetitions_per_root':5,'imported_rate':rate,'batch_size':batch,'roots':rows,'all_roots_all_repetitions_exact':True,'mean_of_root_velographx_means_us':statistics.mean(r['velographx_mean_batch_us'] for r in rows),'mean_of_root_networkit_means_us':statistics.mean(r['networkit_mean_batch_us'] for r in rows),'mean_of_root_paired_ratios':statistics.mean(r['paired_ratio_mean'] for r in rows)}
+          Path('build/epinions/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n'); print(json.dumps(summary,sort_keys=True))
           PY
-
       - name: Capture immutable evidence pins
         run: |
-          {
-            echo "velographx_sha=$(git rev-parse HEAD)"
-            echo "networkit_sha=$NETWORKIT_SHA"
-            echo "networkit_version=$NETWORKIT_VERSION"
-            echo "source_gzip_sha256=$EPINIONS_GZIP_SHA256"
-            echo "source_text_sha256=$EPINIONS_TEXT_SHA256"
-            echo "normalized_stream_sha256=$(sha256sum build/epinions/soc-Epinions1.txt | awk '{print $1}')"
-          } | tee build/epinions/pins.txt
-
+          { echo "velographx_sha=$(git rev-parse HEAD)"; echo "networkit_sha=$NETWORKIT_SHA"; echo "networkit_version=$NETWORKIT_VERSION"; echo "source_gzip_sha256=$EPINIONS_GZIP_SHA256"; echo "source_text_sha256=$EPINIONS_TEXT_SHA256"; echo "normalized_stream_sha256=$EPINIONS_STREAM_SHA256"; } | tee build/epinions/pins.txt
       - uses: actions/upload-artifact@v4
         with:
           name: velographx-native-networkit-epinions-multiroot
