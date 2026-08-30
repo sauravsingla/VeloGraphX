@@ -68,10 +68,10 @@ jobs:
             --expected-nonloop-pair-multiplicity 2 \
             --expected-unique-nonloop-pairs 14484
 
-      - name: Select three deterministic high-support roots per dataset
+      - name: Select three deterministic reachability-screened roots per dataset
         run: |
           python - <<'PY'
-          import json
+          import json, subprocess
           from collections import Counter
           from pathlib import Path
 
@@ -83,25 +83,55 @@ jobs:
                       u,v=map(int,line.split()[:2])
                       yield u,v
 
-          # web-Google: top three out-degrees in the exact 99% imported prefix.
           web=list(edges('build/multiroot/web-Google.txt'))
-          n=int(len(web)*0.99)
-          deg=Counter(u for u,_ in web[:n])
-          web_roots=[u for u,_ in sorted(deg.items(), key=lambda kv:(-kv[1],kv[0]))[:3]]
+          web_n=int(len(web)*0.99)
+          web_deg=Counter(u for u,_ in web[:web_n])
+          web_candidates=[481807] + [u for u,_ in sorted(web_deg.items(), key=lambda kv:(-kv[1],kv[0]))]
 
-          # ca-GrQc: top three roots by min(initial-window, final-window) out-degree,
-          # with summed support secondary and vertex ID tie-break.
           ca=list(edges('build/multiroot/ca-GrQc.txt'))
           width=int(len(ca)*0.75)
           initial=Counter(u for u,_ in ca[:width])
           final=Counter(u for u,_ in ca[len(ca)-width:])
           vertices=sorted(set(initial)|set(final))
-          ranked=sorted(vertices, key=lambda u:(-min(initial[u],final[u]),-(initial[u]+final[u]),u))
-          ca_roots=ranked[:3]
+          ca_ranked=sorted(vertices, key=lambda u:(-min(initial[u],final[u]),-(initial[u]+final[u]),u))
+          ca_candidates=[4282] + ca_ranked
 
-          data={'web-Google':web_roots,'ca-GrQc':ca_roots}
-          Path('build/multiroot/roots.json').write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
-          print(json.dumps(data,sort_keys=True))
+          configs={
+              'web-Google':(web_candidates,0.99,4096,100000),
+              'ca-GrQc':(ca_candidates,0.75,256,1000),
+          }
+          selected={}
+          screens={}
+          Path('build/multiroot/root-screen').mkdir(parents=True,exist_ok=True)
+          for name,(candidates,rate,batch,min_reachable) in configs.items():
+              picked=[]
+              seen=set()
+              records=[]
+              for root in candidates:
+                  if root in seen:
+                      continue
+                  seen.add(root)
+                  out=Path(f'build/multiroot/root-screen/{name}-root-{root}.json')
+                  with out.open('w') as f:
+                      subprocess.run(['build/vx/velographx_external_risgraph_bfs',
+                                      f'build/multiroot/{name}.txt',str(root),str(rate),str(batch)],
+                                     stdout=f,check=True)
+                  d=json.load(out.open())
+                  exact=bool(d['correct'] and d['legacy_correct'])
+                  reachable=int(d['visited_vertices'])
+                  records.append({'root':root,'visited_vertices':reachable,'all_exact':exact})
+                  if exact and reachable >= min_reachable:
+                      picked.append(root)
+                      if len(picked) == 3:
+                          break
+                  if len(records) >= 200 and len(picked) < 3:
+                      raise RuntimeError(f'could not find three qualifying roots for {name}: {records[-5:]}')
+              assert len(picked) == 3, (name,picked)
+              selected[name]=picked
+              screens[name]=records
+          Path('build/multiroot/roots.json').write_text(json.dumps(selected,indent=2,sort_keys=True)+'\n')
+          Path('build/multiroot/root-screen.json').write_text(json.dumps(screens,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(selected,sort_keys=True))
           PY
 
       - name: Run exact multi-root evidence
@@ -116,7 +146,7 @@ jobs:
               'web-Google':(0.99,4096,100000),
               'ca-GrQc':(0.75,256,1000),
           }
-          summary={'schema_version':1,'artifact_type':'velographx-exact-dynamic-bfs-multiroot','datasets':{}}
+          summary={'schema_version':2,'artifact_type':'velographx-exact-dynamic-bfs-multiroot','selection':'deterministic reachability-screened high-support roots','datasets':{}}
           for name,(rate,batch,min_reachable) in configs.items():
               rows=[]
               for root in roots[name]:
