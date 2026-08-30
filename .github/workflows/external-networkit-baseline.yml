@@ -1,0 +1,197 @@
+name: External NetworKit Dynamic BFS Baseline
+
+on:
+  push:
+    paths:
+      - '.github/workflows/external-networkit-baseline.yml'
+      - 'tools/run_networkit_dynamic_bfs.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/select_bfs_root.py'
+      - 'tools/prepare_dataset.py'
+      - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/storage/**'
+      - 'datasets/manifest.public-small.json'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  matched-dynamic-bfs:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      NETWORKIT_VERSION: '11.2.1'
+      NETWORKIT_GIT_SHA: '359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c'
+      IMPORTED_RATE: '0.99'
+      BATCH_SIZE: '4096'
+      EXPECTED_SOURCE_SHA: '8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned NetworKit runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "networkit==$NETWORKIT_VERSION" numpy
+          python - <<'PY'
+          import networkit as nk
+          assert nk.__version__ == '11.2.1', nk.__version__
+          print('networkit', nk.__version__)
+          PY
+
+      - name: Build VeloGraphX matched harness
+        run: |
+          cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/cmake --target velographx_external_risgraph_bfs -j 2
+
+      - name: Acquire checksum-pinned web-Google and select root
+        run: |
+          mkdir -p build/external-networkit/source
+          TARGET=build/external-networkit/source/web-Google.txt
+          if ! timeout 120s python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/external-networkit/source --dataset web-Google > build/external-networkit/dataset-prepared.json; then
+            echo "Pinned source did not complete in 120s; trying canonical SNAP source"
+            rm -f "$TARGET" build/external-networkit/dataset-prepared.json build/external-networkit/web-Google.txt.gz
+            curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 240 \
+              https://snap.stanford.edu/data/web-Google.txt.gz \
+              -o build/external-networkit/web-Google.txt.gz
+            gzip -dc build/external-networkit/web-Google.txt.gz > "$TARGET"
+            echo "$EXPECTED_SOURCE_SHA  $TARGET" | sha256sum -c -
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          Path('build/external-networkit/dataset-prepared.json').write_text(json.dumps({
+            'schema_version':1,
+            'prepared':[{
+              'name':'web-Google',
+              'path':'build/external-networkit/source/web-Google.txt',
+              'sha256':'8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1',
+              'format':'edge-list-text','directed':True,'weighted':False,
+              'acquisition_source':'https://snap.stanford.edu/data/web-Google.txt.gz'
+            }]
+          },sort_keys=True)+'\n')
+          PY
+          fi
+          echo "$EXPECTED_SOURCE_SHA  $TARGET" | sha256sum -c -
+          python tools/prepare_pinned_edge_stream.py \
+            --input "$TARGET" \
+            --output build/external-networkit/web-Google-normalized.txt \
+            --report build/external-networkit/normalization.json \
+            --expected-sha256 "$EXPECTED_SOURCE_SHA" \
+            --expected-vertices 875713 \
+            --expected-edges 5105039
+          python tools/select_bfs_root.py \
+            --input build/external-networkit/web-Google-normalized.txt \
+            --imported-rate "$IMPORTED_RATE" \
+            --total-edges 5105039 \
+            --output build/external-networkit/root-selection.json
+          ROOT=$(python -c "import json; print(json.load(open('build/external-networkit/root-selection.json'))['root'])")
+          test "$ROOT" != "0"
+          echo "ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Capture environment and immutable pins
+        run: |
+          python tools/capture_benchmark_environment.py --label external-networkit-web-google --output build/external-networkit/environment.json
+          lscpu > build/external-networkit/lscpu.txt
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "networkit_version=$NETWORKIT_VERSION"
+            echo "networkit_git_sha=$NETWORKIT_GIT_SHA"
+            echo "imported_rate=$IMPORTED_RATE"
+            echo "batch_size=$BATCH_SIZE"
+            echo "root=$ROOT"
+          } > build/external-networkit/pins.txt
+
+      - name: Run VeloGraphX matched dynamic BFS
+        run: |
+          build/cmake/velographx_external_risgraph_bfs \
+            build/external-networkit/web-Google-normalized.txt \
+            "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" \
+            > build/external-networkit/velographx.json
+          python - <<'PY'
+          import json
+          r=json.load(open('build/external-networkit/velographx.json'))
+          assert r['correct'] is True and r['legacy_correct'] is True
+          assert r['vertices']==875713 and r['source_edges']==5105039
+          assert r['final_edges']==r['initial_edges'] and r['batches']==13
+          assert sum(r['layer_counts'])>1000
+          PY
+
+      - name: Run pinned NetworKit DynBFS with per-batch exact verification
+        run: |
+          python tools/run_networkit_dynamic_bfs.py \
+            build/external-networkit/web-Google-normalized.txt \
+            "$ROOT" "$IMPORTED_RATE" "$BATCH_SIZE" \
+            --expected-version "$NETWORKIT_VERSION" \
+            > build/external-networkit/networkit.json
+          python - <<'PY'
+          import json
+          r=json.load(open('build/external-networkit/networkit.json'))
+          assert r['networkit_version']=='11.2.1'
+          assert r['networkit_git_revision']=='359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c'
+          assert r['all_batches_correct_against_fresh_full_bfs'] is True
+          assert r['correctness_batches']==13
+          assert r['vertices']==875713 and r['source_edges']==5105039
+          assert r['final_edges']==r['initial_edges']
+          assert sum(r['layer_counts'])>1000
+          PY
+
+      - name: Cross-system correctness and summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          vx=json.load(open('build/external-networkit/velographx.json'))
+          nk=json.load(open('build/external-networkit/networkit.json'))
+          assert vx['root']==nk['root']
+          assert vx['initial_edges']==nk['initial_edges']
+          assert vx['batch_size']==nk['batch_size']
+          assert vx['batches']==nk['batches']
+          assert vx['layer_counts']==nk['layer_counts']
+          result={
+            'schema_version':1,
+            'artifact_type':'velographx-external-networkit-dynamic-bfs-comparison',
+            'dataset':'web-Google',
+            'dataset_vertices':875713,
+            'dataset_edges':5105039,
+            'directed':True,
+            'root':vx['root'],
+            'imported_rate':vx['imported_rate'],
+            'batch_size':vx['batch_size'],
+            'batches':vx['batches'],
+            'update_semantics':'per batch: add next source-order window edges, remove equally many oldest source-order window edges, then restore exact BFS',
+            'velographx_wall_mean_us':vx['wall_mean_us'],
+            'networkit_wall_mean_us':nk['wall_mean_us'],
+            'networkit_mutation_total_us':nk['mutation_total_us'],
+            'networkit_maintenance_total_us':nk['maintenance_total_us'],
+            'latency_ratio_velographx_over_networkit':vx['wall_mean_us']/nk['wall_mean_us'] if nk['wall_mean_us'] else None,
+            'networkit_version':nk['networkit_version'],
+            'networkit_git_revision':nk['networkit_git_revision'],
+            'velographx_correct_against_independent_full_bfs':vx['correct'],
+            'networkit_correct_after_every_batch':nk['all_batches_correct_against_fresh_full_bfs'],
+            'cross_system_final_layer_histogram_equal':True,
+            'visited_vertices':nk['visited_vertices'],
+            'hosted_ci_single_execution':True,
+            'research_claim':False,
+            'interpretation_note':'NetworKit is invoked through its Python bindings; its timed envelope includes Python-level graph mutation calls plus native DynBFS maintenance. Treat the result as engineering evidence, not a publication-grade language-neutral comparison.'
+          }
+          Path('build/external-networkit/summary.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velographx-external-networkit-web-google
+          path: |
+            build/external-networkit/dataset-prepared.json
+            build/external-networkit/normalization.json
+            build/external-networkit/root-selection.json
+            build/external-networkit/environment.json
+            build/external-networkit/lscpu.txt
+            build/external-networkit/pins.txt
+            build/external-networkit/velographx.json
+            build/external-networkit/networkit.json
+            build/external-networkit/summary.json
+          retention-days: 90
