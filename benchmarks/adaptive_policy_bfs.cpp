@@ -22,6 +22,9 @@ constexpr double kPreflightFullUpdate = 0.05;
 constexpr double kVerySparseReach = 0.02;
 constexpr double kSparseReach = 0.20;
 constexpr double kSparseReachFullUpdate = 0.0025;
+constexpr std::size_t kLargeGraphVertices = 100000;
+constexpr double kLargeGraphUpdateGuard = 0.002;
+constexpr std::uint32_t kShallowDeletionDepth = 3;
 constexpr double kEmaAlpha = 0.25;
 constexpr double kLearnedFullMargin = 1.25;
 constexpr std::size_t kFreshAge = 4;
@@ -29,6 +32,7 @@ constexpr std::size_t kFreshAge = 4;
 struct Trace {
   double update_fraction{0.0};
   double reachable_fraction{0.0};
+  double shallow_parent_deletion_fraction{0.0};
   double previous_affected_fraction{0.0};
   double predicted_incremental_us{0.0};
   double predicted_full_us{0.0};
@@ -43,6 +47,7 @@ struct PolicyResult {
   std::vector<double> batch_us;
   std::vector<double> decision_us;
   std::vector<Trace> traces;
+  double selector_setup_us{0.0};
   std::size_t full_recompute_batches{0};
   std::size_t affected_vertices{0};
   bool exact{true};
@@ -117,6 +122,30 @@ velographx::UpdateBatch make_batch(const std::vector<Edge>& edges,
   return updates;
 }
 
+double shallow_parent_deletion_fraction(const velographx::UpdateBatch& updates,
+                                        const std::vector<std::uint32_t>& dist,
+                                        bool directed) {
+  const auto unreachable = std::numeric_limits<std::uint32_t>::max();
+  std::size_t shallow = 0;
+  for (const auto& update : updates.updates) {
+    if (update.add) continue;
+    const auto u = update.src;
+    const auto v = update.dst;
+    if (u < dist.size() && v < dist.size() &&
+        dist[u] != unreachable && dist[v] != unreachable &&
+        dist[u] + 1 == dist[v] && dist[v] <= kShallowDeletionDepth) {
+      ++shallow;
+    }
+    if (!directed && u < dist.size() && v < dist.size() &&
+        dist[v] != unreachable && dist[u] != unreachable &&
+        dist[v] + 1 == dist[u] && dist[u] <= kShallowDeletionDepth) {
+      ++shallow;
+    }
+  }
+  return static_cast<double>(shallow) /
+      static_cast<double>(std::max<std::size_t>(1, updates.updates.size()));
+}
+
 PolicyResult run_policy(const std::string& policy,
                         const std::vector<Edge>& edges,
                         std::size_t vertices,
@@ -133,6 +162,16 @@ PolicyResult run_policy(const std::string& policy,
   PolicyResult result;
   result.name = policy;
 
+  double initial_reachable_fraction = 0.0;
+  if (policy == "adaptive") {
+    const auto setup_begin = Clock::now();
+    initial_reachable_fraction = static_cast<double>(reachable_vertices(bfs.distances())) /
+        static_cast<double>(std::max<std::size_t>(1, vertices));
+    const auto setup_end = Clock::now();
+    result.selector_setup_us =
+        std::chrono::duration<double, std::micro>(setup_end - setup_begin).count();
+  }
+
   double previous_affected_fraction = 0.0;
   double ema_incremental_us = 0.0;
   double ema_full_us = 0.0;
@@ -140,29 +179,33 @@ PolicyResult run_policy(const std::string& policy,
   bool have_full = false;
   std::size_t incremental_age = kFreshAge + 1;
   std::size_t full_age = kFreshAge + 1;
+  bool first_batch = true;
 
   for (std::size_t begin = imported_edges; begin < edges.size(); begin += batch_size) {
     const auto end = std::min(begin + batch_size, edges.size());
     auto updates = make_batch(edges, imported_edges, begin, end);
     const auto total_begin = Clock::now();
 
-    const double update_fraction = static_cast<double>(updates.updates.size()) /
-        static_cast<double>(std::max<std::size_t>(1, graph.edge_count_directed()));
-    const double reachable_fraction = static_cast<double>(reachable_vertices(bfs.distances())) /
-        static_cast<double>(std::max<std::size_t>(1, vertices));
-
     bool choose_full = false;
     Trace trace;
-    trace.update_fraction = update_fraction;
-    trace.reachable_fraction = reachable_fraction;
+    trace.reachable_fraction = initial_reachable_fraction;
     trace.previous_affected_fraction = previous_affected_fraction;
     trace.incremental_age = incremental_age;
     trace.full_age = full_age;
 
     const auto decision_begin = Clock::now();
     if (policy == "simple_threshold") {
+      const double update_fraction = static_cast<double>(updates.updates.size()) /
+          static_cast<double>(std::max<std::size_t>(1, graph.edge_count_directed()));
       choose_full = update_fraction >= simple_update_fraction;
     } else if (policy == "adaptive") {
+      const double update_fraction = static_cast<double>(updates.updates.size()) /
+          static_cast<double>(std::max<std::size_t>(1, graph.edge_count_directed()));
+      const double shallow_fraction =
+          shallow_parent_deletion_fraction(updates, bfs.distances(), graph.directed());
+      trace.update_fraction = update_fraction;
+      trace.shallow_parent_deletion_fraction = shallow_fraction;
+
       const double predicted_incremental = have_incremental
           ? ema_incremental_us * (1.0 + 2.0 * previous_affected_fraction)
           : 0.0;
@@ -172,14 +215,19 @@ PolicyResult run_policy(const std::string& policy,
 
       const bool fresh_model = have_incremental && have_full &&
           incremental_age <= kFreshAge && full_age <= kFreshAge;
+      const bool large_graph_tail_guard = vertices >= kLargeGraphVertices &&
+          (shallow_fraction > 0.0 || update_fraction >= kLargeGraphUpdateGuard);
 
       if (update_fraction >= kPreflightFullUpdate) {
         choose_full = true;
         trace.reason = "preflight_full";
-      } else if (reachable_fraction <= kVerySparseReach) {
+      } else if (large_graph_tail_guard) {
+        choose_full = true;
+        trace.reason = shallow_fraction > 0.0 ? "shallow_deletion_guard" : "large_graph_update_guard";
+      } else if (initial_reachable_fraction <= kVerySparseReach) {
         choose_full = true;
         trace.reason = "very_sparse_reach";
-      } else if (reachable_fraction < kSparseReach &&
+      } else if (initial_reachable_fraction < kSparseReach &&
                  update_fraction >= kSparseReachFullUpdate) {
         choose_full = true;
         trace.reason = "sparse_reach_guard";
@@ -210,8 +258,11 @@ PolicyResult run_policy(const std::string& policy,
     const auto execution_end = Clock::now();
     const double execution_us =
         std::chrono::duration<double, std::micro>(execution_end - execution_begin).count();
-    result.batch_us.push_back(
-        std::chrono::duration<double, std::micro>(execution_end - total_begin).count());
+    double batch_us =
+        std::chrono::duration<double, std::micro>(execution_end - total_begin).count();
+    if (policy == "adaptive" && first_batch) batch_us += result.selector_setup_us;
+    result.batch_us.push_back(batch_us);
+    first_batch = false;
 
     if (policy == "adaptive") {
       ++incremental_age;
@@ -257,6 +308,7 @@ void print_trace_array(const std::vector<Trace>& traces) {
     const auto& t = traces[i];
     std::cout << "{\"update_fraction\":" << t.update_fraction
               << ",\"reachable_fraction\":" << t.reachable_fraction
+              << ",\"shallow_parent_deletion_fraction\":" << t.shallow_parent_deletion_fraction
               << ",\"previous_affected_fraction\":" << t.previous_affected_fraction
               << ",\"predicted_incremental_us\":" << t.predicted_incremental_us
               << ",\"predicted_full_us\":" << t.predicted_full_us
@@ -301,7 +353,7 @@ int main(int argc, char** argv) {
   }
 
   bool all_exact = true;
-  std::cout << "{\"schema_version\":5,\"selector\":\"root-state-confidence-v2\""
+  std::cout << "{\"schema_version\":6,\"selector\":\"root-state-confidence-v2-fair\""
             << ",\"root\":" << root64
             << ",\"vertices\":" << vertices
             << ",\"batch_size\":" << batch_size
@@ -311,6 +363,9 @@ int main(int argc, char** argv) {
             << ",\"very_sparse_reach\":" << kVerySparseReach
             << ",\"sparse_reach\":" << kSparseReach
             << ",\"sparse_reach_full_update\":" << kSparseReachFullUpdate
+            << ",\"large_graph_vertices\":" << kLargeGraphVertices
+            << ",\"large_graph_update_guard\":" << kLargeGraphUpdateGuard
+            << ",\"shallow_deletion_depth\":" << kShallowDeletionDepth
             << ",\"learned_full_margin\":" << kLearnedFullMargin
             << ",\"fresh_age\":" << kFreshAge << "}"
             << ",\"policies\":[";
@@ -327,6 +382,7 @@ int main(int argc, char** argv) {
               << ",\"exact\":" << (result.exact ? "true" : "false")
               << ",\"total_us\":" << total_us
               << ",\"mean_batch_us\":" << total_us / std::max<std::size_t>(1, batches)
+              << ",\"selector_setup_us\":" << result.selector_setup_us
               << ",\"mean_decision_us\":" << decision_us / std::max<std::size_t>(1, batches)
               << ",\"full_recompute_batches\":" << result.full_recompute_batches
               << ",\"affected_vertices\":" << result.affected_vertices
@@ -341,7 +397,8 @@ int main(int argc, char** argv) {
 
   std::cout << "],\"oracle_batch_us\":";
   print_array(oracle);
-  std::cout << ",\"verification_excluded_from_timing\":true"
+  std::cout << ",\"selector_feature_cost_included_in_adaptive_timing\":true"
+            << ",\"verification_excluded_from_timing\":true"
             << ",\"all_policies_exact\":" << (all_exact ? "true" : "false")
             << "}\n";
   return all_exact ? 0 : 1;
