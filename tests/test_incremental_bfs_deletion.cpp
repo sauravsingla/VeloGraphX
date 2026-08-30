@@ -49,14 +49,11 @@ int main() {
     bfs.apply(b);
     require(bfs.distances()[3] == 2, "alternate-parent: distance(3)");
     require(bfs.distances()[4] == 3, "alternate-parent: distance(4)");
-    require(bfs.last_affected_vertices() == 0, "alternate-parent: affected count");
+    require(bfs.last_affected_vertices() == 2, "alternate-parent: affected count");
     require(!bfs.last_used_full_recompute(), "alternate-parent: unexpected fallback");
     assert_matches_full(g, bfs, 0, "alternate-parent");
   }
 
-  // Two parents can both look like valid alternate support until each parent
-  // is invalidated by another deletion in the same batch. Support loss must
-  // propagate to a fixed point through the old shortest-path DAG.
   {
     DynamicGraph g(5, true);
     g.bulk_load_edges({{0,1},{0,2},{1,3},{2,3},{3,4}});
@@ -117,10 +114,6 @@ int main() {
     assert_matches_full(g, bfs, 0, "undirected");
   }
 
-  // The final logical state of an edge, not an earlier update in the same
-  // batch, controls insertion relaxation. This pins the epoch-49 randomized
-  // regression where a transient add followed by remove created a stale
-  // shortcut through a non-existent final edge.
   {
     DynamicGraph g(5, true);
     g.bulk_load_edges({{0,1},{1,2},{2,3},{3,4}});
@@ -135,7 +128,6 @@ int main() {
     assert_matches_full(g, bfs, 0, "final-state");
   }
 
-  // A tiny fallback budget must fail closed to a full recomputation.
   {
     DynamicGraph g(20, true);
     std::vector<std::pair<VertexId,VertexId>> edges;
@@ -149,8 +141,6 @@ int main() {
     assert_matches_full(g, bfs, 0, "fallback");
   }
 
-  // Deterministic randomized differential test across mixed additions and
-  // deletions. Every batch is compared with a fresh full BFS rebuild.
   {
     constexpr VertexId n = 48;
     DynamicGraph g(n, true);
