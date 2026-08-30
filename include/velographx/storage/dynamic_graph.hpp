@@ -690,7 +690,7 @@ class DynamicGraph {
     const auto base_present_out = compact_contains(base_out_, patches_out_, u, v);
     if (!delta_out_.set_if_changed(u, v, present, base_present_out)) return;
 
-    delta_in_.set(v, u, present, compact_contains(base_in_, patches_in_, v, u));
+    delta_in_.set(v, u, present, base_present_out);
     dirty_out_rows_.push_back(u);
     dirty_in_rows_.push_back(v);
   }
