@@ -42,9 +42,11 @@ jobs:
 
       - name: Build pinned NetworKit C++ core
         run: |
-          git clone --filter=blob:none https://github.com/networkit/networkit.git build/networkit
+          git clone https://github.com/networkit/networkit.git build/networkit
           git -C build/networkit checkout --detach "$NETWORKIT_SHA"
           test "$(git -C build/networkit rev-parse HEAD)" = "$NETWORKIT_SHA"
+          git -C build/networkit submodule update --init --recursive
+          git -C build/networkit submodule status --recursive > build/networkit-submodules.txt
           cmake -S build/networkit -B build/networkit-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/build/networkit-install" \
@@ -69,6 +71,7 @@ jobs:
       - name: Capture shared hardware and software environment
         run: |
           mkdir -p build/native-campaign
+          cp build/networkit-submodules.txt build/native-campaign/networkit-submodules.txt
           python tools/capture_benchmark_environment.py \
             --label native-networkit-multidataset \
             --output build/native-campaign/environment.json
