@@ -4,7 +4,6 @@ on:
     paths:
       - '.github/workflows/adaptive-policy-v2-calibration.yml'
       - 'benchmarks/adaptive_policy_bfs.cpp'
-      - 'benchmarks/adaptive_policy_v3_guard.patch'
   workflow_dispatch:
 
 jobs:
@@ -20,17 +19,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: Apply final confidence-aware guard transformation
+      - name: Apply hysteresis confidence-band selector transformation
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('benchmarks/adaptive_policy_bfs.cpp')
           s=p.read_text()
+          s=s.replace('''  bool first_batch = true;''','''  bool first_batch = true;\n  bool previous_chose_full = false;''',1)
+          s=s.replace('''      const double shallow_fraction =\n          shallow_parent_deletion_fraction(updates, bfs.distances(), graph.directed());''','''      const double shallow_fraction = first_batch\n          ? shallow_parent_deletion_fraction(updates, bfs.distances(), graph.directed())\n          : 0.0;''',1)
           old='''      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&\n          update_fraction >= kLargeGraphUpdateGuard;'''
-          new='''      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&\n          update_fraction >= kLargeGraphUpdateGuard && fresh_model &&\n          predicted_incremental > predicted_full * 1.05;'''
+          new='''      constexpr double kLargeGraphEnterFullMargin = 1.20;\n      constexpr double kLargeGraphHoldFullMargin = 1.05;\n      const bool large_graph_update_guard = vertices >= kLargeGraphVertices &&\n          update_fraction >= kLargeGraphUpdateGuard && fresh_model &&\n          ((previous_chose_full &&\n            predicted_incremental > predicted_full * kLargeGraphHoldFullMargin) ||\n           (!previous_chose_full &&\n            predicted_incremental > predicted_full * kLargeGraphEnterFullMargin));'''
           assert old in s
           s=s.replace(old,new,1)
-          s=s.replace('trace.reason = "large_graph_update_guard";','trace.reason = "confidence_large_graph_update_guard";',1)
+          s=s.replace('trace.reason = "large_graph_update_guard";','trace.reason = previous_chose_full ? "hysteresis_hold_full" : "hysteresis_enter_full";',1)
+          s=s.replace('''      result.traces.push_back(trace);''','''      previous_chose_full = choose_full;\n      result.traces.push_back(trace);''',1)
+          s=s.replace('''\"schema_version\":6,\"selector\":\"root-state-confidence-v2-fair\"''','''\"schema_version\":7,\"selector\":\"root-state-hysteresis-v2-final\"''',1)
           p.write_text(s)
           PY
       - name: Build selector v2
@@ -68,7 +71,7 @@ jobs:
                   with out.open('w') as f:
                     subprocess.run(['build/adaptive_policy_bfs',f'build/v2-calibration/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
                   d=json.load(out.open())
-                  assert d['selector']=='root-state-confidence-v2-fair'
+                  assert d['selector']=='root-state-hysteresis-v2-final'
                   assert d['selector_feature_cost_included_in_adaptive_timing']
                   assert d['all_policies_exact']
           PY
@@ -99,7 +102,7 @@ jobs:
         if: always()
         run: |
           mkdir -p build/v2-calibration
-          { echo selector_commit=$(git rev-parse HEAD); echo guard_transform=confidence-aware-large-graph-v1; echo development_datasets=ca-GrQc,soc-Epinions1,web-Google; echo email_EuAll_used_for_tuning=false; echo repetitions=3; echo feature_cost_in_adaptive_timing=true; echo fixed_targets='mean<=0.05,p95<=0.20,worst<=0.25,exact=100%'; } > build/v2-calibration/provenance.txt
+          { echo selector_commit=$(git rev-parse HEAD); echo selector=root-state-hysteresis-v2-final; echo development_datasets=ca-GrQc,soc-Epinions1,web-Google; echo email_EuAll_used_for_tuning=false; echo amazon0302_used_for_tuning=false; echo repetitions=3; echo feature_cost_in_adaptive_timing=true; echo fixed_targets='mean<=0.05,p95<=0.20,worst<=0.25,exact=100%'; } > build/v2-calibration/provenance.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: adaptive-selector-v2-calibration, path: build/v2-calibration/, retention-days: 90}
