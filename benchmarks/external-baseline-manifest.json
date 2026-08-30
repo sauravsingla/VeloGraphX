@@ -20,41 +20,48 @@
       "algorithm": "NetworKit::DynBFS",
       "scope": "directed unweighted exact BFS under batched sliding-window insertions and deletions",
       "timing_contract": "native C++ graph mutation plus DynBFS.updateBatch; independent full BFS verification excluded from timing",
-      "status": "measured-native-repeated-multidataset",
-      "campaign_run_id": 33301190847,
-      "campaign_head_sha": "3c1f7448897ffdca227a261c61bd49751e42fa5f",
-      "source_optimization_commit": "7a4083656cc2dfe67903efe7bdc7d822a337bd3e",
-      "artifact_id": 9729078197,
-      "artifact_sha256": "c031a2316a91c7958ce6a4e0a03e762808a777688fb05f0db3716f449875ef7c",
-      "repetitions_per_dataset": 5,
-      "datasets": ["web-Google", "ca-GrQc"],
-      "results": {
-        "web-Google": {
-          "velographx_mean_batch_us": 31511.88,
-          "networkit_mean_batch_us": 41293.48,
-          "paired_ratio_velographx_over_networkit_mean": 0.7642166248250519,
-          "all_repetitions_exact": true,
-          "visited_vertices": 588118
-        },
-        "ca-GrQc": {
-          "velographx_mean_batch_us": 111.0348,
-          "networkit_mean_batch_us": 80.8008,
-          "paired_ratio_velographx_over_networkit_mean": 1.3742741119023547,
-          "all_repetitions_exact": true,
-          "visited_vertices": 3119
-        }
+      "status": "measured-native-repeated-multidataset-multiroot",
+      "canonical_campaign": {
+        "run_id": 33301190847,
+        "head_sha": "3c1f7448897ffdca227a261c61bd49751e42fa5f",
+        "source_optimization_sha": "7a4083656cc2dfe67903efe7bdc7d822a337bd3e",
+        "artifact_id": 9729078197,
+        "artifact_sha256": "c031a2316a91c7958ce6a4e0a03e762808a777688fb05f0db3716f449875ef7c",
+        "repetitions_per_dataset": 5,
+        "datasets": ["web-Google", "ca-GrQc"]
       },
       "supplementary_multiroot": {
         "run_id": 33301366020,
         "artifact_id": 9729058306,
         "artifact_sha256": "cab9eec6489c8b9c65d57b2b781a5241a1954a5d5e99e94577c9ce0c737cccfa",
-        "roots": {
-          "web-Google": [481807, 771121, 391806],
-          "ca-GrQc": [4282, 2465, 1974]
-        },
-        "all_roots_exact": true
+        "roots_per_dataset": 3,
+        "datasets": ["web-Google", "ca-GrQc"],
+        "notes": "Deterministic reachability-screened VeloGraphX roots; robustness evidence only, not an external comparison."
       },
-      "notes": "Native C++ same-machine repeated campaign after exact allocation-free merged traversal, reusable BFS workspaces, flat update-key tables, and a measured 16,384-entry minimum before percentage-triggered automatic global delta maintenance. All repetitions require exact correctness and nontrivial final reachability before timing is accepted."
+      "supplementary_medium_multiroot_same_machine": {
+        "dataset": "soc-Epinions1",
+        "run_id": 33303152827,
+        "head_sha": "0eb3cb5dc0bf5afdbde48ebbb8b71fb18e725e58",
+        "artifact_id": 9729665685,
+        "artifact_sha256": "c59f60fd320f9c75d9c526d1be7a45f620c291d515ba7b1027b0ff2425f8d7e5",
+        "source_gzip_sha256": "69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938",
+        "source_text_sha256": "3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1",
+        "normalized_stream_sha256": "a56649d8455dd645a66b59ef9676fad21e0d898210bfe038e89db24e81f9dc27",
+        "vertices": 75879,
+        "directed_edges": 508837,
+        "imported_rate": 0.90,
+        "batch_size": 1024,
+        "batches": 50,
+        "roots": [763, 634, 71391],
+        "repetitions_per_root": 5,
+        "all_15_pairs_exact": true,
+        "final_reachable_vertices_per_root": 46898,
+        "velographx_mean_of_root_means_us": 1794.3133333333333,
+        "networkit_mean_of_root_means_us": 1151.5452666666667,
+        "mean_of_paired_root_ratios": 1.5816733814638257,
+        "notes": "Third checksum-pinned graph family. Three deterministic reachability-screened roots, five paired repetitions per root, one thread, same hosted runner, identical streams/batches, exact full-BFS verification after every batch."
+      },
+      "notes": "Native C++ same-machine repeated evidence. All accepted repetitions require exact correctness and nontrivial final reachability before timing is accepted."
     }
   ],
   "accepted_secondary_system_baselines": [
@@ -90,5 +97,5 @@
       "reason": "Credible structural dynamic graph systems, but GFE separates update experiments from Graphalytics BFS kernels instead of restoring BFS after each identical batch."
     }
   ],
-  "claim_rule": "Only systems in accepted_same_semantics may appear in the main dynamic-BFS latency evidence. Same-machine paired ratios may be reported for a campaign; results from different hosted runners must not be combined into a cross-system ranking. Hosted-CI measurements remain engineering evidence, not universal or publication-grade superiority claims."
+  "claim_rule": "Only systems in accepted_same_semantics may appear in the main dynamic-BFS latency evidence. Same-machine paired ratios may be reported within one campaign; results from different hosted runners must not be combined into a cross-system ranking. Hosted-CI measurements remain engineering evidence, not universal or publication-grade superiority claims."
 }
