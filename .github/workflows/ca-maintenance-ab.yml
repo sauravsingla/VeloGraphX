@@ -1,0 +1,173 @@
+name: ca-GrQc Maintenance A/B Gate
+
+on:
+  push:
+    paths:
+      - '.github/workflows/ca-maintenance-ab.yml'
+      - 'include/velographx/storage/dynamic_graph.hpp'
+      - 'include/velographx/incremental/bfs.hpp'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  maintenance-ab:
+    runs-on: ubuntu-22.04
+    env:
+      REPEATS: 5
+      CA_MIN_IMPROVEMENT: 0.05
+      WEB_MAX_REGRESSION: 0.03
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Prepare checksum-pinned datasets
+        run: |
+          mkdir -p build/ab/datasets
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+            --output-dir build/ab/datasets --dataset web-Google \
+            > build/ab/web-Google-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+            --output-dir build/ab/datasets --dataset ca-GrQc \
+            > build/ab/ca-GrQc-source.json
+
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/ab/datasets/web-Google.txt \
+            --output build/ab/web-Google.txt \
+            --report build/ab/web-Google-normalization.json \
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 \
+            --expected-vertices 875713 \
+            --expected-edges 5105039
+
+          python tools/prepare_symmetric_pinned_edge_stream.py \
+            --input build/ab/datasets/ca-GrQc.txt \
+            --output build/ab/ca-GrQc.txt \
+            --report build/ab/ca-GrQc-normalization.json \
+            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
+            --expected-vertices 5242 \
+            --expected-source-rows 28980 \
+            --expected-self-loops 12 \
+            --expected-nonloop-pair-multiplicity 2 \
+            --expected-unique-nonloop-pairs 14484
+
+      - name: Build baseline harness
+        run: |
+          cmake -S . -B build/base -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/base --target velographx_external_risgraph_bfs -j 2
+
+      - name: Build 16384-floor candidate harness
+        run: |
+          grep -q 'kAutomaticMinimumDeltaEntries = 4096' include/velographx/storage/dynamic_graph.hpp
+          sed -i 's/kAutomaticMinimumDeltaEntries = 4096/kAutomaticMinimumDeltaEntries = 16384/' \
+            include/velographx/storage/dynamic_graph.hpp
+          grep -q 'kAutomaticMinimumDeltaEntries = 16384' include/velographx/storage/dynamic_graph.hpp
+          cmake -S . -B build/candidate -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/candidate --target velographx_external_risgraph_bfs -j 2
+
+      - name: Run five same-run A/B repetitions
+        env:
+          OMP_NUM_THREADS: 1
+          OMP_PROC_BIND: 'true'
+        run: |
+          mkdir -p build/ab/runs
+          python - <<'PY'
+          import json, statistics, subprocess
+          from pathlib import Path
+
+          configs = [
+              ('ca-GrQc', 4282, 0.75, 256),
+              ('web-Google', 481807, 0.99, 4096),
+          ]
+          repeats = 5
+          summary = {'repetitions': repeats, 'datasets': {}}
+          for name, root, rate, batch in configs:
+              base, cand = [], []
+              for rep in range(1, repeats + 1):
+                  for label, exe, values in [
+                      ('baseline', 'build/base/velographx_external_risgraph_bfs', base),
+                      ('candidate', 'build/candidate/velographx_external_risgraph_bfs', cand),
+                  ]:
+                      out = Path(f'build/ab/runs/{name}-r{rep}-{label}.json')
+                      with out.open('w') as f:
+                          subprocess.run([exe, f'build/ab/{name}.txt', str(root), str(rate), str(batch)],
+                                         stdout=f, check=True)
+                      data = json.load(out.open())
+                      assert data['correct'] and data['legacy_correct'], (name, rep, label)
+                      values.append(data['wall_mean_us'])
+              summary['datasets'][name] = {
+                  'baseline_samples_us': base,
+                  'candidate_samples_us': cand,
+                  'baseline_mean_us': statistics.mean(base),
+                  'candidate_mean_us': statistics.mean(cand),
+                  'candidate_over_baseline': statistics.mean(cand) / statistics.mean(base),
+                  'all_exact': True,
+              }
+          Path('build/ab/summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Decide candidate
+        id: gate
+        run: |
+          python - <<'PY'
+          import json, os
+          s=json.load(open('build/ab/summary.json'))['datasets']
+          ca=s['ca-GrQc']['candidate_over_baseline']
+          web=s['web-Google']['candidate_over_baseline']
+          min_improvement=float(os.environ['CA_MIN_IMPROVEMENT'])
+          max_regression=float(os.environ['WEB_MAX_REGRESSION'])
+          accept = ca <= (1.0-min_improvement) and web <= (1.0+max_regression)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f'accept={str(accept).lower()}\n')
+              f.write(f'ca_ratio={ca}\n')
+              f.write(f'web_ratio={web}\n')
+          print(f'ca candidate/base={ca:.6f}; web candidate/base={web:.6f}; accept={accept}')
+          PY
+
+      - name: Run full candidate test suite
+        if: steps.gate.outputs.accept == 'true'
+        run: |
+          cmake -S . -B build/tests -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=ON \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/tests -j 2
+          ctest --test-dir build/tests --output-on-failure
+
+      - name: Promote accepted maintenance floor
+        if: steps.gate.outputs.accept == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add include/velographx/storage/dynamic_graph.hpp
+          git commit -m 'perf: raise automatic delta maintenance floor'
+          git push origin HEAD:main
+
+      - name: Restore rejected candidate locally
+        if: steps.gate.outputs.accept != 'true'
+        run: git checkout -- include/velographx/storage/dynamic_graph.hpp
+
+      - name: Upload A/B evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ca-maintenance-ab
+          path: build/ab/
+          retention-days: 90
