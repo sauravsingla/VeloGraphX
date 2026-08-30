@@ -33,7 +33,7 @@ NetworKit is pinned to **11.2.1**, Git commit `359f3fbf09b6d3fe214db24dd01bc8bfc
 
 The timed envelope includes graph mutation plus restoration of the dynamic BFS answer. Fresh full-BFS verification is outside the timed region. `OMP_NUM_THREADS=1` and `OMP_PROC_BIND=true` are applied. Each dataset runs **five paired repetitions**; every repetition must match exact full BFS and pass a nontrivial final-reachability gate.
 
-Accepted evidence run: **GitHub Actions `33294575513`**, VeloGraphX head `2ebcd9107afeb977b41ad11be0ec4734ce767f63`, artifact **`9727073670`**, artifact SHA-256 `7c1e04ad40c8e4b94f980bd8e4b9c44c282120dfada040d31fb2eec467cc5bdd`.
+Accepted evidence run: **GitHub Actions `33295590400`**, VeloGraphX head `c05bfcb9fa071ccee487d186fe92fdad9ad3ef66`, artifact **`9727429231`**, artifact SHA-256 `877599ba511568434ccf7e65b0b38ce9986a4c75995f27df08aea4b7f48f93d`.
 
 ### web-Google
 
@@ -47,10 +47,10 @@ Source SHA-256: `8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d
 
 | System | Mean batch | Median batch | Std. dev. |
 | --- | ---: | ---: | ---: |
-| VeloGraphX | **44.531 ms** | 44.303 ms | 1.426 ms |
-| NetworKit 11.2.1 `DynBFS` | **43.607 ms** | 43.763 ms | 0.407 ms |
+| VeloGraphX | **39.661 ms** | 39.734 ms | 0.386 ms |
+| NetworKit 11.2.1 `DynBFS` | **39.628 ms** | 39.439 ms | 1.051 ms |
 
-VeloGraphX samples were `46.039, 43.136, 44.303, 43.198, 45.978 ms`; NetworKit samples were `43.911, 43.256, 43.763, 44.011, 43.096 ms`. The mean paired VeloGraphX/NetworKit ratio is **1.021x** and the median paired ratio is **1.012x**. On this hosted runner, VeloGraphX is therefore within about **2.1% of NetworKit**.
+VeloGraphX samples were `39.433, 39.955, 39.734, 39.123, 40.060 ms`; NetworKit samples were `39.186, 41.487, 39.291, 39.439, 38.739 ms`. The mean paired VeloGraphX/NetworKit ratio is **1.0009x** and the median paired ratio is **1.0063x**. On this hosted runner, the systems are therefore at same-run parity.
 
 ### ca-GrQc
 
@@ -67,16 +67,18 @@ Source SHA-256: `513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d
 
 | System | Mean batch | Median batch | Std. dev. |
 | --- | ---: | ---: | ---: |
-| VeloGraphX | **0.3884 ms** | 0.3896 ms | 0.0030 ms |
-| NetworKit 11.2.1 `DynBFS` | **0.08792 ms** | 0.08808 ms | 0.00043 ms |
+| VeloGraphX | **0.3054 ms** | 0.3057 ms | 0.00070 ms |
+| NetworKit 11.2.1 `DynBFS` | **0.07532 ms** | 0.07531 ms | 0.00011 ms |
 
-VeloGraphX samples were `0.3896, 0.3919, 0.3896, 0.3860, 0.3846 ms`; NetworKit samples were `0.08835, 0.08808, 0.08766, 0.08732, 0.08821 ms`. The mean paired VeloGraphX/NetworKit ratio is **4.417x**. NetworKit remains materially faster on this small-graph workload.
+VeloGraphX samples were `0.3041, 0.3057, 0.3058, 0.3058, 0.3054 ms`; NetworKit samples were `0.07525, 0.07545, 0.07531, 0.07518, 0.07540 ms`. The mean paired VeloGraphX/NetworKit ratio is **4.054x**. NetworKit remains materially faster on this small-graph workload.
 
-The earlier degenerate ca-GrQc run is excluded; the workflow now selects a root robust across the initial and final sliding windows and rejects final reachability below 1,000 vertices.
+The storage optimization campaign preceding this accepted run made two correctness-preserving changes: automatic percentage-based row compaction now requires a minimum live-delta population, and the hot forward packed-delta transition avoids a duplicate binary search. Relative to the prior clean VeloGraphX ca-GrQc result of **0.3884 ms**, the accepted VeloGraphX mean is **0.3054 ms**, a reduction of about **21%**. The frozen workload, roots, batch sizes, thread settings, competitor revision and exactness gates were unchanged.
+
+The earlier degenerate ca-GrQc run is excluded; the workflow selects a root robust across the initial and final sliding windows and rejects final reachability below 1,000 vertices.
 
 ## Interpretation
 
-The clean optimized campaign supersedes the earlier native NetworKit campaign as the primary NetworKit evidence. It shows **near parity on web-Google**, while the smaller ca-GrQc workload remains a clear optimization gap.
+The current optimized campaign supersedes the previous native NetworKit campaign as the primary NetworKit evidence. It shows **same-run parity on web-Google**, while ca-GrQc has improved materially but remains the principal dynamic-BFS optimization gap.
 
 These are **hosted-CI engineering measurements**, not publication-grade universal conclusions. Pairwise same-run ratios are more informative than absolute comparisons across different hosted runners. Publication-level conclusions require dedicated hardware, more graph families and roots/update regimes, multicore scaling, hardware counters, and a same-machine campaign containing all native competitors.
 
