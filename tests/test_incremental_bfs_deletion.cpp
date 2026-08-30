@@ -49,7 +49,8 @@ int main() {
     bfs.apply(b);
     require(bfs.distances()[3] == 2, "alternate-parent: distance(3)");
     require(bfs.distances()[4] == 3, "alternate-parent: distance(4)");
-    require(bfs.last_affected_vertices() == 2, "alternate-parent: affected count");
+    require(bfs.last_affected_vertices() == 0,
+            "alternate-parent: surviving shortest parent should prevent invalidation");
     require(!bfs.last_used_full_recompute(), "alternate-parent: unexpected fallback");
     assert_matches_full(g, bfs, 0, "alternate-parent");
   }
