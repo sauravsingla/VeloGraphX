@@ -16,9 +16,6 @@ class IncrementalBFS {
 
   IncrementalBFS(DynamicGraph& g, VertexId source, double deletion_fallback_fraction = 0.35)
       : g_(g), source_(source), deletion_fallback_fraction_(deletion_fallback_fraction) {
-    const auto initially_dirty = static_cast<std::uint8_t>(g_.is_compact() ? 0 : 1);
-    dirty_out_.assign(g_.vertex_count(), initially_dirty);
-    dirty_in_.assign(g_.vertex_count(), initially_dirty);
     recompute();
   }
 
@@ -71,7 +68,6 @@ class IncrementalBFS {
     g_.apply(batch);
     if (dist_.size() < g_.vertex_count()) dist_.resize(g_.vertex_count(), unreachable);
     ensure_workspace(g_.vertex_count());
-    update_dirty_rows(batch);
 
     if (fallback_needed) {
       clear_workspace();
@@ -102,18 +98,18 @@ class IncrementalBFS {
     ensure_workspace(g_.vertex_count());
     if (source_ >= g_.vertex_count()) return;
     bfs_queue_.clear();
-    if (bfs_queue_.capacity() < g_.vertex_count()) bfs_queue_.reserve(g_.vertex_count());
+    bfs_queue_.reserve(std::max(bfs_queue_.capacity(), g_.vertex_count()));
     dist_[source_] = 0;
     bfs_queue_.push_back(source_);
     std::size_t head = 0;
     while (head < bfs_queue_.size()) {
       const auto u = bfs_queue_[head++];
-      for_each_out(u, [&](VertexId v) {
+      for (auto v : g_.neighbors(u)) {
         if (dist_[v] == unreachable) {
           dist_[v] = dist_[u] + 1;
           bfs_queue_.push_back(v);
         }
-      });
+      }
     }
   }
 
@@ -127,44 +123,6 @@ class IncrementalBFS {
     if (affected_.size() < vertices) affected_.resize(vertices, 0);
     if (lost_parent_count_.size() < vertices) lost_parent_count_.resize(vertices, 0);
     if (shortest_parent_count_.size() < vertices) shortest_parent_count_.resize(vertices, 0);
-    // New vertices can only appear through updates, so conservatively treat their
-    // compact rows as dirty until DynamicGraph reports a globally compact state.
-    if (dirty_out_.size() < vertices) dirty_out_.resize(vertices, 1);
-    if (dirty_in_.size() < vertices) dirty_in_.resize(vertices, 1);
-  }
-
-  void update_dirty_rows(const UpdateBatch& batch) {
-    if (g_.is_compact()) {
-      std::fill(dirty_out_.begin(), dirty_out_.end(), 0);
-      std::fill(dirty_in_.begin(), dirty_in_.end(), 0);
-      return;
-    }
-    for (const auto& op : batch.updates) {
-      if (op.src < dirty_out_.size()) dirty_out_[op.src] = 1;
-      if (op.dst < dirty_in_.size()) dirty_in_[op.dst] = 1;
-      if (!g_.directed()) {
-        if (op.dst < dirty_out_.size()) dirty_out_[op.dst] = 1;
-        if (op.src < dirty_in_.size()) dirty_in_[op.src] = 1;
-      }
-    }
-  }
-
-  template <class Fn>
-  void for_each_out(VertexId u, Fn&& fn) const {
-    if (u < dirty_out_.size() && dirty_out_[u] == 0) {
-      for (auto v : g_.compact_neighbors(u)) fn(v);
-      return;
-    }
-    for (auto v : g_.neighbors(u)) fn(v);
-  }
-
-  template <class Fn>
-  void for_each_in(VertexId v, Fn&& fn) const {
-    if (v < dirty_in_.size() && dirty_in_[v] == 0) {
-      for (auto u : g_.compact_in_neighbors(v)) fn(u);
-      return;
-    }
-    for (auto u : g_.in_neighbors(v)) fn(u);
   }
 
   void prepare_batch_workspace(std::size_t operations) {
@@ -194,9 +152,9 @@ class IncrementalBFS {
     if (v >= dist_.size() || v == source_ || dist_[v] == unreachable) return 0;
     if (shortest_parent_count_[v] != 0) return shortest_parent_count_[v];
     std::uint32_t count = 0;
-    for_each_in(v, [&](VertexId p) {
+    for (auto p : g_.in_neighbors(v)) {
       if (is_shortest_parent(p, v)) ++count;
-    });
+    }
     shortest_parent_count_[v] = count;
     return count;
   }
@@ -232,22 +190,22 @@ class IncrementalBFS {
       if (last_affected_vertices_ > fallback_limit) return false;
       const auto u = invalidate_[head++];
       if (u >= dist_.size() || dist_[u] == unreachable) continue;
-      for_each_out(u, [&](VertexId v) {
-        if (v >= dist_.size() || dist_[v] != dist_[u] + 1) return;
-        if (final_deletion_keys.contains(edge_key(u, v))) return;
+      for (auto v : g_.neighbors(u)) {
+        if (v >= dist_.size() || dist_[v] != dist_[u] + 1) continue;
+        if (final_deletion_keys.contains(edge_key(u, v))) continue;
         record_parent_loss(v);
-      });
+      }
     }
     return last_affected_vertices_ <= fallback_limit;
   }
 
   [[nodiscard]] std::uint32_t best_boundary_distance(VertexId v) const {
     std::uint32_t best = unreachable;
-    for_each_in(v, [&](VertexId p) {
-      if (p >= dist_.size() || p >= affected_.size() || affected_[p] || dist_[p] == unreachable) return;
+    for (auto p : g_.in_neighbors(v)) {
+      if (p >= dist_.size() || p >= affected_.size() || affected_[p] || dist_[p] == unreachable) continue;
       const auto candidate = dist_[p] + 1;
       if (candidate < best) best = candidate;
-    });
+    }
     return best;
   }
 
@@ -270,14 +228,14 @@ class IncrementalBFS {
       const auto [du, u] = pq.top();
       pq.pop();
       if (u >= dist_.size() || du != dist_[u]) continue;
-      for_each_out(u, [&](VertexId v) {
-        if (v >= affected_.size() || !affected_[v]) return;
+      for (auto v : g_.neighbors(u)) {
+        if (v >= affected_.size() || !affected_[v]) continue;
         const auto candidate = du + 1;
         if (candidate < dist_[v]) {
           dist_[v] = candidate;
           pq.emplace(candidate, v);
         }
-      });
+      }
     }
 
     bfs_queue_.clear();
@@ -315,12 +273,12 @@ class IncrementalBFS {
     while (head < q.size()) {
       const auto u = q[head++];
       if (dist_[u] == unreachable) continue;
-      for_each_out(u, [&](VertexId v) {
+      for (auto v : g_.neighbors(u)) {
         if (dist_[u] + 1 < dist_[v]) {
           dist_[v] = dist_[u] + 1;
           q.push_back(v);
         }
-      });
+      }
     }
   }
 
@@ -332,8 +290,6 @@ class IncrementalBFS {
   std::vector<std::uint32_t> lost_parent_count_;
   std::vector<std::uint32_t> shortest_parent_count_;
   std::vector<VertexId> touched_loss_vertices_;
-  std::vector<std::uint8_t> dirty_out_;
-  std::vector<std::uint8_t> dirty_in_;
 
   std::unordered_set<std::uint64_t> seen_final_updates_;
   std::unordered_set<std::uint64_t> final_deletion_keys_;
