@@ -1,42 +1,21 @@
 # External dynamic baselines
 
-VeloGraphX uses external systems only when a comparison can be pinned, rebuilt or installed at an immutable version, matched on graph/update semantics, and guarded by correctness checks. The purpose of this document is to make the comparison boundary explicit and prevent broad or unfair speedup claims.
+VeloGraphX admits an external system to the main dynamic-BFS comparison only when the system can be pinned immutably, receives the same graph/update semantics, restores an exact BFS answer after every batch, and passes correctness checks before timing is accepted. The goal is to avoid broad claims from mismatched benchmark contracts.
 
 The machine-readable eligibility record is [`benchmarks/external-baseline-manifest.json`](../benchmarks/external-baseline-manifest.json).
 
 ## Comparison classes
 
-External systems are separated into two classes:
+1. **Same-semantics dynamic-BFS baselines** receive the same ordered graph stream, root, initial window, batch boundaries, insertions/deletions, and answer-ready timing contract. They may appear in the dynamic-BFS latency evidence.
+2. **Secondary dynamic-graph systems** support structural updates and graph analytics but do not expose the same exact maintained-BFS contract. They are kept separate from the latency table.
 
-1. **Same-semantics dynamic-BFS baselines** receive the same directed graph, source-order update stream, root, initial window, and batch boundaries, and must restore an exact BFS answer after every batch. These systems may appear in the dynamic-BFS latency evidence.
-2. **Secondary dynamic-graph systems** support structural updates and graph analytics but do not expose the same maintained-BFS contract in their public artifact. They may be evaluated separately, but must not be mixed into the same latency table.
-
-At present, the accepted same-semantics baselines are **RisGraph** and **NetworKit DynBFS**. Teseo, Aspen, Terrace, LiveGraph, GraphOne, and STINGER were screened as serious dynamic-graph systems but are not treated as equivalent incremental-BFS-maintenance baselines.
-
-## Shared web-Google contract
-
-The validated public workload uses checksum-pinned SNAP `web-Google`:
-
-- `875,713` vertices and `5,105,039` directed edges;
-- source SHA-256 `8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1`;
-- sparse SNAP IDs deterministically relabeled by ascending original ID to `0..875712`, without edge reordering;
-- normalized stream SHA-256 `f451add10bfea6cdae5b7030410e0e93acbf5c4fc5f0821738b9863f0e9c6496`;
-- 99% source-order initial import (`5,053,988` edges);
-- 4,096-edge sliding-window batches, producing 13 update batches;
-- each batch inserts the next source-order edges and deletes the equally sized oldest source-order edges;
-- root selected deterministically as the maximum-out-degree vertex in the imported prefix, with smallest dense ID as tie-break;
-- selected root `481807`, imported-prefix out-degree `456`;
-- final exact BFS reaches `588,118` vertices.
-
-The answer-ready timing envelope includes graph mutation and the work required to restore the BFS answer. Independent full-BFS verification is excluded from the timed region.
+The accepted same-semantics systems are **RisGraph** and **NetworKit DynBFS**.
 
 ## RisGraph
 
-RisGraph is the open-source implementation of the SIGMOD 2021 paper *RisGraph: A Real-Time Streaming System for Evolving Graphs to Support Sub-millisecond Per-update Analysis at Millions Ops/s*. The benchmark pins commit `4e77f774d4aa7cd0bf3011e713496573b70c91ab` and its Abseil submodule at `f1dad1e9b277066d676034d8f2a982b9e64310de`.
+The native RisGraph comparison pins commit `4e77f774d4aa7cd0bf3011e713496573b70c91ab` and uses checksum-pinned directed `web-Google` with the source-order sliding-window workload: 99% initial import, 4,096-edge batches, deterministic root `481807`, and 13 update batches. The final exact BFS reaches `588,118` vertices.
 
-### Validated hosted-CI result
-
-Evidence run: GitHub Actions `33286241439`, VeloGraphX head `e3f6c21133a43a2c6826709c336e56b846c98252`. Artifact: `velographx-external-risgraph-web-google`, artifact ID `9724535579`.
+Evidence run: GitHub Actions `33286241439`, VeloGraphX head `e3f6c21133a43a2c6826709c336e56b846c98252`, artifact `9724535579`.
 
 | System / policy | Mean answer-ready batch time |
 | --- | ---: |
@@ -44,95 +23,84 @@ Evidence run: GitHub Actions `33286241439`, VeloGraphX head `e3f6c21133a43a2c682
 | VeloGraphX legacy full recomputation | **118.039 ms** |
 | RisGraph | **31.333 ms** |
 
-The deletion-aware VeloGraphX path is **1.98x faster than the former VeloGraphX deletion policy** on this workload. It processed `15,065` deletion candidates and `863,977` affected-vertex instances across 13 batches and required **0/13 full-recompute safety fallbacks**.
+VeloGraphX deletion-aware repair is **1.98x faster than its former full-recompute deletion policy**, with 0/13 safety fallbacks, but **RisGraph remains about 1.90x faster than VeloGraphX** on this run. Exact final BFS layer histograms agree across the systems and independent full-BFS checks.
 
-RisGraph remains approximately **1.90x faster** than the measured VeloGraphX path (`59.658 / 31.333`). The result therefore shows a substantial VeloGraphX internal improvement while also preserving the external performance gap; it must not be presented as VeloGraphX outperforming RisGraph.
+This remains a separate hosted-runner campaign and therefore must not be numerically merged with the NetworKit campaign into a three-system league table.
 
-Correctness was required before the timing ratio was accepted:
+## Native C++ NetworKit repeated campaign
 
-- VeloGraphX's maintained BFS exactly matched an independent full BFS.
-- The reconstructed legacy VeloGraphX policy exactly matched an independent full BFS.
-- RisGraph's maintained final BFS layer histogram exactly matched its own post-stream full rebuild.
-- The final BFS layer histogram was identical across VeloGraphX and RisGraph.
-- The evidence gate requires more than 1,000 reachable vertices to exclude degenerate roots.
+NetworKit is pinned to **11.2.1**, Git commit `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`. The workflow initializes and records its pinned submodules, builds the C++ core from source, compiles a native VeloGraphX comparison harness against `NetworKit::DynBFS`, and runs VeloGraphX and NetworKit sequentially on the **same GitHub-hosted runner**.
 
-The VeloGraphX deletion policy performs conservative pre-batch shortest-path-DAG closure invalidation, boundary reconstruction through reverse adjacency, final-state insertion relaxation, and a 35% affected-region fallback to full recomputation. Dependency discovery occurs before graph mutation so deleted shortest-path edges and multi-parent deletion interactions remain visible to the invalidation analysis.
+The timed envelope for both systems includes graph mutation plus restoration of the dynamic BFS answer. Fresh full-BFS verification is outside the timed region. `OMP_NUM_THREADS=1` is applied to the paired campaign. Each dataset is executed **five times**, and every repetition must satisfy:
 
-### Build compatibility boundary
+- NetworKit `DynBFS` exactly matches a fresh full NetworKit BFS after every batch;
+- VeloGraphX matches its independent full-BFS reference;
+- root, initial/final edge counts, batch boundaries and final layer histogram agree across systems; and
+- final reachability clears a dataset-specific nontriviality gate.
 
-The immutable RisGraph source requires compatibility adaptations on current Ubuntu. Its legacy `FindTBB.cmake` expects a header removed from modern oneTBB; `tbb::task_scheduler_init` is replaced with oneTBB `global_control` for initialization-time thread limiting; and its pinned Abseil dependency needs an explicit `<limits>` include with modern GCC. The compatibility manifest records `algorithm_implementation_modified=false`; no graph algorithm, update policy, or benchmark logic is changed.
+Accepted evidence run: **GitHub Actions `33291065285`**, VeloGraphX head `2e2d84f549a147dd52b7be7cb44709b2ffe0046c`, artifact **`9726044346`**, artifact SHA-256 `92146c420f47c38aa4e5992b3c7b845c94acbb1089334381c6eb195d522fb26b`.
 
-Retained compatibility identifiers include RisGraph patch SHA-256 `9f134bf4fd6591c2798aa4ba71ad96e951cfca671aebf9c8106abdc20eb88a26` and Abseil patch SHA-256 `238f1d81ab0bcc906a1263d7e043f187fef949c61cc6e140f8908e94d9ddd791`.
+### web-Google
 
-Evidence workflow: `.github/workflows/external-risgraph-baseline.yml`.
+Source SHA-256: `8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1`. Normalized stream SHA-256: `f451add10bfea6cdae5b7030410e0e93acbf5c4fc5f0821738b9863f0e9c6496`.
 
-## NetworKit DynBFS
+- 875,713 vertices / 5,105,039 directed edges
+- 99% initial import = 5,053,988 edges
+- batch size 4,096 / 13 batches
+- deterministic root 481807
+- final reachable vertices 588,118; acceptance floor 100,000
 
-NetworKit provides a dedicated `DynBFS` implementation that handles edge additions and removals and exposes batched dynamic updates. The VeloGraphX benchmark pins **NetworKit 11.2.1**, corresponding to Git commit `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`.
+| System | Mean batch | Median batch | Std. dev. |
+| --- | ---: | ---: | ---: |
+| VeloGraphX | **57.202 ms** | 56.814 ms | 1.473 ms |
+| NetworKit 11.2.1 `DynBFS` | **43.742 ms** | 43.833 ms | 0.387 ms |
 
-The comparison uses exactly the same normalized `web-Google` stream, root, 99% initial import, 4,096-edge batches, and sliding-window update semantics described above. After **every batch**, NetworKit's maintained distance vector is checked against a freshly recomputed NetworKit BFS. The final BFS layer histogram is also required to match VeloGraphX exactly.
+Five VeloGraphX samples were `59.653, 57.125, 56.730, 55.689, 56.814 ms`; NetworKit samples were `44.195, 43.595, 43.167, 43.920, 43.833 ms`. The mean paired VeloGraphX/NetworKit ratio is **1.308x** and the median paired ratio is **1.310x**. Thus **NetworKit is about 1.31x faster** on this native same-machine hosted-CI workload.
 
-### Validated hosted-CI result
+### ca-GrQc
 
-Evidence run: GitHub Actions `33289387036`, VeloGraphX head `287939734fc65220ba5177a6c2c3f74e29cb2487`. Artifact: `velographx-external-networkit-web-google`, artifact ID `9725483956`.
+The checksum-pinned source has 5,242 vertices and 28,980 rows. The provenance gate explicitly verifies 12 self-loops plus 14,484 unique non-loop undirected relationships represented reciprocally. Self-loops are removed, reciprocal representation is verified, vertices are dense-relabelled deterministically, and each unique relationship is emitted once in each direction.
 
-| System | Mean answer-ready batch time |
-| --- | ---: |
-| VeloGraphX deletion-aware repair | **41.682 ms** |
-| NetworKit 11.2.1 `DynBFS` | **46.933 ms** |
+Source SHA-256: `513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5`. Derived symmetric-stream SHA-256: `b6e16b41991049365670ac6407055034d2e29e21c8b000b9ecb0ff0ac8964192`.
 
-In this single hosted-CI execution, VeloGraphX's measured answer-ready latency was approximately **11.2% lower** than NetworKit's (`41.682 / 46.933 = 0.888`). Equivalently, NetworKit took approximately **1.13x** the VeloGraphX time on this run.
+- 5,242 vertices / 28,968 derived directed edges
+- 75% initial import = 21,726 edges
+- batch size 256 / 29 batches
+- sliding-window-aware deterministic root 4282
+- root out-degree: 79 in the initial window and 69 in the final window
+- final reachable vertices 3,119; acceptance floor 1,000
 
-This result has a stricter interpretation boundary than the native RisGraph comparison. NetworKit is invoked through its Python bindings. Its timed envelope includes Python-level graph mutation calls plus native `DynBFS` maintenance, while VeloGraphX executes through a native C++ harness. The result is therefore retained as **same-semantics engineering evidence**, not as a publication-grade language-neutral superiority claim. A future dedicated-hardware campaign should use a native C++ NetworKit harness before promoting the ratio to a research-level performance conclusion.
+| System | Mean batch | Median batch | Std. dev. |
+| --- | ---: | ---: | ---: |
+| VeloGraphX | **0.3952 ms** | 0.3944 ms | 0.0018 ms |
+| NetworKit 11.2.1 `DynBFS` | **0.08127 ms** | 0.08078 ms | 0.00219 ms |
 
-Correctness gates passed before the result was retained:
+Five VeloGraphX samples were `0.3944, 0.3938, 0.3958, 0.3938, 0.3981 ms`; NetworKit samples were `0.07893, 0.08030, 0.08154, 0.08078, 0.08479 ms`. The mean paired VeloGraphX/NetworKit ratio is **4.865x** and the median paired ratio is **4.875x**. Thus **NetworKit is about 4.86x faster** on this smaller collaboration-network workload.
 
-- NetworKit `DynBFS` matched a fresh full NetworKit BFS after **all 13/13 batches**.
-- VeloGraphX matched its independent full BFS reference.
-- Both systems used the same root, initial edge window, update boundaries, and final edge count.
-- The final BFS layer histogram was identical across NetworKit and VeloGraphX.
-- Both systems reached exactly `588,118` vertices in the final graph.
+The earlier ca-GrQc attempt that ended with only one reachable vertex is intentionally excluded; the workflow was hardened to select a root robust across the initial and final sliding windows and to fail when final reachability is below 1,000 vertices.
 
-The NetworKit timed total decomposed into approximately **133.492 ms** of Python-level graph mutation and **476.641 ms** of dynamic-maintenance work across all 13 batches. Full-BFS correctness recomputation was outside the timed region.
+## Interpretation
 
-Evidence workflow: `.github/workflows/external-networkit-baseline.yml`. Runner: `tools/run_networkit_dynamic_bfs.py`.
+The native C++ campaign supersedes the earlier Python-binding NetworKit timing as the primary NetworKit evidence. The earlier Python result remains historical only; its timing included Python-level mutation overhead and should not be used for performance claims.
 
-## Why the RisGraph and NetworKit numbers are not a league table
+The new campaign materially improves fairness: both implementations are native C++, pinned, executed on the same runner, repeated five times, and checked for exact answers and nontrivial reachability. It also shows that **VeloGraphX does not currently outperform NetworKit DynBFS on either accepted workload**.
 
-The RisGraph and NetworKit campaigns were separate GitHub Actions executions on hosted runners. Their VeloGraphX measurements differ (`59.658 ms` and `41.682 ms`) because hosted CI is noisy and machine allocation is not controlled. Therefore **RisGraph and NetworKit must not be ranked against each other by combining these two runs**. Only the same-run pairwise ratio within each campaign is meaningful as hosted-CI engineering evidence.
-
-Publication-grade comparison requires repeated executions of all systems on the same dedicated machine, with controlled pinning, warm-up, repetitions, statistics, and identical native timing envelopes.
+These remain **hosted-CI engineering measurements**, not publication-grade universal conclusions. The runner is virtualized and uncontrolled, only one thread is used, there are two graph families, and the RisGraph campaign is not on the same machine as this NetworKit campaign. Publication-level conclusions require dedicated hardware, controlled CPU placement/frequency, more graph families and roots/update regimes, more repetitions, multicore scaling, and a same-machine campaign containing all native competitors.
 
 ## Serious systems screened but excluded from the same-semantics table
 
-### Teseo / GFE Driver
+- **Teseo / GFE Driver** — strong structural dynamic-graph evaluation, but its public contract separates update experiments from Graphalytics BFS rather than maintaining exact BFS after every identical batch.
+- **Aspen** — supports streaming updates and BFS over acquired snapshots, not the same maintained dynamic-BFS state contract.
+- **Terrace** — dynamic graph storage and analytics, but not a public RisGraph-like exact incremental-BFS-maintenance contract.
+- **LiveGraph, GraphOne, STINGER and LLAMA via GFE** — appropriate for separately labelled structural-update or snapshot-kernel experiments, not the main answer-ready incremental BFS table.
 
-Teseo is the VLDB 2021 system *Teseo and the Analysis of Structural Dynamic Graphs*. The screened Teseo revision is `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; the public GFE evaluation driver is pinned at `9cbb186c9b06f6e214ba0102beba2ec3080f8b95`.
-
-GFE is a strong external evaluation framework and supports Teseo, LLAMA, GraphOne, STINGER, and LiveGraph. However, its public contract separates structural update experiments from Graphalytics kernel execution. It does not restore an incrementally maintained BFS answer after each VeloGraphX-style update batch. Teseo is therefore suitable for a **separately labelled structural-update or updated-snapshot BFS comparison**, not the main incremental-BFS latency table.
-
-### Aspen
-
-Aspen is the graph-streaming system from *Low-Latency Graph Streaming Using Compressed Purely-Functional Trees*. The screened public artifact is pinned at `ecc3193da05aef3b4e5f5de7cab77b215c0b8211`. It supports batched graph updates and BFS over acquired graph snapshots, but the public artifact does not expose RisGraph-like incremental BFS-state maintenance. Its build also relies on legacy Cilk Plus tooling. Aspen is retained as a credible secondary graph-streaming baseline rather than forced into a mismatched latency comparison.
-
-### Terrace
-
-Terrace is a serious dynamic graph-storage system and includes graph analytics, but its public contract similarly evaluates algorithms over dynamically updated graph state rather than maintaining exact BFS state with the same per-batch semantics. Its OpenCilk/Tapir-oriented build requirements also make a hosted-CI comparison materially different from the current VeloGraphX/RisGraph setup. It is screened but excluded from the same-semantics latency table.
-
-### LiveGraph, GraphOne, STINGER, and LLAMA
-
-These systems are supported by the GFE Driver and are relevant for structural dynamic-graph evaluation. They remain candidates for a future **separate** experiment on insertion/deletion throughput, memory behavior, or post-update Graphalytics kernels. Mixing those measurements with answer-ready incremental BFS latency would conflate different contracts.
-
-## Historical synthetic RisGraph result
-
-The earlier deterministic matched stream used seed `8675309`, 4,096 vertices, 32,768 unique directed edges, a 50% initial import, root 0, and 256-edge batches. Evidence run `33267957508` measured VeloGraphX at `920.625 µs` and RisGraph at `125.598 µs`, making RisGraph about **7.33x faster**. At that time VeloGraphX still recomputed the entire BFS after deletion-containing batches. The result is retained as historical evidence of the bottleneck that motivated deletion-aware repair; the public `web-Google` result is the current comparison.
+Pinned revisions and eligibility are recorded in [`benchmarks/external-baseline-manifest.json`](../benchmarks/external-baseline-manifest.json).
 
 ## Claim rules
 
-1. External repositories must be identified by immutable commit SHA or immutable release/version mapping.
-2. Dataset identity, checksums, update stream, root, batch boundaries, timing envelope, thread configuration, compiler/toolchain, and environment must be retained with the result.
-3. Correctness or semantic equivalence must pass before any performance number is accepted.
-4. Update-only timing, snapshot-query timing, and answer-ready incremental-maintenance timing must never be mixed in one speedup table.
-5. Results from different hosted runners must not be combined into a cross-system ranking.
+1. External repositories are identified by immutable revisions or immutable version-to-revision mappings.
+2. Dataset checksums, derivation rules, root policy, batch boundaries, timing envelope, thread settings, compiler/environment and retained artifacts accompany accepted results.
+3. Correctness and workload nontriviality must pass before timing is accepted.
+4. Update-only, snapshot-query and answer-ready maintenance timing are not mixed.
+5. Same-machine paired ratios may be reported within one campaign; separate hosted runners are not combined into a cross-system ranking.
 6. Hosted-CI results are engineering evidence, not universal or publication-grade superiority claims.
-7. Systems with different public semantics may be evaluated as secondary structural or snapshot baselines, but their different contract must be stated explicitly.
