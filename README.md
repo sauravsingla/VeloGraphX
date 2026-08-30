@@ -21,7 +21,7 @@ The project explores this question through a CPU-native architecture that couple
 - selector-owned recomputation control, and
 - reproducible evaluation against full recomputation and external exact baselines.
 
-The contribution is the **integration and evaluation of these mechanisms as one exact dynamic-graph execution architecture**. Individual graph algorithms such as BFS, SSSP, connected components, k-core, PageRank, and triangle counting are established techniques and are not presented as new algorithms.
+The contribution is the **integration and evaluation of these mechanisms as one exact dynamic-graph execution architecture**. Individual graph algorithms such as BFS, SSSP, connected components, k-core, PageRank, and triangle counting are established techniques and are not presented as new algorithms. The detailed [related-work positioning](docs/related-work-positioning.md) states the boundary against prior incremental and streaming graph systems explicitly.
 
 ## Architecture
 
@@ -80,7 +80,7 @@ A development-suite evaluation across checksum-pinned `ca-GrQc`, `soc-Epinions1`
 
 All pre-specified development acceptance criteria were satisfied: exactness = 100%, mean regret ≤ 5%, p95 batch regret ≤ 20%, and worst-regime regret ≤ 25%.
 
-The evaluated selector combines graph-scale conditioning, online cost estimation, uncertainty-aware decisions, and selector-owned large-graph repair/recompute control. These figures are **development-suite adaptive-policy results** and are reported separately from external-baseline measurements.
+The evaluated selector combines graph-scale conditioning, online cost estimation, uncertainty-aware decisions, and selector-owned large-graph repair/recompute control. These figures are **development-suite adaptive-policy results** and are reported separately from external-baseline measurements. The [ablation study](docs/ablation-study.md) separates direct A/B evidence, historical mechanism evidence, and the publication-grade component-ablation contract.
 
 ### Incremental vs recomputation crossover
 
@@ -119,6 +119,8 @@ Experiments use checksum-pinned public datasets, immutable baseline revisions, e
 
 | Resource | Purpose |
 | --- | --- |
+| [Related-work positioning](docs/related-work-positioning.md) | Prior systems, overlap, and defensible contribution boundary |
+| [Ablation study](docs/ablation-study.md) | Mechanism evidence and publication-grade ablation contract |
 | [External dynamic baselines](docs/external-dynamic-baselines.md) | Competitor methodology and evidence |
 | [CI-scale evidence](docs/ci-scale-evidence.md) | Reproducible CI measurements |
 | [Published exact baseline](docs/same-run-published-baseline.md) | Exact published-reference comparison |
