@@ -21,11 +21,15 @@ jobs:
           lscpu | tee artifacts/lscpu.txt
 
       - name: Prepare roadNet-CA with provenance checks
+        shell: bash
         run: |
+          set -o pipefail
           python3 scripts/prepare_publication_datasets.py roadnet-ca --output-dir data | tee artifacts/roadNet-CA.prepare.json
 
       - name: Prepare deterministic Kronecker smoke workload
+        shell: bash
         run: |
+          set -o pipefail
           python3 scripts/prepare_publication_datasets.py kronecker --output-dir data --scale 16 --edgefactor 16 --seed 1 | tee artifacts/kron-scale16.prepare.json
 
       - name: Build public benchmark
@@ -34,13 +38,17 @@ jobs:
           cmake --build build --target velographx_public_dataset_benchmark -j2
 
       - name: Run road-network benchmark
+        shell: bash
         run: |
+          set -o pipefail
           /usr/bin/time -v -o artifacts/roadNet-CA.time.txt \
             ./build/velographx_public_dataset_benchmark data/roadNet-CA.edges 0 \
             | tee artifacts/roadNet-CA.csv
 
       - name: Run Kronecker benchmark
+        shell: bash
         run: |
+          set -o pipefail
           /usr/bin/time -v -o artifacts/kron-scale16.time.txt \
             ./build/velographx_public_dataset_benchmark data/kron-scale16-ef16-seed1.edges 0 \
             | tee artifacts/kron-scale16.csv
@@ -49,6 +57,8 @@ jobs:
         run: |
           grep -q 'bfs_end_to_end_us' artifacts/roadNet-CA.csv
           grep -q 'triangle_end_to_end_us' artifacts/kron-scale16.csv
+          test -s artifacts/roadNet-CA.prepare.json
+          test -s artifacts/kron-scale16.prepare.json
           test -s data/roadNet-CA.metadata.json
           test -s data/kron-scale16-ef16-seed1.metadata.json
 
