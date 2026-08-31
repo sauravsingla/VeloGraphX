@@ -786,7 +786,7 @@ class DynamicGraph {
   }
 
   void automatic_storage_maintenance() {
-    constexpr std::size_t kAutomaticMinimumDeltaEntries = 16384;
+    constexpr std::size_t kAutomaticMinimumDeltaEntries = 65536;
     constexpr double kAutomaticGlobalDeltaRatio = 0.01;
     constexpr double kRowDeltaDensityThreshold = 0.50;
     constexpr double kFragmentationThreshold = 0.60;
