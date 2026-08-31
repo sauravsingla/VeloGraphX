@@ -52,6 +52,40 @@ exact maintained result
 
 Measurements below use reproducible benchmark contracts and independent exactness checks.
 
+### Representative-family benchmark contract
+
+Following external benchmark-design feedback, the publication contract now requires scale-free web/social graphs, road networks, and parameterized Graph500-style Kronecker/R-MAT workloads. The public benchmark reports **steady-state/kernel time separately from preprocessing-inclusive end-to-end time**, starting from a neutral edge-list boundary. This avoids presenting a fast kernel measurement as total system cost.
+
+A reproducible GitHub Actions run (`33355564089`, artifact `9745019076`) exercised a real SNAP `roadNet-CA` graph and a deterministic scale-16, edge-factor-16 Kronecker workload. The runner was Ubuntu 24.04 with 4 available AMD EPYC 7763 logical CPUs and 15 GiB RAM. These are representative-family methodology measurements, not dedicated-hardware scalability claims.
+
+#### `roadNet-CA`
+
+The preparation step verified **1,965,206 source vertices**, **5,533,214 source edge rows**, and **2,766,607 undirected roads**, with source and normalized SHA-256 provenance retained.
+
+| Operation | Kernel / steady-state | End-to-end incl. load/conversion |
+| --- | ---: | ---: |
+| BFS | **69.801 ms** | **2.035 s** |
+| Connected components | **69.059 ms** | **2.034 s** |
+| Triangle counting | **62.417 ms** | **2.028 s** |
+| PageRank | **2.671 s** | **4.636 s** |
+
+The run reported **1,957,027 BFS-reachable vertices**, **8,713 components**, **120,676 triangles**, and PageRank sum **1.0**. Graph ingestion/conversion took **1.965 s**.
+
+#### Graph500-style Kronecker / R-MAT
+
+The deterministic workload used scale **16**, edge factor **16**, seed **1**, and initiator probabilities **A=0.57, B=0.19, C=0.19, D=0.05**, generating **1,048,576 raw edge tuples**. Generation parameters and SHA-256 are retained with the result.
+
+| Operation | Kernel / steady-state | End-to-end incl. load/conversion |
+| --- | ---: | ---: |
+| BFS | **2.714 ms** | **431.237 ms** |
+| Connected components | **2.914 ms** | **431.437 ms** |
+| Triangle counting | **1.975 s** | **2.404 s** |
+| PageRank | **83.757 ms** | **512.280 ms** |
+
+The run reported **46,822 BFS-reachable vertices**, **18,653 components**, **15,608,870 triangles**, and PageRank sum **1.0**. Graph ingestion/conversion took **428.523 ms**.
+
+These measurements demonstrate the benchmark contract and timing boundaries. They should not be interpreted as the largest graph VeloGraphX can hold: the publication-grade largest-practical in-memory boundary still requires execution on a dedicated machine. The repository includes an automated capacity sweep and dedicated self-hosted workflow for that experiment.
+
 ### Dynamic BFS vs NetworKit
 
 A native C++ comparison with NetworKit 11.2.1 uses the same hosted runner, one thread, identical update streams, five paired repetitions, and independent full-BFS verification after every batch.
@@ -126,6 +160,7 @@ Experiments use checksum-pinned public datasets, immutable baseline revisions, e
 | [Published exact baseline](docs/same-run-published-baseline.md) | Exact published-reference comparison |
 | [Storage evidence](docs/storage-ab-evidence.md) | Storage A/B experiments |
 | [Benchmark methodology](docs/benchmark-methodology.md) | Measurement contract |
+| [External baseline timing contract](docs/external-baseline-timing-contract.md) | Symmetric end-to-end timing ledger |
 | [Current limitations](docs/limitations.md) | Detailed research scope |
 
 ## Quick start
