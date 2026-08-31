@@ -7,6 +7,7 @@
 #include <limits>
 #include <vector>
 
+#include "velographx/graph_access.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
 
 namespace velographx {
@@ -24,34 +25,21 @@ struct PageRankValidation {
   bool fallback_applied{false};
 };
 
-class IncrementalPageRank {
+template <class Graph>
+class BasicIncrementalPageRank {
  public:
-  explicit IncrementalPageRank(DynamicGraph& g, double damping = 0.85)
+  explicit BasicIncrementalPageRank(Graph& g, double damping = 0.85)
       : g_(g), damping_(damping) {
     recompute();
   }
 
   [[nodiscard]] const std::vector<double>& values() const noexcept { return rank_; }
-  [[nodiscard]] std::size_t last_repaired_vertices() const noexcept {
-    return last_repaired_vertices_;
-  }
-  [[nodiscard]] std::size_t last_repair_iterations() const noexcept {
-    return last_repair_iterations_;
-  }
+  [[nodiscard]] std::size_t last_repaired_vertices() const noexcept { return last_repaired_vertices_; }
+  [[nodiscard]] std::size_t last_repair_iterations() const noexcept { return last_repair_iterations_; }
   [[nodiscard]] double last_residual_l1() const noexcept { return last_residual_l1_; }
   [[nodiscard]] double last_residual_linf() const noexcept { return last_residual_linf_; }
-  [[nodiscard]] bool last_full_recompute_converged() const noexcept {
-    return last_full_recompute_converged_;
-  }
+  [[nodiscard]] bool last_full_recompute_converged() const noexcept { return last_full_recompute_converged_; }
 
-  // Fast path: repair only the affected region. Incoming dependencies are read
-  // directly through DynamicGraph::in_neighbors(), so predecessor discovery is
-  // proportional to actual indegree rather than O(V) scanning per active node.
-  //
-  // Dangling-rank changes are global in PageRank because dangling mass is
-  // redistributed to every vertex. If an update changes dangling status, or a
-  // repaired dangling vertex changes materially, we conservatively fall back
-  // to a full converged solve rather than pretending the effect is local.
   void apply(const UpdateBatch& batch, std::size_t local_iterations = 24,
              double tol = 1e-9, double full_fallback_fraction = 0.60) {
     if (batch.empty()) {
@@ -63,21 +51,21 @@ class IncrementalPageRank {
     }
 
     std::vector<std::pair<VertexId, bool>> dangling_before;
-    dangling_before.reserve(batch.updates.size() * (g_.directed() ? 1 : 2));
+    dangling_before.reserve(batch.updates.size() * (is_directed(g_) ? 1 : 2));
     auto remember_dangling = [&](VertexId v) {
-      if (v >= g_.vertex_count()) {
+      if (v >= vertex_count(g_)) {
         dangling_before.emplace_back(v, true);
         return;
       }
-      dangling_before.emplace_back(v, g_.neighbors(v).empty());
+      dangling_before.emplace_back(v, neighbor_count(g_, v) == 0);
     };
     for (const auto& e : batch.updates) {
       remember_dangling(e.src);
-      if (!g_.directed() && e.dst != e.src) remember_dangling(e.dst);
+      if (!is_directed(g_) && e.dst != e.src) remember_dangling(e.dst);
     }
 
-    g_.apply(batch);
-    const auto n = g_.vertex_count();
+    apply_updates(g_, batch);
+    const auto n = vertex_count(g_);
     if (n == 0) {
       rank_.clear();
       last_repaired_vertices_ = 0;
@@ -91,7 +79,7 @@ class IncrementalPageRank {
     if (rank_.size() != n) rank_.resize(n, 1.0 / static_cast<double>(n));
 
     for (const auto& [v, was_dangling] : dangling_before) {
-      const bool now_dangling = g_.neighbors(v).empty();
+      const bool now_dangling = v >= n || neighbor_count(g_, v) == 0;
       if (was_dangling != now_dangling) {
         recompute();
         return;
@@ -110,12 +98,8 @@ class IncrementalPageRank {
     for (const auto& e : batch.updates) {
       activate(e.src);
       activate(e.dst);
-      if (e.src < n) {
-        for (auto v : g_.neighbors(e.src)) activate(v);
-      }
-      if (!g_.directed() && e.dst < n) {
-        for (auto v : g_.neighbors(e.dst)) activate(v);
-      }
+      if (e.src < n) for_each_neighbor(g_, e.src, activate);
+      if (!is_directed(g_) && e.dst < n) for_each_neighbor(g_, e.dst, activate);
     }
 
     if (active_count == 0) {
@@ -161,12 +145,10 @@ class IncrementalPageRank {
         if (!active[v]) continue;
 
         double incoming = 0.0;
-        for (auto u : g_.in_neighbors(v)) {
-          const auto out_degree = g_.neighbors(u).size();
-          if (out_degree != 0) {
-            incoming += rank_[u] / static_cast<double>(out_degree);
-          }
-        }
+        for_each_in_neighbor(g_, v, [&](VertexId u) {
+          const auto out_degree = neighbor_count(g_, u);
+          if (out_degree != 0) incoming += rank_[u] / static_cast<double>(out_degree);
+        });
 
         const double updated = base + damping_ * incoming;
         const double delta = std::abs(updated - rank_[v]);
@@ -175,12 +157,11 @@ class IncrementalPageRank {
         iter_linf = std::max(iter_linf, delta);
 
         if (delta > tol) {
-          const auto outgoing = g_.neighbors(v);
-          if (outgoing.empty()) {
+          if (neighbor_count(g_, v) == 0) {
             changed_dangling_rank = true;
             break;
           }
-          for (auto dst : outgoing) activate_next(dst);
+          for_each_neighbor(g_, v, activate_next);
         }
       }
 
@@ -207,24 +188,16 @@ class IncrementalPageRank {
     for (auto flag : ever_active) last_repaired_vertices_ += flag != 0;
   }
 
-  // Compute a converged full PageRank reference using explicit incoming
-  // adjacency, proper dangling-mass redistribution, and an L-infinity stopping
-  // tolerance. This is intentionally separate from apply() so benchmarked
-  // localized updates do not secretly pay O(E) validation cost.
   void recompute(std::size_t max_iterations = 200, double tol = 1e-12) {
     const auto result = full_solve(max_iterations, tol);
     rank_ = result.values;
-    last_repaired_vertices_ = g_.vertex_count();
+    last_repaired_vertices_ = vertex_count(g_);
     last_repair_iterations_ = result.iterations;
     last_residual_l1_ = result.residual_l1;
     last_residual_linf_ = result.residual_linf;
     last_full_recompute_converged_ = result.converged;
   }
 
-  // Quantitatively compare the current localized result with an independently
-  // converged full PageRank solve. The error metrics compare rank vectors;
-  // reference_residual_* describes the final fixed-point iteration residual of
-  // the full solve itself.
   [[nodiscard]] PageRankValidation validate_against_full(
       std::size_t reference_max_iterations = 500,
       double reference_tol = 1e-12,
@@ -255,11 +228,6 @@ class IncrementalPageRank {
     return validation;
   }
 
-  // Validation mode for correctness campaigns. It first performs the localized
-  // repair, then compares with the converged full reference. If the requested
-  // error contract is not met, it installs the full reference as a conservative
-  // fallback and reports that fact. This mode is for validation, not latency
-  // benchmarking, because computing the reference is intentionally O(E).
   [[nodiscard]] PageRankValidation apply_validated(
       const UpdateBatch& batch,
       std::size_t local_iterations = 64,
@@ -275,7 +243,7 @@ class IncrementalPageRank {
     if (!validation.within_tolerance) {
       const auto reference = full_solve(reference_max_iterations, reference_tol);
       rank_ = reference.values;
-      last_repaired_vertices_ = g_.vertex_count();
+      last_repaired_vertices_ = vertex_count(g_);
       last_repair_iterations_ = reference.iterations;
       last_residual_l1_ = reference.residual_l1;
       last_residual_linf_ = reference.residual_linf;
@@ -294,10 +262,9 @@ class IncrementalPageRank {
     bool converged{false};
   };
 
-  [[nodiscard]] FullSolveResult full_solve(std::size_t max_iterations,
-                                           double tol) const {
+  [[nodiscard]] FullSolveResult full_solve(std::size_t max_iterations, double tol) const {
     FullSolveResult result;
-    const auto n = g_.vertex_count();
+    const auto n = vertex_count(g_);
     if (n == 0) {
       result.converged = true;
       return result;
@@ -305,7 +272,7 @@ class IncrementalPageRank {
 
     result.values.assign(n, 1.0 / static_cast<double>(n));
     std::vector<std::size_t> out_degree(n, 0);
-    for (VertexId u = 0; u < n; ++u) out_degree[u] = g_.neighbors(u).size();
+    for (VertexId u = 0; u < n; ++u) out_degree[u] = neighbor_count(g_, u);
 
     const double teleport = (1.0 - damping_) / static_cast<double>(n);
     for (std::size_t it = 0; it < max_iterations; ++it) {
@@ -318,11 +285,9 @@ class IncrementalPageRank {
       std::vector<double> next(n, teleport + dangling_share);
       for (VertexId v = 0; v < n; ++v) {
         double incoming = 0.0;
-        for (auto u : g_.in_neighbors(v)) {
-          if (out_degree[u] != 0) {
-            incoming += result.values[u] / static_cast<double>(out_degree[u]);
-          }
-        }
+        for_each_in_neighbor(g_, v, [&](VertexId u) {
+          if (out_degree[u] != 0) incoming += result.values[u] / static_cast<double>(out_degree[u]);
+        });
         next[v] += damping_ * incoming;
       }
 
@@ -343,7 +308,7 @@ class IncrementalPageRank {
     return result;
   }
 
-  DynamicGraph& g_;
+  Graph& g_;
   double damping_;
   std::vector<double> rank_;
   std::size_t last_repaired_vertices_{0};
@@ -352,5 +317,7 @@ class IncrementalPageRank {
   double last_residual_linf_{0.0};
   bool last_full_recompute_converged_{false};
 };
+
+using IncrementalPageRank = BasicIncrementalPageRank<DynamicGraph>;
 
 }  // namespace velographx

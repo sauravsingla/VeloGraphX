@@ -6,14 +6,16 @@
 #include <queue>
 #include <utility>
 #include <vector>
+#include "velographx/graph_access.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
 
 namespace velographx {
-class IncrementalBFS {
+template <class Graph>
+class BasicIncrementalBFS {
  public:
   static constexpr std::uint32_t unreachable = std::numeric_limits<std::uint32_t>::max();
 
-  IncrementalBFS(DynamicGraph& g, VertexId source, double deletion_fallback_fraction = 0.35)
+  BasicIncrementalBFS(Graph& g, VertexId source, double deletion_fallback_fraction = 0.35)
       : g_(g), source_(source), deletion_fallback_fraction_(deletion_fallback_fraction) {
     recompute();
   }
@@ -303,9 +305,7 @@ class IncrementalBFS {
     for (std::size_t i = 0; i < affected_vertices_.size(); ++i) {
       const auto v = affected_vertices_[i];
       const auto old_dist = i < old_affected_dist_.size() ? old_affected_dist_[i] : unreachable;
-      if (v < dist_.size() && dist_[v] != unreachable && dist_[v] < old_dist) {
-        bfs_queue_.push_back(v);
-      }
+      if (v < dist_.size() && dist_[v] != unreachable && dist_[v] < old_dist) bfs_queue_.push_back(v);
     }
     propagate_decreases(bfs_queue_);
   }
@@ -343,7 +343,7 @@ class IncrementalBFS {
     }
   }
 
-  DynamicGraph& g_;
+  Graph& g_;
   VertexId source_;
   double deletion_fallback_fraction_{0.35};
   std::vector<std::uint32_t> dist_;
@@ -368,4 +368,7 @@ class IncrementalBFS {
   std::size_t last_affected_vertices_{0};
   bool last_used_full_recompute_{false};
 };
+
+using IncrementalBFS = BasicIncrementalBFS<DynamicGraph>;
+
 } // namespace velographx

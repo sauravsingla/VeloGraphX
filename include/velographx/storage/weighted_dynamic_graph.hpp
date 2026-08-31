@@ -73,6 +73,18 @@ class WeightedDynamicGraph {
     return it->second;
   }
 
+  [[nodiscard]] std::size_t degree(VertexId u) const noexcept {
+    return u < adjacency_.size() ? adjacency_[u].size() : 0;
+  }
+
+  template <class Fn>
+  void for_each_neighbor(VertexId u, Fn&& fn) const {
+    if (u >= adjacency_.size()) return;
+    for (const auto& [v, w] : adjacency_[u]) fn(v, w);
+  }
+
+  // Compatibility/materialisation API. Hot algorithm paths should prefer
+  // for_each_neighbor(), which traverses the map without allocating a vector.
   [[nodiscard]] std::vector<std::pair<VertexId, EdgeWeight>> neighbors(VertexId u) const {
     if (u >= adjacency_.size()) return {};
     std::vector<std::pair<VertexId, EdgeWeight>> out;
