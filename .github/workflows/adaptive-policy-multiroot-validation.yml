@@ -70,8 +70,10 @@ jobs:
                               subprocess.run(['build/adaptive_policy_bfs',f'build/multiroot-policy/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
                           d=json.load(out.open())
                           assert d['all_policies_exact']
-                          assert d['adaptive_affected_fraction'] == 0.05
-                          assert d['adaptive_preflight_update_fraction'] == 0.05
+                          assert d['schema_version'] >= 6
+                          thresholds=d['thresholds']
+                          assert thresholds['affected_budget'] == 0.05
+                          assert thresholds['preflight_full_update'] == 0.05
                           assert all(p['exact'] for p in d['policies'])
           PY
 
@@ -99,8 +101,8 @@ jobs:
         run: |
           {
             echo "velographx_sha=$(git rev-parse HEAD)"
-            echo "adaptive_affected_fraction=0.05"
-            echo "adaptive_preflight_update_fraction=0.05"
+            echo "affected_budget=0.05"
+            echo "preflight_full_update=0.05"
             echo "simple_update_fraction=$SIMPLE_UPDATE_FRACTION"
             echo "roots=ca-GrQc:4282,2465,1974;soc-Epinions1:763,634,71391;web-Google:481807,771121,391806"
             echo "repetitions_per_regime=5"
