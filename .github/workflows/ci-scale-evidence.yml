@@ -90,28 +90,45 @@ jobs:
           assert all(item['returncode'] == 0 for item in report['suites'].values())
           PY
 
-      - name: Run conservative hosted-runner thread scaling
+      - name: Run conservative hosted-runner 1 2 4 thread scaling
         run: |
-          cat > build/evidence/thread-scaling-ci.json <<'JSON'
-          {
-            "schema_version": 1,
-            "name": "hosted-ci-thread-scaling",
-            "command": [
-              "python",
-              "tools/hardware_campaign_driver.py",
-              "--threads",
-              "{threads}",
-              "--",
-              "./build/velographx_benchmark"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          cpu_count = os.cpu_count() or 1
+          required = [1, 2, 4]
+          if cpu_count < 4:
+              raise SystemExit(f'hosted Tier A requires >=4 logical CPUs; runner exposes {cpu_count}')
+          payload = {
+            'schema_version': 1,
+            'name': 'hosted-ci-thread-scaling',
+            'command': [
+              'python',
+              'tools/hardware_campaign_driver.py',
+              '--threads',
+              '{threads}',
+              '--',
+              './build/velographx_benchmark'
             ],
-            "axes": {"threads": [1, 2]},
-            "repeat": 3,
-            "timeout_seconds": 300
+            'axes': {'threads': required},
+            'repeat': 5,
+            'timeout_seconds': 300
           }
-          JSON
+          Path('build/evidence/thread-scaling-ci.json').write_text(json.dumps(payload, indent=2) + '\n')
+          PY
           python tools/experiment_campaign.py \
             --config build/evidence/thread-scaling-ci.json \
             --output build/evidence/thread-scaling-results.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('build/evidence/thread-scaling-results.json').read_text())
+          assert r['schema_version'] == 1
+          # Validate from the generated campaign config as the experiment schema may flatten axes.
+          cfg = json.loads(Path('build/evidence/thread-scaling-ci.json').read_text())
+          assert cfg['axes']['threads'] == [1,2,4]
+          assert cfg['repeat'] == 5
+          PY
 
       - name: Run BFS competitor adapters on identical fixture
         run: |
