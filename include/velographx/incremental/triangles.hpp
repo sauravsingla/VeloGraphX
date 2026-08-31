@@ -1,15 +1,17 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+
+#include "velographx/graph_access.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
-#include "velographx/kernels/intersection.hpp"
 
 namespace velographx {
 
-class IncrementalTriangleCount {
+template <class Graph>
+class BasicIncrementalTriangleCount {
  public:
-  explicit IncrementalTriangleCount(DynamicGraph& graph) : graph_(graph) { recompute(); }
-  IncrementalTriangleCount(DynamicGraph& graph, std::uint64_t trusted_initial_count)
+  explicit BasicIncrementalTriangleCount(Graph& graph) : graph_(graph) { recompute(); }
+  BasicIncrementalTriangleCount(Graph& graph, std::uint64_t trusted_initial_count)
       : graph_(graph), triangles_(trusted_initial_count) {}
 
   [[nodiscard]] std::uint64_t value() const noexcept { return triangles_; }
@@ -17,39 +19,48 @@ class IncrementalTriangleCount {
   void apply(const UpdateBatch& batch) {
     if (batch.empty()) return;
 
+    // Apply operations sequentially so later operations observe earlier ones,
+    // but do not reach into storage-private state. This makes the algorithm
+    // usable by any mutable graph backend implementing the UpdateBatch surface.
     for (const auto& op : batch.updates) {
-      const bool exists = graph_.has_edge(op.src, op.dst);
-      const auto a = graph_.neighbors(op.src);
-      const auto b = graph_.neighbors(op.dst);
-      const auto common = kernels::adaptive_intersection(a, b);
+      const bool exists = has_edge(graph_, op.src, op.dst);
+      const auto common = common_neighbors(op.src, op.dst);
 
       if (op.add && !exists) triangles_ += common;
       if (!op.add && exists) triangles_ -= std::min<std::uint64_t>(triangles_, common);
 
-      // Advance the graph after each operation so later operations in the same
-      // batch observe earlier changes. The batch version is still bumped once.
-      graph_.apply_unversioned(op);
+      UpdateBatch one;
+      one.updates.push_back(op);
+      apply_updates(graph_, one);
     }
-    ++graph_.version_;
   }
 
   void recompute() {
-    // A compact representation permits zero-copy neighbor spans and avoids
-    // repeatedly allocating/sorting adjacency vectors during a full count.
-    graph_.compact();
     std::uint64_t triple = 0;
-    for (VertexId u = 0; u < graph_.vertex_count(); ++u) {
-      const auto nu = graph_.compact_neighbors(u);
-      for (auto v : nu) if (u < v) {
-        const auto nv = graph_.compact_neighbors(v);
-        triple += kernels::adaptive_intersection(nu, nv);
-      }
+    for (VertexId u = 0; u < vertex_count(graph_); ++u) {
+      for_each_neighbor(graph_, u, [&](VertexId v) {
+        if (u < v) triple += common_neighbors(u, v);
+      });
     }
-    triangles_ = graph_.directed() ? triple : triple / 3;
+    triangles_ = is_directed(graph_) ? triple : triple / 3;
   }
 
  private:
-  DynamicGraph& graph_;
+  [[nodiscard]] std::uint64_t common_neighbors(VertexId a, VertexId b) const {
+    VertexId scan = a;
+    VertexId probe = b;
+    if (neighbor_count(graph_, b) < neighbor_count(graph_, a)) std::swap(scan, probe);
+    std::uint64_t common = 0;
+    for_each_neighbor(graph_, scan, [&](VertexId v) {
+      if (has_edge(graph_, probe, v)) ++common;
+    });
+    return common;
+  }
+
+  Graph& graph_;
   std::uint64_t triangles_{0};
 };
+
+using IncrementalTriangleCount = BasicIncrementalTriangleCount<DynamicGraph>;
+
 } // namespace velographx
