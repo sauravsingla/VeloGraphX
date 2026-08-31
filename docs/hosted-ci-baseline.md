@@ -16,6 +16,19 @@ It is **engineering evidence only**. It is not publication-grade performance evi
 
 If the hosted runner denies access to hardware performance counters, the campaign records that limitation rather than treating it as a benchmark failure.
 
+## Completed hosted execution
+
+The completed hosted campaign on commit `906d78cdaef5043211e51a3982ff77d36d0410c4` exercised the required **1, 2, and 4 thread counts with five repetitions per count** and passed the campaign, correctness, preflight, result-bundle, and repository regression gates.
+
+- GitHub Actions run: `33360628638`
+- artifact: `9746573265` (`velographx-ci-scale-evidence`)
+- artifact SHA-256: `126196803396c3ab2e8f05bffd7bf93a51e2b1f8e758948a464fba40d356b3e9`
+- artifact retention: 30 days from the run
+- research claim: `false`
+- publication grade: `false`
+
+This closes the hosted 1/2/4-thread execution gap identified in the earlier CI-scale campaign. It does **not** create a thread-scaling performance claim; the hosted runner is still unsuitable for publication-grade scaling conclusions.
+
 ## Claims that remain prohibited
 
 Hosted results must not be described as evidence for:
