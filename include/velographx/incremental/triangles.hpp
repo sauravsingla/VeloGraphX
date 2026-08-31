@@ -39,7 +39,7 @@ class BasicIncrementalTriangleCount {
     triangles_ = is_directed(graph_) ? triple : triple / 3;
   }
 
- private:
+ protected:
   [[nodiscard]] std::uint64_t common_neighbors(VertexId a, VertexId b) const {
     VertexId scan = a;
     VertexId probe = b;
@@ -55,11 +55,27 @@ class BasicIncrementalTriangleCount {
   std::uint64_t triangles_{0};
 };
 
-// DynamicGraph forward-declares this name for historical friend compatibility,
-// so keep it as a real class while delegating all behavior to the generic core.
+// DynamicGraph forward-declares/friends this historical public type. Keep a
+// thin specialization wrapper so one logical UpdateBatch still advances the
+// graph version exactly once while later operations observe earlier updates.
 class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGraph> {
  public:
-  using BasicIncrementalTriangleCount<DynamicGraph>::BasicIncrementalTriangleCount;
+  explicit IncrementalTriangleCount(DynamicGraph& graph)
+      : BasicIncrementalTriangleCount<DynamicGraph>(graph) {}
+  IncrementalTriangleCount(DynamicGraph& graph, std::uint64_t trusted_initial_count)
+      : BasicIncrementalTriangleCount<DynamicGraph>(graph, trusted_initial_count) {}
+
+  void apply(const UpdateBatch& batch) {
+    if (batch.empty()) return;
+    for (const auto& op : batch.updates) {
+      const bool exists = graph_.has_edge(op.src, op.dst);
+      const auto common = common_neighbors(op.src, op.dst);
+      if (op.add && !exists) triangles_ += common;
+      if (!op.add && exists) triangles_ -= std::min<std::uint64_t>(triangles_, common);
+      graph_.apply_unversioned(op);
+    }
+    ++graph_.version_;
+  }
 };
 
 } // namespace velographx
