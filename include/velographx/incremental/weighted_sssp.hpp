@@ -1,18 +1,18 @@
 #pragma once
 
 #include <functional>
-#include <limits>
 #include <queue>
 #include <utility>
 #include <vector>
 
+#include "velographx/incremental/dijkstra.hpp"
 #include "velographx/storage/weighted_dynamic_graph.hpp"
 
 namespace velographx {
 
 class IncrementalWeightedSSSP {
  public:
-  static constexpr std::uint64_t kInf = std::numeric_limits<std::uint64_t>::max() / 4;
+  static constexpr std::uint64_t kInf = incremental_detail::kDijkstraInf;
 
   IncrementalWeightedSSSP(WeightedDynamicGraph& graph, VertexId source)
       : graph_(graph), source_(source) {
@@ -36,51 +36,33 @@ class IncrementalWeightedSSSP {
     }
 
     graph_.apply(batch);
-    if (requires_recompute) {
-      recompute();
-    } else {
-      relax_from_updates(batch);
-    }
+    if (requires_recompute) recompute();
+    else relax_from_updates(batch);
   }
 
   void recompute() {
-    dist_.assign(graph_.vertex_count(), kInf);
-    if (source_ >= graph_.vertex_count()) return;
-
-    using QueueItem = std::pair<std::uint64_t, VertexId>;
-    std::priority_queue<QueueItem, std::vector<QueueItem>, std::greater<QueueItem>> queue;
-    dist_[source_] = 0;
-    queue.push({0, source_});
-
-    while (!queue.empty()) {
-      const auto [distance, u] = queue.top();
-      queue.pop();
-      if (distance != dist_[u]) continue;
-      for (const auto& [v, weight] : graph_.neighbors(u)) {
-        if (weight > kInf - distance) continue;
-        const auto candidate = distance + weight;
-        if (candidate < dist_[v]) {
-          dist_[v] = candidate;
-          queue.push({candidate, v});
-        }
-      }
-    }
+    incremental_detail::recompute_dijkstra(
+        graph_.vertex_count(), source_, dist_,
+        [&](VertexId u, auto&& relax) {
+          graph_.for_each_neighbor(u, [&](VertexId v, EdgeWeight w) { relax(v, w); });
+        });
   }
 
  private:
   void relax_from_updates(const WeightedUpdateBatch& batch) {
     if (dist_.size() < graph_.vertex_count()) dist_.resize(graph_.vertex_count(), kInf);
 
-    using QueueItem = std::pair<std::uint64_t, VertexId>;
-    std::priority_queue<QueueItem, std::vector<QueueItem>, std::greater<QueueItem>> queue;
+    using Item = std::pair<std::uint64_t, VertexId>;
+    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> queue;
 
     for (const auto& op : batch.updates) {
       if (!op.add || op.src >= dist_.size() || op.dst >= dist_.size()) continue;
-      if (dist_[op.src] == kInf || op.weight > kInf - dist_[op.src]) continue;
-      const auto candidate = dist_[op.src] + op.weight;
-      if (candidate < dist_[op.dst]) {
-        dist_[op.dst] = candidate;
-        queue.push({candidate, op.dst});
+      if (dist_[op.src] != kInf && op.weight <= kInf - dist_[op.src]) {
+        const auto candidate = dist_[op.src] + op.weight;
+        if (candidate < dist_[op.dst]) {
+          dist_[op.dst] = candidate;
+          queue.push({candidate, op.dst});
+        }
       }
       if (!graph_.directed() && dist_[op.dst] != kInf && op.weight <= kInf - dist_[op.dst]) {
         const auto reverse_candidate = dist_[op.dst] + op.weight;
@@ -91,19 +73,11 @@ class IncrementalWeightedSSSP {
       }
     }
 
-    while (!queue.empty()) {
-      const auto [distance, u] = queue.top();
-      queue.pop();
-      if (distance != dist_[u]) continue;
-      for (const auto& [v, weight] : graph_.neighbors(u)) {
-        if (weight > kInf - distance) continue;
-        const auto candidate = distance + weight;
-        if (candidate < dist_[v]) {
-          dist_[v] = candidate;
-          queue.push({candidate, v});
-        }
-      }
-    }
+    incremental_detail::propagate_dijkstra(
+        dist_, queue,
+        [&](VertexId u, auto&& relax) {
+          graph_.for_each_neighbor(u, [&](VertexId v, EdgeWeight w) { relax(v, w); });
+        });
   }
 
   WeightedDynamicGraph& graph_;
