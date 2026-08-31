@@ -5,8 +5,8 @@ on:
     paths:
       - '.github/workflows/hosted-native-competitors.yml'
       - 'tools/run_hosted_native_measurements.py'
-      - 'tools/hardware_campaign_driver.py'
-      - 'benchmarks/public_dataset_benchmark.cpp'
+      - 'benchmarks/native_baseline_benchmark.cpp'
+      - 'CMakeLists.txt'
       - 'include/**'
       - 'src/**'
   pull_request:
@@ -14,15 +14,18 @@ on:
       - '.github/workflows/hosted-native-competitors.yml'
       - 'docs/hosted-native-competitors.md'
       - 'tools/run_hosted_native_measurements.py'
+      - 'benchmarks/native_baseline_benchmark.cpp'
+      - 'CMakeLists.txt'
   workflow_dispatch:
 
 jobs:
-  native-build-smoke:
+  davis-native-baselines:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
-      GRAPHBLAS_TAG: v10.3.2
-      LAGRAPH_TAG: v1.2.2
+      GRAPHBLAS_TAG: v10.5.0
+      LAGRAPH_BRANCH: v1.3.x
+      LAGRAPH_SHA: d01064de77b606473744b99f63b1487963556194
       GAPBS_TAG: v1.5
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +35,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build libomp-dev
 
-      - name: Capture hosted runner capacity
+      - name: Capture hosted runner and compiler capacity
         run: |
           mkdir -p artifacts/native
           python - <<'PY'
@@ -46,35 +49,44 @@ jobs:
               "cpu_count": os.cpu_count(),
               "platform": platform.platform(),
               "machine": platform.machine(),
+              "gcc": cmd(["gcc", "--version"]),
+              "gxx": cmd(["g++", "--version"]),
+              "icx_available": shutil.which("icx") is not None,
               "taskset": shutil.which("taskset"),
               "numactl": shutil.which("numactl"),
               "perf": shutil.which("perf"),
               "memory": cmd(["free", "-h"]),
               "lscpu": cmd(["lscpu"]),
+              "openmp": {
+                  "OMP_PLACES": "cores",
+                  "OMP_PROC_BIND": "spread",
+                  "OMP_DYNAMIC": "FALSE"
+              }
           }
           open("artifacts/native/host-capacity.json", "w").write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
           PY
 
-      - name: Clone immutable native competitor tags
+      - name: Clone immutable native competitor revisions
         run: |
           git clone --depth 1 --branch "$GRAPHBLAS_TAG" https://github.com/DrTimothyAldenDavis/GraphBLAS.git external/GraphBLAS
-          git clone --depth 1 --branch "$LAGRAPH_TAG" https://github.com/GraphBLAS/LAGraph.git external/LAGraph
+          git clone https://github.com/GraphBLAS/LAGraph.git external/LAGraph
+          git -C external/LAGraph checkout "$LAGRAPH_SHA"
+          test "$(git -C external/LAGraph rev-parse HEAD)" = "$LAGRAPH_SHA"
           git clone --depth 1 --branch "$GAPBS_TAG" https://github.com/sbeamer/gapbs.git external/gapbs
           {
-            echo "GraphBLAS $GRAPHBLAS_TAG $(git -C external/GraphBLAS rev-parse HEAD)"
-            echo "LAGraph $LAGRAPH_TAG $(git -C external/LAGraph rev-parse HEAD)"
-            echo "GAPBS $GAPBS_TAG $(git -C external/gapbs rev-parse HEAD)"
+            echo "SuiteSparse:GraphBLAS $GRAPHBLAS_TAG $(git -C external/GraphBLAS rev-parse HEAD)"
+            echo "LAGraph $LAGRAPH_BRANCH $LAGRAPH_SHA"
+            echo "GAP Benchmark Suite $GAPBS_TAG $(git -C external/gapbs rev-parse HEAD)"
           } | tee artifacts/native/native-pins.txt
 
-      - name: Build VeloGraphX benchmarks and correctness tests
+      - name: Build VeloGraphX tests and native benchmark
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build --parallel 4
           ctest --test-dir build --output-on-failure
-          test -x build/velographx_benchmark
-          test -x build/velographx_public_dataset_benchmark
+          test -x build/velographx_native_baseline_benchmark
 
-      - name: Build SuiteSparse GraphBLAS
+      - name: Build SuiteSparse GraphBLAS stable release
         run: |
           cmake -S external/GraphBLAS -B external/GraphBLAS/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -82,7 +94,7 @@ jobs:
           cmake --build external/GraphBLAS/build --parallel 4
           cmake --install external/GraphBLAS/build
 
-      - name: Enable LAGraph benchmark self-check
+      - name: Enable LAGraph benchmark self-checks
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -95,7 +107,7 @@ jobs:
           p.write_text(text.replace(old, new, 1))
           PY
 
-      - name: Build LAGraph against pinned GraphBLAS
+      - name: Build LAGraph v1.3.x against pinned GraphBLAS
         run: |
           cmake -S external/LAGraph -B external/LAGraph/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -104,84 +116,103 @@ jobs:
           cmake --build external/LAGraph/build --parallel 4
           cmake --install external/LAGraph/build
           test -x external/LAGraph/build/src/benchmark/bfs_demo
+          test -x external/LAGraph/build/src/benchmark/sssp_demo
+          test -f external/LAGraph/src/benchmark/do_gap_all
 
-      - name: Build GAP Benchmark Suite BFS
+      - name: Build GAP BFS and SSSP
         run: |
-          make -C external/gapbs bfs -j4
+          make -C external/gapbs bfs sssp -j4
           test -x external/gapbs/bfs
+          test -x external/gapbs/sssp
 
-      - name: Execute same-runner 1/2/4-thread hosted measurements
+      - name: Execute Davis-style same-runner BFS and SSSP campaign
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/external/install/lib:${{ github.workspace }}/external/install/lib64
+          OMP_PLACES: cores
+          OMP_PROC_BIND: spread
+          OMP_DYNAMIC: 'FALSE'
         run: |
           python tools/run_hosted_native_measurements.py \
             --output-dir artifacts/native \
             --gap-bfs external/gapbs/bfs \
+            --gap-sssp external/gapbs/sssp \
             --lagraph-bfs-demo external/LAGraph/build/src/benchmark/bfs_demo \
-            --velographx-benchmark build/velographx_benchmark \
-            --velographx-public-benchmark build/velographx_public_dataset_benchmark
+            --lagraph-sssp-demo external/LAGraph/build/src/benchmark/sssp_demo \
+            --velographx-native-benchmark build/velographx_native_baseline_benchmark
 
-      - name: Record native build evidence
+      - name: Record immutable build evidence
+        if: always()
         run: |
           python - <<'PY'
           import json, os, pathlib, subprocess
           def rev(path):
               return subprocess.check_output(["git", "-C", path, "rev-parse", "HEAD"], text=True).strip()
+          def cmd(argv):
+              p = subprocess.run(argv, text=True, capture_output=True, check=False)
+              return p.stdout.strip() or p.stderr.strip()
           payload = {
-              "schema_version": 2,
-              "artifact_type": "velographx-hosted-native-competitor-build",
+              "schema_version": 3,
+              "artifact_type": "velographx-davis-native-build",
               "research_claim": False,
               "publication_grade": False,
               "same_runner": True,
               "pins": {
                   "SuiteSparse:GraphBLAS": {"tag": os.environ["GRAPHBLAS_TAG"], "commit": rev("external/GraphBLAS")},
-                  "LAGraph": {"tag": os.environ["LAGRAPH_TAG"], "commit": rev("external/LAGraph")},
+                  "LAGraph": {"branch": os.environ["LAGRAPH_BRANCH"], "commit": rev("external/LAGraph")},
                   "GAP Benchmark Suite": {"tag": os.environ["GAPBS_TAG"], "commit": rev("external/gapbs")},
               },
+              "compiler": {"cxx": cmd(["g++", "--version"]), "openmp_runtime": "GCC/libgomp on hosted runner"},
+              "openmp": {"OMP_PLACES": "cores", "OMP_PROC_BIND": "spread", "OMP_DYNAMIC": "FALSE"},
               "builds": {
                   "graphblas_library_present": any(pathlib.Path("external/install").rglob("libgraphblas*")),
                   "lagraph_library_present": any(pathlib.Path("external/install").rglob("liblagraph*")),
                   "lagraph_bfs_demo_present": pathlib.Path("external/LAGraph/build/src/benchmark/bfs_demo").is_file(),
+                  "lagraph_sssp_demo_present": pathlib.Path("external/LAGraph/build/src/benchmark/sssp_demo").is_file(),
                   "gap_bfs_present": pathlib.Path("external/gapbs/bfs").is_file(),
-                  "velographx_public_benchmark_present": pathlib.Path("build/velographx_public_dataset_benchmark").is_file(),
+                  "gap_sssp_present": pathlib.Path("external/gapbs/sssp").is_file(),
+                  "velographx_native_benchmark_present": pathlib.Path("build/velographx_native_baseline_benchmark").is_file(),
               },
               "claim_gate": {
                   "publication_ready": False,
-                  "allowed_claim": "Hosted-CI engineering timing only; no publication-grade timing claim."
+                  "allowed_claim": "Hosted-CI correctness-gated engineering evidence only."
               }
           }
-          assert all(payload["builds"].values())
+          if pathlib.Path('external/GraphBLAS/.git').exists() and pathlib.Path('external/LAGraph/.git').exists() and pathlib.Path('external/gapbs/.git').exists():
+              assert payload['pins']['LAGraph']['commit'] == os.environ['LAGRAPH_SHA']
           pathlib.Path("artifacts/native/native-build.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
           PY
 
-      - name: Validate hosted Tier A claim and correctness gates
+      - name: Validate Davis campaign gates
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          r = json.loads(Path('artifacts/native/hosted-native-measurements.json').read_text())
-          assert r['schema_version'] == 3
+          r = json.loads(Path('artifacts/native/davis-native-baseline-campaign.json').read_text())
+          assert r['schema_version'] == 4
           assert r['research_claim'] is False
           assert r['publication_grade'] is False
-          assert r['normalized_cross_engine_claim'] is True
-          assert r['claim_gate']['publication_ready'] is False
+          assert r['openmp']['OMP_PLACES'] == 'cores'
+          assert r['openmp']['OMP_PROC_BIND'] == 'spread'
           assert r['correctness_gate']['passed'] is True
-          assert r['correctness_gate']['velographx_reachable_all_vertices_all_trials'] is True
-          assert r['correctness_gate']['gap_all_trials_verified'] is True
-          assert r['correctness_gate']['lagraph_self_check_present_all_threads'] is True
-          assert r['correctness_gate']['same_source_velographx_gap_proven'] is True
-          assert r['correctness_gate']['same_source_lagraph_proven'] is False
-          assert [x['threads'] for x in r['velographx_bfs']] == [1,2,4]
-          assert [x['threads'] for x in r['gap_bfs']] == [1,2,4]
-          assert [x['threads'] for x in r['lagraph_graphblas_bfs']] == [1,2,4]
-          assert all(x['repeat'] == 5 for x in r['velographx_bfs'])
-          assert all(x['repeat'] == 5 for x in r['gap_bfs'])
-          assert len(r['paired_velographx_gap']) == 3
+          assert r['correctness_gate']['static_all_engines_exact'] is True
+          assert r['correctness_gate']['dynamic_all_engines_exact'] is True
+          assert r['correctness_gate']['same_source_all_engines'] is True
+          assert [x['paired']['threads'] for x in r['static']['bfs']] == [1, 2, 4]
+          assert [x['paired']['threads'] for x in r['static']['sssp']] == [1, 2, 4]
+          assert all(x['velographx']['repeat'] == 5 for x in r['static']['bfs'])
+          assert all(x['gap']['repeat'] == 5 for x in r['static']['bfs'])
+          assert all(x['lagraph']['repeat'] == 5 for x in r['static']['bfs'])
+          assert all(x['velographx']['repeat'] == 5 for x in r['static']['sssp'])
+          assert all(x['gap']['repeat'] == 5 for x in r['static']['sssp'])
+          assert all(x['lagraph']['repeat'] == 5 for x in r['static']['sssp'])
+          assert [x['fraction'] for x in r['dynamic_crossover']] == [0.001, 0.01, 0.05]
+          assert r['claim_gate']['publication_ready'] is False
           PY
 
       - name: Upload hosted native evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: velographx-hosted-native-competitor-evidence
+          name: velographx-davis-native-baseline-evidence
           path: artifacts/native
           retention-days: 30
