@@ -10,6 +10,7 @@ POLICIES = ["always_incremental", "always_full", "simple_threshold", "adaptive"]
 
 
 def mean(values):
+    values = list(values)
     if not values:
         raise ValueError("cannot compute a mean from an empty sequence")
     return sum(values) / len(values)
