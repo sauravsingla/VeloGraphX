@@ -1,0 +1,61 @@
+name: Owens Benchmark Contract
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  representative-families:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Capture runner memory
+        run: |
+          mkdir -p artifacts
+          free -h | tee artifacts/memory.txt
+          lscpu | tee artifacts/lscpu.txt
+
+      - name: Prepare roadNet-CA with provenance checks
+        run: |
+          python3 scripts/prepare_publication_datasets.py roadnet-ca --output-dir data | tee artifacts/roadNet-CA.prepare.json
+
+      - name: Prepare deterministic Kronecker smoke workload
+        run: |
+          python3 scripts/prepare_publication_datasets.py kronecker --output-dir data --scale 16 --edgefactor 16 --seed 1 | tee artifacts/kron-scale16.prepare.json
+
+      - name: Build public benchmark
+        run: |
+          cmake -S . -B build -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target velographx_public_dataset_benchmark -j2
+
+      - name: Run road-network benchmark
+        run: |
+          /usr/bin/time -v -o artifacts/roadNet-CA.time.txt \
+            ./build/velographx_public_dataset_benchmark data/roadNet-CA.edges 0 \
+            | tee artifacts/roadNet-CA.csv
+
+      - name: Run Kronecker benchmark
+        run: |
+          /usr/bin/time -v -o artifacts/kron-scale16.time.txt \
+            ./build/velographx_public_dataset_benchmark data/kron-scale16-ef16-seed1.edges 0 \
+            | tee artifacts/kron-scale16.csv
+
+      - name: Verify end-to-end timing columns
+        run: |
+          grep -q 'bfs_end_to_end_us' artifacts/roadNet-CA.csv
+          grep -q 'triangle_end_to_end_us' artifacts/kron-scale16.csv
+          test -s data/roadNet-CA.metadata.json
+          test -s data/kron-scale16-ef16-seed1.metadata.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: owens-benchmark-contract
+          path: |
+            artifacts/
+            data/*.metadata.json
+          retention-days: 30
