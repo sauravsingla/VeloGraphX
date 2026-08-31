@@ -6,13 +6,15 @@
 #include <unordered_set>
 #include <vector>
 
+#include "velographx/graph_access.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
 
 namespace velographx {
 
-class IncrementalComponents {
+template <class Graph>
+class BasicIncrementalComponents {
  public:
-  explicit IncrementalComponents(DynamicGraph& g) : g_(g) { rebuild(); }
+  explicit BasicIncrementalComponents(Graph& g) : g_(g) { rebuild(); }
 
   [[nodiscard]] std::uint32_t component(VertexId v) { return find(v); }
   [[nodiscard]] std::size_t last_repaired_vertices() const noexcept {
@@ -41,7 +43,7 @@ class IncrementalComponents {
       }
     }
 
-    g_.apply(batch);
+    apply_updates(g_, batch);
     ensure_capacity();
 
     if (!affected_roots.empty()) {
@@ -54,9 +56,9 @@ class IncrementalComponents {
 
       for (VertexId u = 0; u < affected.size(); ++u) {
         if (!affected[u]) continue;
-        for (auto v : g_.neighbors(u)) {
+        for_each_neighbor(g_, u, [&](VertexId v) {
           if (v < affected.size() && affected[v]) unite(u, v);
-        }
+        });
       }
     }
 
@@ -68,27 +70,23 @@ class IncrementalComponents {
  private:
   void ensure_capacity() {
     const auto old_size = parent_.size();
-    if (old_size >= g_.vertex_count()) return;
-    parent_.resize(g_.vertex_count());
-    rank_.resize(g_.vertex_count(), 0);
-    for (VertexId v = static_cast<VertexId>(old_size); v < g_.vertex_count(); ++v) {
-      parent_[v] = v;
-    }
+    if (old_size >= vertex_count(g_)) return;
+    parent_.resize(vertex_count(g_));
+    rank_.resize(vertex_count(g_), 0);
+    for (VertexId v = static_cast<VertexId>(old_size); v < vertex_count(g_); ++v) parent_[v] = v;
   }
 
   void rebuild() {
-    parent_.resize(g_.vertex_count());
-    rank_.assign(g_.vertex_count(), 0);
+    parent_.resize(vertex_count(g_));
+    rank_.assign(vertex_count(g_), 0);
     std::iota(parent_.begin(), parent_.end(), 0);
-    for (VertexId u = 0; u < g_.vertex_count(); ++u) {
-      for (auto v : g_.neighbors(u)) unite(u, v);
+    for (VertexId u = 0; u < vertex_count(g_); ++u) {
+      for_each_neighbor(g_, u, [&](VertexId v) { unite(u, v); });
     }
-    last_repaired_vertices_ = g_.vertex_count();
+    last_repaired_vertices_ = vertex_count(g_);
   }
 
-  VertexId find(VertexId x) {
-    return parent_[x] == x ? x : parent_[x] = find(parent_[x]);
-  }
+  VertexId find(VertexId x) { return parent_[x] == x ? x : parent_[x] = find(parent_[x]); }
 
   void unite(VertexId a, VertexId b) {
     ensure_capacity();
@@ -100,10 +98,12 @@ class IncrementalComponents {
     if (rank_[a] == rank_[b]) ++rank_[a];
   }
 
-  DynamicGraph& g_;
+  Graph& g_;
   std::vector<VertexId> parent_;
   std::vector<std::uint8_t> rank_;
   std::size_t last_repaired_vertices_{0};
 };
+
+using IncrementalComponents = BasicIncrementalComponents<DynamicGraph>;
 
 }  // namespace velographx
