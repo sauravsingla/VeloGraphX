@@ -1,0 +1,114 @@
+name: Dedicated Capacity Campaign
+
+on:
+  push:
+    paths:
+      - 'scripts/run_capacity_campaign.py'
+      - 'scripts/prepare_publication_datasets.py'
+      - 'benchmarks/public_dataset_benchmark.cpp'
+      - '.github/workflows/dedicated-capacity-campaign.yml'
+  workflow_dispatch:
+    inputs:
+      run_dedicated:
+        description: 'Run the publication-grade capacity boundary on a dedicated self-hosted runner'
+        required: true
+        default: false
+        type: boolean
+      scales:
+        description: 'Strictly increasing Kronecker scales'
+        required: true
+        default: '16,18,20,22,24,26'
+        type: string
+      edgefactor:
+        description: 'Kronecker edge factor'
+        required: true
+        default: '16'
+        type: string
+      seed:
+        description: 'Generator seed'
+        required: true
+        default: '1'
+        type: string
+
+jobs:
+  smoke-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build publication benchmark
+        run: |
+          cmake -S . -B build -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target velographx_public_dataset_benchmark -j2
+      - name: Exercise capacity runner on safe smoke scales
+        run: |
+          python3 scripts/run_capacity_campaign.py \
+            --scales 10,11 \
+            --edgefactor 4 \
+            --seed 1 \
+            --build-dir build \
+            --data-dir capacity-data \
+            --output-dir capacity-artifacts
+          test -s capacity-artifacts/capacity-summary.json
+          python3 - <<'PY'
+          import json
+          p='capacity-artifacts/capacity-summary.json'
+          d=json.load(open(p))
+          assert d['largest_accepted_scale'] is not None
+          assert d['records']
+          assert all('peak_rss_bytes' in r for r in d['records'] if r.get('benchmark_exit_code') == 0)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capacity-campaign-smoke
+          path: capacity-artifacts/
+          retention-days: 14
+
+  dedicated-boundary:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_dedicated }}
+    runs-on: [self-hosted, linux, x64, velographx-benchmark]
+    timeout-minutes: 1440
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require clean dedicated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -r /proc/meminfo
+          test -r /proc/vmstat
+          mkdir -p capacity-artifacts capacity-data
+          lscpu | tee capacity-artifacts/lscpu.txt
+          free -b | tee capacity-artifacts/free-before.txt
+          if command -v numactl >/dev/null 2>&1; then numactl --hardware | tee capacity-artifacts/numa.txt; fi
+      - name: Build publication benchmark
+        run: |
+          cmake -S . -B build-capacity -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-capacity --target velographx_public_dataset_benchmark -j"$(nproc)"
+      - name: Establish largest-practical in-memory boundary
+        env:
+          OMP_NUM_THREADS: '1'
+          OMP_PROC_BIND: 'true'
+          OMP_PLACES: 'cores'
+        run: |
+          python3 scripts/run_capacity_campaign.py \
+            --scales '${{ inputs.scales }}' \
+            --edgefactor '${{ inputs.edgefactor }}' \
+            --seed '${{ inputs.seed }}' \
+            --build-dir build-capacity \
+            --data-dir capacity-data \
+            --output-dir capacity-artifacts \
+            --require-boundary
+      - name: Capture final machine state
+        if: always()
+        run: |
+          free -b | tee capacity-artifacts/free-after.txt
+          git rev-parse HEAD | tee capacity-artifacts/git-head.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dedicated-capacity-campaign
+          path: capacity-artifacts/
+          retention-days: 90
