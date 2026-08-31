@@ -1,231 +1,399 @@
 #!/usr/bin/env python3
 import argparse
-import csv
-import io
+import hashlib
 import json
 import os
 import re
 import statistics
 import subprocess
+import time
 from pathlib import Path
 
 THREADS = (1, 2, 4)
 REPEAT = 5
 SOURCE = 0
+DYNAMIC_FRACTIONS = (0.001, 0.01, 0.05)
 
 
-def run(argv, *, env=None, stdin=None, allow_failure=False):
-    proc = subprocess.run(argv, text=True, input=stdin, capture_output=True, env=env, check=False)
+def run(argv, *, env=None, allow_failure=False):
+    start = time.perf_counter()
+    proc = subprocess.run(argv, text=True, capture_output=True, env=env, check=False)
+    wall = time.perf_counter() - start
     if proc.returncode != 0 and not allow_failure:
-        raise RuntimeError(f"command failed ({proc.returncode}): {' '.join(map(str, argv))}\n{proc.stderr or proc.stdout}")
-    return {"argv": [str(x) for x in argv], "returncode": proc.returncode,
-            "stdout": proc.stdout, "stderr": proc.stderr}
+        raise RuntimeError(
+            f"command failed ({proc.returncode}): {' '.join(map(str, argv))}\n"
+            f"stdout:\n{proc.stdout[-4000:]}\nstderr:\n{proc.stderr[-4000:]}"
+        )
+    return {
+        "argv": [str(x) for x in argv],
+        "returncode": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+        "wall_seconds": wall,
+    }
 
 
 def threaded_env(threads):
     env = os.environ.copy()
     env["OMP_NUM_THREADS"] = str(threads)
     env["OMP_THREAD_LIMIT"] = str(threads)
+    env["OMP_DYNAMIC"] = "FALSE"
+    env["OMP_PLACES"] = "cores"
+    env["OMP_PROC_BIND"] = "spread"
     env["VELOGRAPHX_THREADS"] = str(threads)
     return env
 
 
-def affinity_command(argv, threads):
-    if os.name == "posix" and Path("/usr/bin/taskset").exists():
-        return ["/usr/bin/taskset", "-c", f"0-{threads - 1}", *argv]
-    return argv
+def sha256(path: Path):
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def write_sources(path: Path, source: int):
+    path.write_text(
+        "%%MatrixMarket matrix coordinate integer general\n"
+        "% one 1-based source vertex for LAGraph benchmark demos\n"
+        f"1 1 1\n1 1 {source + 1}\n"
+    )
+
+
+def write_graph_files(outdir: Path, edges, weighted, prefix: str):
+    el = outdir / f"{prefix}.el"
+    wel = outdir / f"{prefix}.wel"
+    mtx = outdir / f"{prefix}.mtx"
+    wmtx = outdir / f"{prefix}.weighted.mtx"
+    el.write_text("".join(f"{u} {v}\n" for u, v in edges))
+    wel.write_text("".join(f"{u} {v} {weighted[(u, v)]}\n" for u, v in edges))
+    n = max(max(u, v) for u, v in edges) + 1
+    with mtx.open("w") as f:
+        f.write("%%MatrixMarket matrix coordinate pattern symmetric\n")
+        f.write(f"{n} {n} {len(edges)}\n")
+        for u, v in edges:
+            f.write(f"{u + 1} {v + 1}\n")
+    with wmtx.open("w") as f:
+        f.write("%%MatrixMarket matrix coordinate integer symmetric\n")
+        f.write(f"{n} {n} {len(edges)}\n")
+        for u, v in edges:
+            f.write(f"{u + 1} {v + 1} {weighted[(u, v)]}\n")
+    return {"el": el, "wel": wel, "mtx": mtx, "wmtx": wmtx, "vertices": n}
 
 
 def generate_graph(outdir: Path):
-    n = 4096
-    edges = set()
+    n = 32768
+    base = set()
+    candidates = set()
     for u in range(n):
         for delta in (1, 7, 31, 127):
             v = (u + delta) % n
             a, b = sorted((u, v))
             if a != b:
-                edges.add((a, b))
-    ordered = sorted(edges)
-    el = outdir / "hosted-native.el"
-    el.write_text("".join(f"{u} {v}\n" for u, v in ordered))
-    mtx = outdir / "hosted-native.mtx"
-    with mtx.open("w") as f:
-        f.write("%%MatrixMarket matrix coordinate pattern symmetric\n")
-        f.write(f"{n} {n} {len(ordered)}\n")
-        for u, v in ordered:
-            f.write(f"{u+1} {v+1}\n")
-    return {"vertices": n, "undirected_edges": len(ordered), "edge_list": str(el),
-            "matrix_market": str(mtx), "source": SOURCE}
+                base.add((a, b))
+        for delta in (3, 11, 47, 191):
+            v = (u + delta) % n
+            a, b = sorted((u, v))
+            if a != b and (a, b) not in base:
+                candidates.add((a, b))
+    base = sorted(base)
+    candidates = sorted(candidates - set(base))
+    weights = {}
+    for u, v in base + candidates:
+        weights[(u, v)] = 1 + ((u * 17 + v * 31) % 16)
+    files = write_graph_files(outdir, base, weights, "hosted-native-base")
+    source_mtx = outdir / "source-0.mtx"
+    write_sources(source_mtx, SOURCE)
+    files.update({
+        "source_mtx": source_mtx,
+        "base_edges": len(base),
+        "candidate_edges": len(candidates),
+        "weights": weights,
+        "base": base,
+        "candidates": candidates,
+    })
+    return files
 
 
-def velographx_measurements(public_benchmark: Path, dataset: Path):
+def parse_vx(result):
+    line = next((x for x in result["stdout"].splitlines() if x.startswith("{")), None)
+    if not line:
+        raise RuntimeError(f"missing VeloGraphX JSON output: {result['stdout'][-2000:]}")
+    payload = json.loads(line)
+    payload["process_wall_seconds"] = result["wall_seconds"]
+    return payload
+
+
+def vx_static(exe: Path, algorithm: str, dataset: Path, threads: int):
     rows = []
-    for t in THREADS:
-        samples = []
-        reachable = []
-        for _ in range(REPEAT):
-            argv = affinity_command([str(public_benchmark), str(dataset), str(SOURCE)], t)
-            result = run(argv, env=threaded_env(t))
-            reader = csv.DictReader(io.StringIO(result["stdout"]))
-            parsed = list(reader)
-            if len(parsed) != 1:
-                raise RuntimeError(f"unexpected VeloGraphX benchmark CSV for {t} threads: {result['stdout'][-2000:]}")
-            row = parsed[0]
-            samples.append(float(row["bfs_us"]) / 1_000_000.0)
-            reachable.append(int(row["reachable_vertices"]))
-        rows.append({
-            "threads": t,
-            "source": SOURCE,
-            "repeat": REPEAT,
-            "trial_seconds": samples,
-            "median_seconds": statistics.median(samples),
-            "reachable_vertices": reachable[0],
-            "reachable_consistent": len(set(reachable)) == 1,
-            "all_reachable_samples": reachable,
-            "timing_scope": "BFS kernel-only timing reported by velographx_public_dataset_benchmark",
-        })
-    return rows
+    for _ in range(REPEAT):
+        rows.append(parse_vx(run([str(exe), algorithm, str(dataset), str(SOURCE)], env=threaded_env(threads))))
+    return summarize_vx(rows, threads)
 
 
-def gap_measurements(gap_bfs: Path, dataset: Path):
+def vx_dynamic(exe: Path, algorithm: str, base: Path, updates: Path):
     rows = []
+    mode = "dynamic-bfs" if algorithm == "bfs" else "dynamic-sssp"
+    for _ in range(REPEAT):
+        rows.append(parse_vx(run([str(exe), mode, str(base), str(updates), str(SOURCE)], env=threaded_env(1))))
+    exact = all(x["exact"] for x in rows)
+    return {
+        "threads": 1,
+        "repeat": REPEAT,
+        "source": SOURCE,
+        "trial_seconds": [x["kernel_us"] / 1_000_000.0 for x in rows],
+        "median_seconds": statistics.median(x["kernel_us"] / 1_000_000.0 for x in rows),
+        "full_recompute_trial_seconds": [x["full_recompute_us"] / 1_000_000.0 for x in rows],
+        "full_recompute_median_seconds": statistics.median(x["full_recompute_us"] / 1_000_000.0 for x in rows),
+        "update_count": rows[0]["update_count"],
+        "exact": exact,
+        "digests": [x["digest"] for x in rows],
+        "timing_scope": "apply update batch plus exact incremental repair; full_recompute excludes input loading",
+    }
+
+
+def summarize_vx(rows, threads):
+    exact = all(x["exact"] for x in rows)
+    return {
+        "threads": threads,
+        "repeat": REPEAT,
+        "source": SOURCE,
+        "trial_seconds": [x["kernel_us"] / 1_000_000.0 for x in rows],
+        "median_seconds": statistics.median(x["kernel_us"] / 1_000_000.0 for x in rows),
+        "process_wall_seconds": [x["process_wall_seconds"] for x in rows],
+        "exact": exact,
+        "digests": [x["digest"] for x in rows],
+        "timing_scope": "kernel-only; graph representation prepared before timing",
+    }
+
+
+def gap_measure(exe: Path, algorithm: str, dataset: Path, threads: int):
+    trials, walls, verifications = [], [], []
     trial_re = re.compile(r"Trial Time:\s*([0-9.eE+-]+)")
     verification_re = re.compile(r"^Verification:\s*(PASS|FAIL)\s*$", re.MULTILINE)
-    for t in THREADS:
-        result = run(affinity_command([str(gap_bfs), "-sf", str(dataset), "-r", str(SOURCE), "-n", str(REPEAT), "-v"], t), env=threaded_env(t))
+    for _ in range(REPEAT):
+        if algorithm == "bfs":
+            argv = [str(exe), "-s", "-f", str(dataset), "-r", str(SOURCE), "-n", "1", "-v"]
+        else:
+            argv = [str(exe), "-f", str(dataset), "-r", str(SOURCE), "-n", "1", "-v", "-d", "2"]
+        result = run(argv, env=threaded_env(threads))
         combined = result["stdout"] + "\n" + result["stderr"]
-        samples = [float(x) for x in trial_re.findall(combined)]
-        verification_results = verification_re.findall(combined)
-        pass_count = sum(x == "PASS" for x in verification_results)
-        fail_count = sum(x == "FAIL" for x in verification_results)
-        verification_passed = len(samples) == REPEAT and pass_count == REPEAT and fail_count == 0
-        rows.append({
-            "threads": t,
-            "source": SOURCE,
-            "repeat": REPEAT,
-            "returncode": result["returncode"],
-            "trial_seconds": samples,
-            "median_seconds": statistics.median(samples) if samples else None,
-            "verification_passed": verification_passed,
-            "verification_pass_count": pass_count,
-            "verification_fail_count": fail_count,
-            "verification_result_count": len(verification_results),
-            "stdout_tail": result["stdout"][-4000:],
-            "stderr_tail": result["stderr"][-4000:],
-        })
-    return rows
+        values = trial_re.findall(combined)
+        checks = verification_re.findall(combined)
+        if len(values) != 1:
+            raise RuntimeError(f"unexpected GAP {algorithm} output: {combined[-3000:]}")
+        trials.append(float(values[0]))
+        walls.append(result["wall_seconds"])
+        verifications.append(checks == ["PASS"])
+    return {
+        "threads": threads,
+        "repeat": REPEAT,
+        "source": SOURCE,
+        "trial_seconds": trials,
+        "median_seconds": statistics.median(trials),
+        "process_wall_seconds": walls,
+        "process_wall_median_seconds": statistics.median(walls),
+        "verification_passed": all(verifications),
+        "timing_scope": "GAP Trial Time kernel-only; process wall includes input loading and graph construction",
+    }
 
 
-def lagraph_measurements(bfs_demo: Path, matrix_market: Path):
-    rows = []
-    avg_re = re.compile(r"Avg: BFS pushpull parent only, threads\s+\d+:\s+([0-9.eE+-]+) sec")
-    matrix_text = matrix_market.read_text()
-    for t in THREADS:
-        result = run(affinity_command([str(bfs_demo), str(matrix_market)], t), env=threaded_env(t), stdin=matrix_text)
+def lagraph_measure(exe: Path, algorithm: str, matrix: Path, sources: Path, threads: int):
+    trials, walls, checks, source_seen = [], [], [], []
+    if algorithm == "bfs":
+        trial_re = re.compile(r"parent only\s+pushpull trial:\s*0\s+threads:\s*\d+\s+src:\s*(-?\d+)\s+([0-9.eE+-]+) sec")
+        check_re = re.compile(r"\bn:\s*[0-9.eE+-]+\s+check:\s*([0-9.eE+-]+)\s+sec")
+    else:
+        trial_re = re.compile(r"sssp15:\s+threads:\s*\d+\s+trial:\s*0\s+source\s+(-?\d+)\s+time:\s*([0-9.eE+-]+) sec")
+        check_re = re.compile(r"total check time:\s*([0-9.eE+-]+)\s+sec")
+    for _ in range(REPEAT):
+        argv = [str(exe), str(matrix), str(sources)]
+        if algorithm == "sssp":
+            argv.append("2")
+        result = run(argv, env=threaded_env(threads))
         combined = result["stdout"] + "\n" + result["stderr"]
-        values = [float(x) for x in avg_re.findall(combined)]
-        check_match = re.search(r"\bn:\s*[0-9.eE+-]+\s+check:\s*([0-9.eE+-]+)\s+sec", combined)
-        rows.append({
-            "threads": t,
-            "returncode": result["returncode"],
-            "average_seconds": values[-1] if values else None,
-            "benchmark_self_check_present": check_match is not None,
-            "self_check_seconds": float(check_match.group(1)) if check_match else None,
-            "source_semantics": "LAGraph v1.2.2 bfs_demo upstream source set; correctness self-check enabled at build time",
-            "same_source_as_velographx_gap": False,
-            "stdout_tail": result["stdout"][-4000:],
-            "stderr_tail": result["stderr"][-4000:],
+        match = trial_re.search(combined)
+        if not match:
+            raise RuntimeError(f"unexpected LAGraph {algorithm} output: {combined[-4000:]}")
+        source_seen.append(int(match.group(1)))
+        trials.append(float(match.group(2)))
+        walls.append(result["wall_seconds"])
+        checks.append(check_re.search(combined) is not None)
+    return {
+        "threads": threads,
+        "repeat": REPEAT,
+        "source": SOURCE,
+        "source_seen": source_seen,
+        "same_source_proven": all(x == SOURCE for x in source_seen),
+        "trial_seconds": trials,
+        "median_seconds": statistics.median(trials),
+        "process_wall_seconds": walls,
+        "process_wall_median_seconds": statistics.median(walls),
+        "self_check_passed": all(checks),
+        "timing_scope": "LAGraph kernel timer; process wall includes input loading and one-time cached graph properties/transpose work",
+    }
+
+
+def pair_static(vx, gap, lagraph):
+    return {
+        "threads": vx["threads"],
+        "source": SOURCE,
+        "velographx_median_seconds": vx["median_seconds"],
+        "gap_median_seconds": gap["median_seconds"],
+        "lagraph_median_seconds": lagraph["median_seconds"],
+        "vx_over_gap_ratio": vx["median_seconds"] / gap["median_seconds"] if gap["median_seconds"] else None,
+        "vx_over_lagraph_ratio": vx["median_seconds"] / lagraph["median_seconds"] if lagraph["median_seconds"] else None,
+        "same_source": lagraph["same_source_proven"],
+        "all_correct": vx["exact"] and gap["verification_passed"] and lagraph["self_check_passed"],
+    }
+
+
+def dynamic_campaign(graph, outdir, vx_exe, gap_bfs, gap_sssp, lagraph_bfs, lagraph_sssp):
+    results = []
+    base = graph["base"]
+    candidates = graph["candidates"]
+    weights = graph["weights"]
+    for fraction in DYNAMIC_FRACTIONS:
+        count = max(1, int(round(len(base) * fraction)))
+        updates = candidates[:count]
+        update_el = outdir / f"updates-{fraction:.3f}.el"
+        update_wel = outdir / f"updates-{fraction:.3f}.wel"
+        update_el.write_text("".join(f"{u} {v}\n" for u, v in updates))
+        update_wel.write_text("".join(f"{u} {v} {weights[(u, v)]}\n" for u, v in updates))
+        snapshot = write_graph_files(outdir, sorted(base + updates), weights, f"snapshot-{fraction:.3f}")
+
+        vx_bfs = vx_dynamic(vx_exe, "bfs", graph["el"], update_el)
+        vx_sssp = vx_dynamic(vx_exe, "sssp", graph["wel"], update_wel)
+        gap_b = gap_measure(gap_bfs, "bfs", snapshot["el"], 1)
+        gap_s = gap_measure(gap_sssp, "sssp", snapshot["wmtx"], 1)
+        lg_b = lagraph_measure(lagraph_bfs, "bfs", snapshot["mtx"], graph["source_mtx"], 1)
+        lg_s = lagraph_measure(lagraph_sssp, "sssp", snapshot["wmtx"], graph["source_mtx"], 1)
+
+        results.append({
+            "fraction": fraction,
+            "update_count": count,
+            "snapshot_checksums": {k: sha256(v) for k, v in snapshot.items() if isinstance(v, Path)},
+            "bfs": {
+                "velographx_incremental": vx_bfs,
+                "gap_full_recompute": gap_b,
+                "lagraph_full_recompute": lg_b,
+                "incremental_over_vx_full_ratio": vx_bfs["median_seconds"] / vx_bfs["full_recompute_median_seconds"],
+                "incremental_over_gap_kernel_ratio": vx_bfs["median_seconds"] / gap_b["median_seconds"],
+                "incremental_over_lagraph_kernel_ratio": vx_bfs["median_seconds"] / lg_b["median_seconds"],
+                "incremental_over_gap_end_to_end_ratio": vx_bfs["median_seconds"] / gap_b["process_wall_median_seconds"],
+                "incremental_over_lagraph_end_to_end_ratio": vx_bfs["median_seconds"] / lg_b["process_wall_median_seconds"],
+            },
+            "sssp": {
+                "velographx_incremental": vx_sssp,
+                "gap_full_recompute": gap_s,
+                "lagraph_full_recompute": lg_s,
+                "incremental_over_vx_full_ratio": vx_sssp["median_seconds"] / vx_sssp["full_recompute_median_seconds"],
+                "incremental_over_gap_kernel_ratio": vx_sssp["median_seconds"] / gap_s["median_seconds"],
+                "incremental_over_lagraph_kernel_ratio": vx_sssp["median_seconds"] / lg_s["median_seconds"],
+                "incremental_over_gap_end_to_end_ratio": vx_sssp["median_seconds"] / gap_s["process_wall_median_seconds"],
+                "incremental_over_lagraph_end_to_end_ratio": vx_sssp["median_seconds"] / lg_s["process_wall_median_seconds"],
+            },
         })
-    return rows
-
-
-def perf_attempt(velographx_bench: Path):
-    result = run([
-        "python3", "tools/hardware_campaign_driver.py", "--threads", "1", "--perf",
-        "--perf-events", "cycles,instructions,cache-misses,branches,branch-misses", "--", str(velographx_bench)
-    ], allow_failure=True)
-    payload = {"status": "unavailable-or-denied", "returncode": result["returncode"],
-               "stdout": result["stdout"], "stderr": result["stderr"]}
-    if result["returncode"] == 0:
-        try:
-            payload = {"status": "available", "result": json.loads(result["stdout"])}
-        except json.JSONDecodeError:
-            payload["status"] = "unexpected-output"
-    return payload
+    return results
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--output-dir", type=Path, required=True)
     p.add_argument("--gap-bfs", type=Path, required=True)
+    p.add_argument("--gap-sssp", type=Path, required=True)
     p.add_argument("--lagraph-bfs-demo", type=Path, required=True)
-    p.add_argument("--velographx-benchmark", type=Path, required=True)
-    p.add_argument("--velographx-public-benchmark", type=Path, required=True)
+    p.add_argument("--lagraph-sssp-demo", type=Path, required=True)
+    p.add_argument("--velographx-native-benchmark", type=Path, required=True)
     args = p.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
     graph = generate_graph(args.output_dir)
-    vx = velographx_measurements(args.velographx_public_benchmark, Path(graph["edge_list"]))
-    gap = gap_measurements(args.gap_bfs, Path(graph["edge_list"]))
-    lagraph = lagraph_measurements(args.lagraph_bfs_demo, Path(graph["matrix_market"]))
+    static = {"bfs": [], "sssp": []}
+    for threads in THREADS:
+        vx_b = vx_static(args.velographx_native_benchmark, "bfs", graph["el"], threads)
+        gap_b = gap_measure(args.gap_bfs, "bfs", graph["el"], threads)
+        lg_b = lagraph_measure(args.lagraph_bfs_demo, "bfs", graph["mtx"], graph["source_mtx"], threads)
+        static["bfs"].append({"velographx": vx_b, "gap": gap_b, "lagraph": lg_b, "paired": pair_static(vx_b, gap_b, lg_b)})
 
-    vx_exact = all(x["reachable_consistent"] and x["reachable_vertices"] == graph["vertices"] for x in vx)
-    gap_exact = all(x["verification_passed"] for x in gap)
-    lagraph_exact = all(x["benchmark_self_check_present"] for x in lagraph)
-    correctness_gate = vx_exact and gap_exact and lagraph_exact
+        vx_s = vx_static(args.velographx_native_benchmark, "sssp", graph["wel"], threads)
+        gap_s = gap_measure(args.gap_sssp, "sssp", graph["wmtx"], threads)
+        lg_s = lagraph_measure(args.lagraph_sssp_demo, "sssp", graph["wmtx"], graph["source_mtx"], threads)
+        static["sssp"].append({"velographx": vx_s, "gap": gap_s, "lagraph": lg_s, "paired": pair_static(vx_s, gap_s, lg_s)})
 
-    paired_vx_gap = []
-    for vx_row, gap_row in zip(vx, gap):
-        assert vx_row["threads"] == gap_row["threads"]
-        paired_vx_gap.append({
-            "threads": vx_row["threads"],
-            "source": SOURCE,
-            "velographx_median_seconds": vx_row["median_seconds"],
-            "gap_median_seconds": gap_row["median_seconds"],
-            "vx_over_gap_ratio": (vx_row["median_seconds"] / gap_row["median_seconds"])
-                if gap_row["median_seconds"] else None,
-            "same_generated_graph": True,
-            "same_source": True,
-            "both_correctness_gated": vx_exact and gap_exact,
-        })
+    dynamic = dynamic_campaign(
+        graph, args.output_dir, args.velographx_native_benchmark,
+        args.gap_bfs, args.gap_sssp, args.lagraph_bfs_demo, args.lagraph_sssp_demo,
+    )
+
+    all_static_exact = all(
+        row["paired"]["all_correct"] and row["paired"]["same_source"]
+        for algorithm in static.values() for row in algorithm
+    )
+    all_dynamic_exact = all(
+        regime[alg]["velographx_incremental"]["exact"]
+        and regime[alg]["gap_full_recompute"]["verification_passed"]
+        and regime[alg]["lagraph_full_recompute"]["self_check_passed"]
+        and regime[alg]["lagraph_full_recompute"]["same_source_proven"]
+        for regime in dynamic for alg in ("bfs", "sssp")
+    )
 
     report = {
-        "schema_version": 3,
-        "artifact_type": "velographx-hosted-native-measurements",
+        "schema_version": 4,
+        "artifact_type": "velographx-davis-native-baseline-campaign",
         "research_claim": False,
         "publication_grade": False,
-        "normalized_cross_engine_claim": True,
-        "normalized_scope": "VeloGraphX vs GAP BFS only: same generated graph, source 0, thread affinity, five repetitions, and correctness gates. LAGraph/GraphBLAS is same-runner/same-graph build and timing evidence but excluded from normalized speedup because upstream bfs_demo selects its own source set.",
-        "graph": graph,
-        "velographx_bfs": vx,
-        "gap_bfs": gap,
-        "lagraph_graphblas_bfs": lagraph,
-        "paired_velographx_gap": paired_vx_gap,
-        "correctness_gate": {
-            "passed": correctness_gate,
-            "velographx_reachable_all_vertices_all_trials": vx_exact,
-            "gap_all_trials_verified": gap_exact,
-            "lagraph_self_check_present_all_threads": lagraph_exact,
-            "same_source_velographx_gap_proven": True,
-            "same_source_lagraph_proven": False,
+        "methodology_source": "Timothy A. Davis guidance, 2026-08-31; LAGraph v1.3.x do_gap_all conventions",
+        "openmp": {
+            "OMP_PLACES": "cores",
+            "OMP_PROC_BIND": "spread",
+            "OMP_DYNAMIC": "FALSE",
+            "thread_counts": list(THREADS),
         },
-        "velographx_perf": perf_attempt(args.velographx_benchmark),
+        "timing_contract": {
+            "primary_static": "kernel-only; file loading and one-time representation construction excluded",
+            "dynamic_incremental": "VeloGraphX update application plus exact repair",
+            "dynamic_external_kernel": "external optimized full-recompute kernel on post-update snapshot",
+            "dynamic_external_end_to_end": "separately retained process wall time, including fresh input load and representation construction; never mixed with kernel-only numbers",
+        },
+        "graph": {
+            "vertices": graph["vertices"],
+            "base_edges": graph["base_edges"],
+            "candidate_edges": graph["candidate_edges"],
+            "source": SOURCE,
+            "checksums": {
+                "edge_list": sha256(graph["el"]),
+                "weighted_edge_list": sha256(graph["wel"]),
+                "matrix_market": sha256(graph["mtx"]),
+                "weighted_matrix_market": sha256(graph["wmtx"]),
+                "source_matrix": sha256(graph["source_mtx"]),
+            },
+        },
+        "static": static,
+        "dynamic_crossover": dynamic,
+        "correctness_gate": {
+            "passed": all_static_exact and all_dynamic_exact,
+            "static_all_engines_exact": all_static_exact,
+            "dynamic_all_engines_exact": all_dynamic_exact,
+            "same_source_all_engines": all_static_exact and all_dynamic_exact,
+        },
         "claim_gate": {
             "publication_ready": False,
-            "allowed_claim": "Hosted-CI engineering evidence: normalized same-source VeloGraphX-vs-GAP BFS plus same-runner LAGraph/GraphBLAS timing/self-check. No publication-grade superiority or scalability claim."
-        }
+            "allowed_claim": "Hosted-CI correctness-gated engineering evidence only. Results are workload-specific; controlled hardware remains required for publication-grade scalability claims.",
+        },
     }
-    out = args.output_dir / "hosted-native-measurements.json"
+    out = args.output_dir / "davis-native-baseline-campaign.json"
     out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    if not correctness_gate:
-        raise RuntimeError("native competitor correctness gate failed; see hosted-native-measurements.json")
+    if not report["correctness_gate"]["passed"]:
+        raise RuntimeError("Davis native baseline correctness gate failed")
     print(json.dumps({
         "ok": True,
-        "correctness_gate": correctness_gate,
-        "velographx_threads": [x["threads"] for x in vx],
-        "gap_threads": [x["threads"] for x in gap],
-        "lagraph_threads": [x["threads"] for x in lagraph],
-        "perf_status": report["velographx_perf"]["status"]
+        "schema_version": report["schema_version"],
+        "static_bfs_threads": [x["paired"]["threads"] for x in static["bfs"]],
+        "static_sssp_threads": [x["paired"]["threads"] for x in static["sssp"]],
+        "dynamic_fractions": [x["fraction"] for x in dynamic],
     }))
+
 
 if __name__ == "__main__":
     main()
