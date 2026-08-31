@@ -69,12 +69,36 @@ jobs:
             -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build/base --target velographx_external_risgraph_bfs -j 2
 
-      - name: Build 16384-floor candidate harness
+      - name: Build candidate harness
         run: |
-          grep -q 'kAutomaticMinimumDeltaEntries = 4096' include/velographx/storage/dynamic_graph.hpp
-          sed -i 's/kAutomaticMinimumDeltaEntries = 4096/kAutomaticMinimumDeltaEntries = 16384/' \
-            include/velographx/storage/dynamic_graph.hpp
-          grep -q 'kAutomaticMinimumDeltaEntries = 16384' include/velographx/storage/dynamic_graph.hpp
+          baseline_floor=$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text=Path('include/velographx/storage/dynamic_graph.hpp').read_text()
+          m=re.search(r'kAutomaticMinimumDeltaEntries\s*=\s*(\d+)', text)
+          if not m:
+              raise SystemExit('kAutomaticMinimumDeltaEntries not found')
+          print(m.group(1))
+          PY
+          )
+          candidate_floor=$((baseline_floor * 4))
+          echo "BASELINE_FLOOR=$baseline_floor" >> "$GITHUB_ENV"
+          echo "CANDIDATE_FLOOR=$candidate_floor" >> "$GITHUB_ENV"
+          python - "$baseline_floor" "$candidate_floor" <<'PY'
+          import re, sys
+          from pathlib import Path
+          baseline, candidate = sys.argv[1], sys.argv[2]
+          path=Path('include/velographx/storage/dynamic_graph.hpp')
+          text=path.read_text()
+          old=f'kAutomaticMinimumDeltaEntries = {baseline}'
+          new=f'kAutomaticMinimumDeltaEntries = {candidate}'
+          if old not in text:
+              raise SystemExit(f'expected baseline floor not found: {old}')
+          path.write_text(text.replace(old, new, 1))
+          if new not in path.read_text():
+              raise SystemExit(f'candidate floor substitution failed: {new}')
+          print(f'baseline_floor={baseline}; candidate_floor={candidate}')
+          PY
           cmake -S . -B build/candidate -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DVELOGRAPHX_BUILD_TESTS=OFF \
@@ -138,6 +162,7 @@ jobs:
               f.write(f'accept={str(accept).lower()}\n')
               f.write(f'ca_ratio={ca}\n')
               f.write(f'web_ratio={web}\n')
+          print(f'baseline_floor={os.environ.get("BASELINE_FLOOR")}; candidate_floor={os.environ.get("CANDIDATE_FLOOR")}')
           print(f'ca candidate/base={ca:.6f}; web candidate/base={web:.6f}; accept={accept}')
           PY
 
@@ -157,7 +182,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add include/velographx/storage/dynamic_graph.hpp
-          git commit -m 'perf: raise automatic delta maintenance floor'
+          git commit -m "perf: raise automatic delta maintenance floor to ${CANDIDATE_FLOOR}"
           git push origin HEAD:main
 
       - name: Restore rejected candidate locally
