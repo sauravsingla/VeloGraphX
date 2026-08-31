@@ -53,10 +53,19 @@ The graph algorithms themselves are established techniques. The research contrib
 | Area | Implementation |
 | --- | --- |
 | Dynamic storage | Segmented CSR, packed deltas, sparse row patches, reverse adjacency, validated consolidation |
+| Algorithm/storage separation | C++20 graph-access contract; `BasicIncremental*<Graph>` implementations; `DynamicGraph` and read-optimised `CsrGraph` backends |
 | Adaptive execution | Update-density preflight, affected-work signals, graph-scale conditioning, online cost estimates, uncertainty-aware selection |
 | CPU execution | SIMD intersections, multicore scheduling, push/pull frontiers, work stealing, NUMA-aware policies |
 | Interoperability | C++20, pybind11, NumPy, SciPy CSR, Apache Arrow |
 | Reproducibility | Checksum-pinned datasets, pinned baselines, exactness gates, environment capture, retained artifacts |
+
+### Storage-independent algorithm layer
+
+Core incremental implementations are templated on graph representation rather than hard-wired to `DynamicGraph`. The default public class names remain compatibility aliases for the dynamic backend, while the reusable `BasicIncrementalBFS<Graph>`, `BasicIncrementalSSSP<Graph>`, `BasicIncrementalComponents<Graph>`, `BasicIncrementalKCore<Graph>`, `BasicIncrementalPageRank<Graph>`, and `BasicIncrementalTriangleCount<Graph>` implementations can be instantiated over compatible representations.
+
+Hot traversal paths use callback/span-style adjacency access instead of materialising a `std::vector` per vertex visit. `CsrGraph` carries both forward and reverse CSR so the same read algorithm can be executed against the mutable VeloGraphX layout and a read-optimised layout. `velographx_backend_bfs_benchmark` runs the exact same BFS implementation on both backends and gates the timing output on identical distance vectors.
+
+See [Storage-independent graph algorithm contract](docs/graph-abstraction.md).
 
 ## Selected validated results
 
@@ -135,6 +144,7 @@ Experiments use checksum-pinned datasets, immutable baseline revisions, explicit
 
 Key methodology documents:
 
+- [Storage-independent graph algorithm contract](docs/graph-abstraction.md)
 - [Benchmark methodology](docs/benchmark-methodology.md)
 - [External dynamic baselines](docs/external-dynamic-baselines.md)
 - [External baseline timing contract](docs/external-baseline-timing-contract.md)
