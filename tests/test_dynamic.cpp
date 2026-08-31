@@ -34,11 +34,18 @@ int main() {
   assert(!g.is_compact());
   assert(g.delta_edge_count() == 6);
 
+  // Constructing an algorithm must observe the logical graph without changing
+  // the underlying storage representation. This is part of the storage-
+  // independent algorithm contract: callers, not algorithms, own compaction.
+  const auto base_before_triangle = g.base_edge_count_directed();
+  const auto delta_before_triangle = g.delta_edge_count();
+  const auto version_before_triangle = g.version();
   IncrementalTriangleCount tc(g);
   assert(tc.value() == 1);
-  assert(g.is_compact());
-  assert(g.base_edge_count_directed() == 6);
-  assert(g.delta_edge_count() == 0);
+  assert(!g.is_compact());
+  assert(g.base_edge_count_directed() == base_before_triangle);
+  assert(g.delta_edge_count() == delta_before_triangle);
+  assert(g.version() == version_before_triangle);
 
   UpdateBatch b2;
   b2.add(2, 3);
