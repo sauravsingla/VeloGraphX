@@ -119,10 +119,27 @@ jobs:
             echo "epinions_gzip_sha256=69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938"
             echo "epinions_text_sha256=$EPINIONS_TEXT_SHA256"
             echo "simple_update_fraction=$SIMPLE_UPDATE_FRACTION"
-            echo "adaptive_affected_fraction=0.35"
             echo "repetitions_per_regime=5"
             echo "one_thread=true"
           } > build/policy/pins.txt
+          python - <<'PY' >> build/policy/pins.txt
+          import json
+          from pathlib import Path
+
+          paths = sorted(Path('build/policy/runs').glob('*.json'))
+          if not paths:
+              raise SystemExit('no policy result available for threshold pinning')
+          first = json.loads(paths[0].read_text())
+          thresholds = first.get('thresholds')
+          if not isinstance(thresholds, dict) or not thresholds:
+              raise SystemExit('policy result does not contain selector thresholds')
+          for path in paths[1:]:
+              current = json.loads(path.read_text()).get('thresholds')
+              if current != thresholds:
+                  raise SystemExit(f'selector thresholds changed within run: {path}')
+          for key in sorted(thresholds):
+              print(f'selector_{key}={thresholds[key]}')
+          PY
 
       - uses: actions/upload-artifact@v4
         with:
