@@ -37,7 +37,7 @@ def prepare_roadnet_ca(output_dir: Path) -> None:
         urllib.request.urlretrieve(ROADNET_CA_URL, archive)
 
     vertices: set[int] = set()
-    edge_count = 0
+    source_rows = 0
     with gzip.open(archive, "rt", encoding="utf-8") as src, normalized.open("w", encoding="utf-8") as dst:
         for line in src:
             stripped = line.strip()
@@ -51,21 +51,28 @@ def prepare_roadnet_ca(output_dir: Path) -> None:
             dst.write(f"{u} {v}\n")
             vertices.add(u)
             vertices.add(v)
-            edge_count += 1
+            source_rows += 1
 
+    # SNAP's roadNet-CA text file contains both orientations of each undirected
+    # road. The public dataset page reports 2,766,607 undirected edges, while
+    # the source text therefore contains 5,533,214 non-comment edge rows.
+    expected_vertices = 1965206
+    expected_undirected_edges = 2766607
+    expected_source_rows = expected_undirected_edges * 2
     record = {
         "dataset": "roadNet-CA",
         "source_url": ROADNET_CA_URL,
         "source_sha256": sha256_file(archive),
         "normalized_sha256": sha256_file(normalized),
         "vertices_observed": len(vertices),
-        "undirected_edges_observed": edge_count,
-        "normalization": "comments removed; self-loops removed; source undirected edge orientation preserved",
-        "expected_source_vertices": 1965206,
-        "expected_source_undirected_edges": 2766607,
+        "source_edge_rows_observed": source_rows,
+        "expected_source_vertices": expected_vertices,
+        "expected_source_edge_rows": expected_source_rows,
+        "expected_undirected_edges": expected_undirected_edges,
+        "normalization": "comments removed; self-loops removed; both source orientations retained; VeloGraphX undirected loader canonicalizes duplicate reciprocal input",
     }
     metadata.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    if record["vertices_observed"] != record["expected_source_vertices"] or record["undirected_edges_observed"] != record["expected_source_undirected_edges"]:
+    if record["vertices_observed"] != expected_vertices or record["source_edge_rows_observed"] != expected_source_rows:
         raise RuntimeError("roadNet-CA provenance counts do not match the publication contract")
     print(json.dumps(record, indent=2))
 
