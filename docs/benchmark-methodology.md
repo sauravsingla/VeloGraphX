@@ -27,17 +27,13 @@ Synthetic results are not substitutes for public real-world graphs. Their purpos
 
 ## Largest-practical in-memory scale
 
-Each dedicated-hardware campaign must identify the largest configured graph that completes fully in memory without swapping or OOM. Report graph size, peak RSS, installed RAM, NUMA topology, thread count, and the next attempted scale.
-
-The executable contract is [`scripts/run_capacity_campaign.py`](../scripts/run_capacity_campaign.py). It generates deterministic Kronecker workloads in increasing scale order, executes `velographx_public_dataset_benchmark` under `/usr/bin/time -v`, captures peak RSS, samples Linux `pswpin`, `pswpout` and `oom_kill` counters around each benchmark, and stops at the first rejected scale. A scale is accepted as an in-memory result only when the benchmark exits successfully with zero observed swap-in, swap-out and OOM-kill deltas.
-
-A publication-grade boundary is established only when at least one scale succeeds and a larger attempted scale is rejected. If every configured scale succeeds, the scale list must be extended; the largest configured successful scale must not be mislabeled as the machine limit.
-
-The manual GitHub workflow [`Dedicated Capacity Campaign`](../.github/workflows/dedicated-capacity-campaign.yml) targets a dedicated self-hosted Linux x64 runner carrying the `velographx-benchmark` label. Its dedicated job uses `--require-boundary`, so it fails rather than publishing an incomplete capacity claim. The workflow also has a small hosted-runner smoke job that validates the tooling only; hosted smoke results are not publication-grade capacity evidence.
-
-Retained capacity artifacts include machine/NUMA metadata, git revision, generator parameters, per-scale checksums, peak RSS, swap/OOM deltas, benchmark output, `/usr/bin/time` output, the largest accepted scale and the first rejected scale.
+Each dedicated-hardware campaign must identify the largest configured graph that completes fully in memory without swapping or OOM. Report graph size, peak RSS, installed RAM, NUMA topology, thread count, and—where practical—the next attempted scale or the reason no larger attempt was made.
 
 If out-of-memory or external-memory behavior is studied, those results are a separate experiment class and must not be mixed with in-memory numbers.
+
+The executable campaign is `scripts/run_capacity_campaign.py`. It generates deterministic Kronecker workloads, records `/usr/bin/time -v` peak RSS and Linux swap/OOM counters, and only establishes a capacity boundary after at least one clean in-memory success and a larger rejected attempt. The manual `Dedicated Capacity Campaign` workflow targets `[self-hosted, linux, x64, velographx-benchmark]` and invokes the campaign with `--require-boundary`.
+
+A real workflow-dispatch probe was executed on 2026-08-31 (run `33356427001`). The hosted smoke contract completed successfully, while the `dedicated-boundary` job remained queued without a matching self-hosted runner accepting it. The run was then cancelled and the one-time dispatch probe workflow removed. This confirms that repository-side automation is ready but no usable `velographx-benchmark` runner was available for the publication-capacity measurement at that time. A queued or cancelled run is not publication evidence.
 
 ## Standard input boundary
 
