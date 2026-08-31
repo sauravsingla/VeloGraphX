@@ -1,6 +1,14 @@
 name: Hosted Native Competitor Evidence
 
 on:
+  push:
+    paths:
+      - '.github/workflows/hosted-native-competitors.yml'
+      - 'tools/run_hosted_native_measurements.py'
+      - 'tools/hardware_campaign_driver.py'
+      - 'benchmarks/public_dataset_benchmark.cpp'
+      - 'include/**'
+      - 'src/**'
   pull_request:
     paths:
       - '.github/workflows/hosted-native-competitors.yml'
@@ -41,6 +49,7 @@ jobs:
               "taskset": shutil.which("taskset"),
               "numactl": shutil.which("numactl"),
               "perf": shutil.which("perf"),
+              "memory": cmd(["free", "-h"]),
               "lscpu": cmd(["lscpu"]),
           }
           open("artifacts/native/host-capacity.json", "w").write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
@@ -57,11 +66,13 @@ jobs:
             echo "GAPBS $GAPBS_TAG $(git -C external/gapbs rev-parse HEAD)"
           } | tee artifacts/native/native-pins.txt
 
-      - name: Build VeloGraphX benchmark
+      - name: Build VeloGraphX benchmarks and correctness tests
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure
+          test -x build/velographx_benchmark
+          test -x build/velographx_public_dataset_benchmark
 
       - name: Build SuiteSparse GraphBLAS
         run: |
@@ -99,7 +110,7 @@ jobs:
           make -C external/gapbs bfs -j2
           test -x external/gapbs/bfs
 
-      - name: Execute same-runner hosted measurements
+      - name: Execute same-runner 1/2/4-thread hosted measurements
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/external/install/lib:${{ github.workspace }}/external/install/lib64
         run: |
@@ -107,7 +118,8 @@ jobs:
             --output-dir artifacts/native \
             --gap-bfs external/gapbs/bfs \
             --lagraph-bfs-demo external/LAGraph/build/src/benchmark/bfs_demo \
-            --velographx-benchmark build/velographx_benchmark
+            --velographx-benchmark build/velographx_benchmark \
+            --velographx-public-benchmark build/velographx_public_dataset_benchmark
 
       - name: Record native build evidence
         run: |
@@ -116,7 +128,7 @@ jobs:
           def rev(path):
               return subprocess.check_output(["git", "-C", path, "rev-parse", "HEAD"], text=True).strip()
           payload = {
-              "schema_version": 1,
+              "schema_version": 2,
               "artifact_type": "velographx-hosted-native-competitor-build",
               "research_claim": False,
               "publication_grade": False,
@@ -131,32 +143,40 @@ jobs:
                   "lagraph_library_present": any(pathlib.Path("external/install").rglob("liblagraph*")),
                   "lagraph_bfs_demo_present": pathlib.Path("external/LAGraph/build/src/benchmark/bfs_demo").is_file(),
                   "gap_bfs_present": pathlib.Path("external/gapbs/bfs").is_file(),
+                  "velographx_public_benchmark_present": pathlib.Path("build/velographx_public_dataset_benchmark").is_file(),
               },
               "claim_gate": {
                   "publication_ready": False,
-                  "allowed_claim": "Hosted-CI native build/readiness and same-runner engineering timing only; no publication-grade timing claim."
+                  "allowed_claim": "Hosted-CI engineering timing only; no publication-grade timing claim."
               }
           }
           assert all(payload["builds"].values())
           pathlib.Path("artifacts/native/native-build.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
           PY
 
-      - name: Validate hosted claim gate
+      - name: Validate hosted Tier A claim and correctness gates
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
           r = json.loads(Path('artifacts/native/hosted-native-measurements.json').read_text())
+          assert r['schema_version'] == 3
           assert r['research_claim'] is False
           assert r['publication_grade'] is False
-          assert r['normalized_cross_engine_claim'] is False
+          assert r['normalized_cross_engine_claim'] is True
           assert r['claim_gate']['publication_ready'] is False
           assert r['correctness_gate']['passed'] is True
+          assert r['correctness_gate']['velographx_reachable_all_vertices_all_trials'] is True
           assert r['correctness_gate']['gap_all_trials_verified'] is True
           assert r['correctness_gate']['lagraph_self_check_present_all_threads'] is True
-          assert r['correctness_gate']['same_source_cross_engine_proven'] is False
+          assert r['correctness_gate']['same_source_velographx_gap_proven'] is True
+          assert r['correctness_gate']['same_source_lagraph_proven'] is False
+          assert [x['threads'] for x in r['velographx_bfs']] == [1,2,4]
           assert [x['threads'] for x in r['gap_bfs']] == [1,2,4]
-          assert [x['threads'] for x in r['lagraph_bfs']] == [1,2,4]
+          assert [x['threads'] for x in r['lagraph_graphblas_bfs']] == [1,2,4]
+          assert all(x['repeat'] == 5 for x in r['velographx_bfs'])
+          assert all(x['repeat'] == 5 for x in r['gap_bfs'])
+          assert len(r['paired_velographx_gap']) == 3
           PY
 
       - name: Upload hosted native evidence
