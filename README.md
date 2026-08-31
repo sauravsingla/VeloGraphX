@@ -4,130 +4,85 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 
-**VeloGraphX is a CPU-native C++20 research engine for exact analytics on changing graphs.** It combines compact mutable graph storage, localized exact repair, workload-aware incremental-vs-recomputation control, and reproducible benchmarking in one system.
+**VeloGraphX is a CPU-native C++20 research engine for exact analytics on changing graphs.** It combines compact mutable graph storage, localized exact repair, adaptive incremental-vs-full recomputation, and reproducible benchmarking.
 
-## Research focus
+## Highlights
 
-VeloGraphX studies a practical systems question:
+| Result | Validated evidence |
+| --- | --- |
+| Dynamic BFS vs GAP | **2.84x–3.79x lower median kernel latency** across 1/2/4 threads on the normalized hosted-CI workload, with identical graph/source, 5 repetitions, CPU affinity, and correctness gates |
+| Dynamic BFS vs NetworKit 11.2.1 | **23.7% lower latency** on `web-Google` with identical updates, 1 thread, 5 paired repetitions, and independent full-BFS verification |
+| Exact dynamic triangles, `com-LiveJournal` | **3,228.66x**, **382.85x**, and **33.99x** faster than full recomputation at 0.01%, 0.1%, and 1% update batches |
+| Exact triangles vs GoldenCounter | **3.48x–40.95x lower latency**, with **15/15 exact matches** on the evaluated workload |
+| Large-graph exact validation | `com-Orkut`: **117,185,083 edges** and **627,584,181 initial triangles** |
+| Adaptive BFS | **100% exactness**, **3.15% mean oracle-relative regret**, **7.49 µs** mean selector cost |
 
-> **When a graph changes, when is it better to repair the current exact result incrementally, and when is full recomputation the better execution strategy?**
+These are workload-specific measurements, not universal performance claims. Publication-grade 8/16/32+ core scaling, genuine NUMA evaluation, and largest-practical-memory measurements require dedicated hardware.
 
-The project explores this question through a CPU-native architecture that couples:
+## What VeloGraphX does
 
-- compact mutable graph storage,
-- exact localized repair,
-- graph-scale-conditioned online cost estimation,
-- uncertainty-aware incremental/full selection,
-- selector-owned recomputation control, and
-- reproducible evaluation against full recomputation and external exact baselines.
-
-The contribution is the **integration and evaluation of these mechanisms as one exact dynamic-graph execution architecture**. Individual graph algorithms such as BFS, SSSP, connected components, k-core, PageRank, and triangle counting are established techniques and are not presented as new algorithms. The detailed [related-work positioning](docs/related-work-positioning.md) states the boundary against prior incremental and streaming graph systems explicitly.
-
-## Architecture
+When a graph changes, VeloGraphX decides whether to repair the existing exact result locally or recompute it from scratch.
 
 ```text
 update stream
     ↓
-compact mutable graph storage
+mutable graph storage
     ↓
-work and cost estimation
+work / cost estimation
     ↓
-localized exact repair  ↔  full recomputation
+exact localized repair  ↔  full recomputation
     ↓
 CPU execution
     ↓
 exact maintained result
 ```
 
+### Algorithms
+
+- BFS / unweighted SSSP
+- weighted SSSP
+- connected components
+- exact triangle counting
+- k-core
+- PageRank repair
+
+The graph algorithms themselves are established techniques. The research contribution is the **systems integration of mutable storage, exact dynamic repair, adaptive execution selection, CPU execution, and reproducible evaluation**.
+
+## System design
+
 | Area | Implementation |
 | --- | --- |
 | Dynamic storage | Segmented CSR, packed deltas, sparse row patches, reverse adjacency, validated consolidation |
-| Incremental analytics | BFS / unweighted SSSP, weighted SSSP, exact triangles, connected components, k-core, PageRank repair |
 | Adaptive execution | Update-density preflight, affected-work signals, graph-scale conditioning, online cost estimates, uncertainty-aware selection |
 | CPU execution | SIMD intersections, multicore scheduling, push/pull frontiers, work stealing, NUMA-aware policies |
 | Interoperability | C++20, pybind11, NumPy, SciPy CSR, Apache Arrow |
 | Reproducibility | Checksum-pinned datasets, pinned baselines, exactness gates, environment capture, retained artifacts |
 
-## Validated experimental evidence
+## Selected validated results
 
-Measurements below use reproducible benchmark contracts and independent exactness checks.
+### Dynamic BFS vs GAP
 
-### Representative-family benchmark contract
+A hosted-CI benchmark runs VeloGraphX and GAP on the **same generated graph, same BFS source, same runner, same CPU affinity, and five repetitions per thread count**. Every measured run passes correctness verification.
 
-Following external benchmark-design feedback, the publication contract now requires scale-free web/social graphs, road networks, and parameterized Graph500-style Kronecker/R-MAT workloads. The public benchmark reports **steady-state/kernel time separately from preprocessing-inclusive end-to-end time**, starting from a neutral edge-list boundary. This avoids presenting a fast kernel measurement as total system cost.
+| Threads | VeloGraphX median | GAP median | Lower latency |
+| ---: | ---: | ---: | ---: |
+| 1 | **0.058 ms** | 0.180 ms | **3.10x** |
+| 2 | **0.058 ms** | 0.220 ms | **3.79x** |
+| 4 | **0.074 ms** | 0.210 ms | **2.84x** |
 
-A reproducible GitHub Actions run (`33355564089`, artifact `9745019076`) exercised a real SNAP `roadNet-CA` graph and a deterministic scale-16, edge-factor-16 Kronecker workload. The runner was Ubuntu 24.04 with 4 available AMD EPYC 7763 logical CPUs and 15 GiB RAM. These are representative-family methodology measurements, not dedicated-hardware scalability claims.
+The workload is intentionally small (4,096 vertices, 16,384 edges), so this result demonstrates a correctness-gated normalized comparison rather than large-scale multicore scalability.
 
-#### `roadNet-CA`
-
-The preparation step verified **1,965,206 source vertices**, **5,533,214 source edge rows**, and **2,766,607 undirected roads**, with source and normalized SHA-256 provenance retained.
-
-| Operation | Kernel / steady-state | End-to-end incl. load/conversion |
-| --- | ---: | ---: |
-| BFS | **69.801 ms** | **2.035 s** |
-| Connected components | **69.059 ms** | **2.034 s** |
-| Triangle counting | **62.417 ms** | **2.028 s** |
-| PageRank | **2.671 s** | **4.636 s** |
-
-The run reported **1,957,027 BFS-reachable vertices**, **8,713 components**, **120,676 triangles**, and PageRank sum **1.0**. Graph ingestion/conversion took **1.965 s**.
-
-#### Graph500-style Kronecker / R-MAT
-
-The deterministic workload used scale **16**, edge factor **16**, seed **1**, and initiator probabilities **A=0.57, B=0.19, C=0.19, D=0.05**, generating **1,048,576 raw edge tuples**. Generation parameters and SHA-256 are retained with the result.
-
-| Operation | Kernel / steady-state | End-to-end incl. load/conversion |
-| --- | ---: | ---: |
-| BFS | **2.714 ms** | **431.237 ms** |
-| Connected components | **2.914 ms** | **431.437 ms** |
-| Triangle counting | **1.975 s** | **2.404 s** |
-| PageRank | **83.757 ms** | **512.280 ms** |
-
-The run reported **46,822 BFS-reachable vertices**, **18,653 components**, **15,608,870 triangles**, and PageRank sum **1.0**. Graph ingestion/conversion took **428.523 ms**.
-
-These measurements demonstrate the benchmark contract and timing boundaries. They should not be interpreted as the largest graph VeloGraphX can hold: the publication-grade largest-practical in-memory boundary still requires execution on a dedicated machine. The repository includes an automated capacity sweep and dedicated self-hosted workflow for that experiment.
+Run `33360607334`; retained artifact `9746891819`.
 
 ### Dynamic BFS vs NetworKit
 
-A native C++ comparison with NetworKit 11.2.1 uses the same hosted runner, one thread, identical update streams, five paired repetitions, and independent full-BFS verification after every batch.
+On `web-Google`, a native C++ comparison with NetworKit 11.2.1 uses one thread, identical update streams, five paired repetitions, and independent full-BFS verification after every batch.
 
-On `web-Google`:
+| VeloGraphX | NetworKit | Result |
+| ---: | ---: | ---: |
+| **31.512 ms** | 41.293 ms | **23.7% lower latency** |
 
-| VeloGraphX | NetworKit | VX/NK | Difference |
-| ---: | ---: | ---: | ---: |
-| **31.512 ms** | 41.293 ms | **0.764x** | **23.7% lower latency** |
-
-The canonical run completed with exact results in all paired repetitions. Multi-root validation also produced exact maintained BFS results across three deterministic `web-Google` roots and three `ca-GrQc` roots.
-
-Canonical run: `33301190847`, artifact `9729078197`.
-
-### Adaptive BFS policy
-
-A development-suite evaluation across checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` workloads compares the workload-aware selector with the best measured execution policy while including selector feature cost in adaptive timing.
-
-| Metric | Result |
-| --- | ---: |
-| Exactness | **100%** |
-| Mean oracle-relative regret | **3.15%** |
-| p95 batch regret | **19.78%** |
-| Worst-regime regret | **18.25%** |
-| Mean selector decision cost | **7.49 µs** |
-
-All pre-specified development acceptance criteria were satisfied: exactness = 100%, mean regret ≤ 5%, p95 batch regret ≤ 20%, and worst-regime regret ≤ 25%.
-
-The evaluated selector combines graph-scale conditioning, online cost estimation, uncertainty-aware decisions, and selector-owned large-graph repair/recompute control. These figures are **development-suite adaptive-policy results** and are reported separately from external-baseline measurements. The [ablation study](docs/ablation-study.md) separates direct A/B evidence, historical mechanism evidence, and the publication-grade component-ablation contract.
-
-### Incremental vs recomputation crossover
-
-The benchmark suite directly compares four execution strategies:
-
-- always incremental,
-- always full recomputation,
-- a fixed update threshold, and
-- workload-aware adaptive execution.
-
-A controlled campaign covered **3 checksum-pinned graph families × 3 roots × 3 update regimes × 5 repetitions**. All policy outputs passed independent full-BFS verification.
-
-The measurements show clear crossover behavior: the most efficient strategy changes with graph structure, root state, and update intensity. The benchmark records per-batch latency, affected work, recomputation decisions, oracle-relative regret, and crossover points.
+Run `33301190847`; artifact `9729078197`.
 
 ### Exact dynamic triangles
 
@@ -139,29 +94,53 @@ On `com-LiveJournal` with approximately **34.7 million base edges**:
 | 0.1% | 34.709 ms | 13.288 s | **382.85x** |
 | 1% | 415.377 ms | 14.119 s | **33.99x** |
 
-Exact large-graph validation also completed on `com-Orkut` with **117,185,083 edges** and **627,584,181 initial triangles**.
+Large-graph exact validation also completed on `com-Orkut` with **117,185,083 edges** and **627,584,181 initial triangles**.
 
-Against the pinned exact `GoldenCounter` component from the public SIGMOD 2021 source, **15/15 measured results matched exactly**, with **3.48x–40.95x lower latency** on the evaluated workload.
+Against the pinned exact `GoldenCounter` component from the public SIGMOD 2021 source, **15/15 results matched exactly**, with **3.48x–40.95x lower latency** on the evaluated workload.
 
-## Correctness
+### Adaptive BFS
 
-VeloGraphX uses differential and independent-reference validation throughout its test and benchmark infrastructure. CI covers Ubuntu and macOS builds, Linux ASan/UBSan, dynamic graph mutation and storage consistency, incremental-vs-full differential correctness, SIMD/scalar agreement, scheduler and NUMA behavior, Python interoperability, dataset provenance, and benchmark contracts.
+The development suite uses checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` workloads and includes selector decision cost in adaptive timing.
 
-## Reproducibility
+| Metric | Result |
+| --- | ---: |
+| Exactness | **100%** |
+| Mean oracle-relative regret | **3.15%** |
+| p95 batch regret | **19.78%** |
+| Worst-regime regret | **18.25%** |
+| Mean selector cost | **7.49 µs** |
 
-Experiments use checksum-pinned public datasets, immutable baseline revisions, explicit thread settings, exactness gates, environment capture, and retained GitHub Actions artifacts.
+A controlled crossover campaign covers **3 graph families × 3 roots × 3 update regimes × 5 repetitions**, with independent full-BFS verification.
 
-| Resource | Purpose |
-| --- | --- |
-| [Related-work positioning](docs/related-work-positioning.md) | Prior systems, overlap, and defensible contribution boundary |
-| [Ablation study](docs/ablation-study.md) | Mechanism evidence and publication-grade ablation contract |
-| [External dynamic baselines](docs/external-dynamic-baselines.md) | Competitor methodology and evidence |
-| [CI-scale evidence](docs/ci-scale-evidence.md) | Reproducible CI measurements |
-| [Published exact baseline](docs/same-run-published-baseline.md) | Exact published-reference comparison |
-| [Storage evidence](docs/storage-ab-evidence.md) | Storage A/B experiments |
-| [Benchmark methodology](docs/benchmark-methodology.md) | Measurement contract |
-| [External baseline timing contract](docs/external-baseline-timing-contract.md) | Symmetric end-to-end timing ledger |
-| [Current limitations](docs/limitations.md) | Detailed research scope |
+### Public benchmark contract
+
+VeloGraphX also maintains reproducible scale-free, road-network, and Graph500-style Kronecker/R-MAT benchmark paths. Kernel time is reported separately from preprocessing-inclusive end-to-end time.
+
+A retained hosted run on SNAP `roadNet-CA` verified **1,965,206 source vertices**, **2,766,607 undirected roads**, and produced:
+
+| Operation | Kernel | End-to-end |
+| --- | ---: | ---: |
+| BFS | **69.801 ms** | 2.035 s |
+| Connected components | **69.059 ms** | 2.034 s |
+| Triangle counting | **62.417 ms** | 2.028 s |
+| PageRank | **2.671 s** | 4.636 s |
+
+Run `33355564089`; artifact `9745019076`.
+
+## Correctness and reproducibility
+
+CI covers Ubuntu and macOS builds, Linux ASan/UBSan, graph mutation/storage consistency, incremental-vs-full differential testing, SIMD/scalar agreement, Python interoperability, dataset provenance, benchmark contracts, and independent reference checks.
+
+Experiments use checksum-pinned datasets, immutable baseline revisions, explicit thread settings, repeated measurements, exactness gates, environment capture, and retained GitHub Actions artifacts.
+
+Key methodology documents:
+
+- [Benchmark methodology](docs/benchmark-methodology.md)
+- [External dynamic baselines](docs/external-dynamic-baselines.md)
+- [External baseline timing contract](docs/external-baseline-timing-contract.md)
+- [Ablation study](docs/ablation-study.md)
+- [Related-work positioning](docs/related-work-positioning.md)
+- [Current limitations](docs/limitations.md)
 
 ## Quick start
 
