@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "purpose": "Publication benchmark contract derived from external feedback on dataset representativeness, scalability and timing transparency.",
+  "dataset_families": [
+    {
+      "family": "scale-free-web",
+      "required": true,
+      "examples": ["web-Google"],
+      "rationale": "Common graph-systems workload with skewed degree distribution."
+    },
+    {
+      "family": "scale-free-social",
+      "required": true,
+      "examples": ["soc-Epinions1", "com-LiveJournal", "com-Orkut"],
+      "rationale": "Adds skewed social/community structure at multiple scales."
+    },
+    {
+      "family": "road-network",
+      "required": true,
+      "examples": ["roadNet-CA"],
+      "reference_url": "https://snap.stanford.edu/data/roadNet-CA.html",
+      "expected_vertices": 1965206,
+      "expected_undirected_edges": 2766607,
+      "rationale": "Low-degree, high-diameter graph family that counterbalances scale-free workloads."
+    },
+    {
+      "family": "kronecker-scalability",
+      "required": true,
+      "generator": "Graph500-style Kronecker/R-MAT",
+      "parameters": {
+        "A": 0.57,
+        "B": 0.19,
+        "C": 0.19,
+        "D": 0.05,
+        "edgefactor": 16,
+        "scales": [16, 18, 20, 22, 24, 26],
+        "seed_policy": "fixed and recorded per run"
+      },
+      "rationale": "Controlled strong-scaling and memory-capacity study with fully published generation parameters."
+    }
+  ],
+  "largest_practical_in_memory": {
+    "required": true,
+    "selection_rule": "On each benchmark machine, run the largest configured graph that completes without swapping or OOM and record peak RSS, RAM, NUMA topology and the next attempted scale when available.",
+    "out_of_memory_scope": "If larger-than-memory experiments are attempted, label them separately; never mix them with in-memory results."
+  },
+  "timing_contract": {
+    "standard_input_boundary": "Timing begins when a non-system-specific standard graph representation (edge list, COO or CSR) is available in memory or handed to the process.",
+    "end_to_end_includes": [
+      "graph ingestion",
+      "representation conversion",
+      "preprocessing/index construction",
+      "initial algorithm state construction when required",
+      "update application",
+      "incremental repair or recomputation",
+      "required synchronization"
+    ],
+    "validation": "Correctness/checksum validation is reported separately from performance timing unless a benchmark explicitly defines it as part of answer-ready latency.",
+    "steady_state": "Kernel-only or steady-state timings may also be reported, but must be labelled separately and may not replace end-to-end results."
+  },
+  "external_comparison_rule": "The same input boundary and inclusion/exclusion rules apply to VeloGraphX and every external baseline. Any unavoidable mismatch must be disclosed adjacent to the result.",
+  "artifact_requirements": [
+    "dataset identity and checksum",
+    "generator parameters and seed for synthetic graphs",
+    "software revisions",
+    "compiler and flags",
+    "CPU/RAM/NUMA topology",
+    "thread count and affinity",
+    "timing boundary metadata",
+    "peak memory where available",
+    "exactness/checksum result"
+  ]
+}
