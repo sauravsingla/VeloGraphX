@@ -23,7 +23,9 @@ int main(int argc, char** argv) {
       : 0;
   using clock = std::chrono::steady_clock;
 
-  const auto load_begin = clock::now();
+  // End-to-end timing begins when a standard, non-preprocessed edge list is
+  // handed to VeloGraphX. Kernel-only timing begins after graph construction.
+  const auto input_begin = clock::now();
   const auto graph = velographx::load_edge_list(dataset, false);
   const auto load_end = clock::now();
 
@@ -52,13 +54,28 @@ int main(int argc, char** argv) {
   const auto us = [](auto begin, auto end) {
     return std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
   };
+  const auto load_us = us(input_begin, load_end);
+
+  // Each end-to-end value is deliberately expressed as load/conversion plus
+  // that kernel's own execution time. This prevents a fast internal layout
+  // conversion from being hidden when comparing systems, while preserving a
+  // separate steady-state number for kernel-focused analysis.
+  const auto bfs_us = us(bfs_begin, bfs_end);
+  const auto components_us = us(cc_begin, cc_end);
+  const auto triangle_us = us(triangle_begin, triangle_end);
+  const auto pagerank_us = us(pagerank_begin, pagerank_end);
 
   std::cout
-      << "dataset,source,vertices,edge_entries,load_us,bfs_us,reachable_vertices,components_us,component_count,triangle_us,triangles,pagerank_us,pagerank_sum\n"
-      << dataset.string() << ',' << source << ',' << graph.vertex_count() << ',' << graph.edge_entry_count() << ','
-      << us(load_begin, load_end) << ',' << us(bfs_begin, bfs_end) << ',' << reachable << ','
-      << us(cc_begin, cc_end) << ',' << component_count << ','
-      << us(triangle_begin, triangle_end) << ',' << triangles << ','
-      << us(pagerank_begin, pagerank_end) << ',' << rank_sum << '\n';
+      << "dataset,source,input_contract,vertices,edge_entries,load_us,"
+         "bfs_us,bfs_end_to_end_us,reachable_vertices,"
+         "components_us,components_end_to_end_us,component_count,"
+         "triangle_us,triangle_end_to_end_us,triangles,"
+         "pagerank_us,pagerank_end_to_end_us,pagerank_sum\n"
+      << dataset.string() << ',' << source << ",edge-list," << graph.vertex_count() << ','
+      << graph.edge_entry_count() << ',' << load_us << ','
+      << bfs_us << ',' << (load_us + bfs_us) << ',' << reachable << ','
+      << components_us << ',' << (load_us + components_us) << ',' << component_count << ','
+      << triangle_us << ',' << (load_us + triangle_us) << ',' << triangles << ','
+      << pagerank_us << ',' << (load_us + pagerank_us) << ',' << rank_sum << '\n';
   return 0;
 }
