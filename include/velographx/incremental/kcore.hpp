@@ -6,21 +6,18 @@
 #include <queue>
 #include <vector>
 
+#include "velographx/graph_access.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
 
 namespace velographx {
 
-class IncrementalKCore {
+template <class Graph>
+class BasicIncrementalKCore {
  public:
-  explicit IncrementalKCore(DynamicGraph& g) : g_(g) { recompute(); }
+  explicit BasicIncrementalKCore(Graph& g) : g_(g) { recompute(); }
 
-  [[nodiscard]] const std::vector<std::uint32_t>& core() const noexcept {
-    return core_;
-  }
-
-  [[nodiscard]] std::size_t last_repaired_vertices() const noexcept {
-    return last_repaired_vertices_;
-  }
+  [[nodiscard]] const std::vector<std::uint32_t>& core() const noexcept { return core_; }
+  [[nodiscard]] std::size_t last_repaired_vertices() const noexcept { return last_repaired_vertices_; }
 
   void apply(const UpdateBatch& batch) {
     if (batch.updates.empty()) {
@@ -28,39 +25,32 @@ class IncrementalKCore {
       return;
     }
 
-    // The current k-core definition is based on the graph's adjacency lists.
-    // For directed graphs, component-scoped repair is not sufficient to bound
-    // all dependency effects, so retain the safe full recomputation fallback.
-    if (g_.directed()) {
-      g_.apply(batch);
+    if (is_directed(g_)) {
+      apply_updates(g_, batch);
       recompute();
       return;
     }
 
-    // Capture all pre-update components touched by update endpoints. Deletions
-    // can split these components, while insertions can later merge them.
-    std::vector<std::uint8_t> affected(g_.vertex_count(), 0);
+    std::vector<std::uint8_t> affected(vertex_count(g_), 0);
     for (const auto& e : batch.updates) {
-      if (e.src < g_.vertex_count()) mark_component(e.src, affected);
-      if (e.dst < g_.vertex_count()) mark_component(e.dst, affected);
+      if (e.src < vertex_count(g_)) mark_component(e.src, affected);
+      if (e.dst < vertex_count(g_)) mark_component(e.dst, affected);
     }
 
-    g_.apply(batch);
-    if (core_.size() < g_.vertex_count()) core_.resize(g_.vertex_count(), 0);
-    affected.resize(g_.vertex_count(), 0);
+    apply_updates(g_, batch);
+    if (core_.size() < vertex_count(g_)) core_.resize(vertex_count(g_), 0);
+    affected.resize(vertex_count(g_), 0);
 
-    // Capture post-update components as well. This includes any components
-    // merged by insertions and all pieces created by deletions.
     for (const auto& e : batch.updates) {
-      if (e.src < g_.vertex_count()) mark_component(e.src, affected);
-      if (e.dst < g_.vertex_count()) mark_component(e.dst, affected);
+      if (e.src < vertex_count(g_)) mark_component(e.src, affected);
+      if (e.dst < vertex_count(g_)) mark_component(e.dst, affected);
     }
 
     recompute_region(affected);
   }
 
   void recompute() {
-    const auto n = g_.vertex_count();
+    const auto n = vertex_count(g_);
     core_.assign(n, 0);
     std::vector<std::uint8_t> all(n, 1);
     recompute_region(all);
@@ -68,24 +58,24 @@ class IncrementalKCore {
 
  private:
   void mark_component(VertexId seed, std::vector<std::uint8_t>& marked) const {
-    if (seed >= g_.vertex_count() || seed >= marked.size() || marked[seed]) return;
+    if (seed >= vertex_count(g_) || seed >= marked.size() || marked[seed]) return;
     std::queue<VertexId> q;
     marked[seed] = 1;
     q.push(seed);
     while (!q.empty()) {
       const auto u = q.front();
       q.pop();
-      for (auto v : g_.neighbors(u)) {
+      for_each_neighbor(g_, u, [&](VertexId v) {
         if (v < marked.size() && !marked[v]) {
           marked[v] = 1;
           q.push(v);
         }
-      }
+      });
     }
   }
 
   void recompute_region(const std::vector<std::uint8_t>& affected) {
-    const auto n = g_.vertex_count();
+    const auto n = vertex_count(g_);
     if (core_.size() < n) core_.resize(n, 0);
 
     std::vector<std::uint32_t> degree(n, 0);
@@ -95,9 +85,9 @@ class IncrementalKCore {
     for (VertexId u = 0; u < n; ++u) {
       if (u >= affected.size() || !affected[u]) continue;
       ++last_repaired_vertices_;
-      for (auto v : g_.neighbors(u)) {
+      for_each_neighbor(g_, u, [&](VertexId v) {
         if (v < affected.size() && affected[v]) ++degree[u];
-      }
+      });
       max_degree = std::max(max_degree, degree[u]);
       core_[u] = 0;
     }
@@ -121,20 +111,22 @@ class IncrementalKCore {
         if (removed[u]) continue;
         removed[u] = 1;
         core_[u] = k;
-        for (auto v : g_.neighbors(u)) {
-          if (v >= affected.size() || !affected[v] || removed[v]) continue;
+        for_each_neighbor(g_, u, [&](VertexId v) {
+          if (v >= affected.size() || !affected[v] || removed[v]) return;
           if (degree[v] > k) {
             --degree[v];
             if (degree[v] <= k) q.push(v);
           }
-        }
+        });
       }
     }
   }
 
-  DynamicGraph& g_;
+  Graph& g_;
   std::vector<std::uint32_t> core_;
   std::size_t last_repaired_vertices_{0};
 };
+
+using IncrementalKCore = BasicIncrementalKCore<DynamicGraph>;
 
 }  // namespace velographx
