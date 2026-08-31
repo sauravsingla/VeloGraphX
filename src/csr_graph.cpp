@@ -20,15 +20,22 @@ CsrGraph::CsrGraph(std::vector<Edge> edges, bool directed) : directed_(directed)
   expanded.erase(std::unique(expanded.begin(), expanded.end()), expanded.end());
 
   offsets_.assign(vertex_count_ + 1, 0);
+  in_offsets_.assign(vertex_count_ + 1, 0);
   for (const auto& [u, v] : expanded) {
-    (void)v;
     ++offsets_[static_cast<std::size_t>(u) + 1];
+    ++in_offsets_[static_cast<std::size_t>(v) + 1];
   }
   for (std::size_t i = 1; i < offsets_.size(); ++i) offsets_[i] += offsets_[i - 1];
+  for (std::size_t i = 1; i < in_offsets_.size(); ++i) in_offsets_[i] += in_offsets_[i - 1];
 
   neighbors_.resize(expanded.size());
+  in_neighbors_.resize(expanded.size());
   auto cursor = offsets_;
-  for (const auto& [u, v] : expanded) neighbors_[cursor[u]++] = v;
+  auto in_cursor = in_offsets_;
+  for (const auto& [u, v] : expanded) {
+    neighbors_[cursor[u]++] = v;
+    in_neighbors_[in_cursor[v]++] = u;
+  }
 }
 
 std::span<const VertexId> CsrGraph::neighbors(VertexId v) const {
@@ -38,6 +45,19 @@ std::span<const VertexId> CsrGraph::neighbors(VertexId v) const {
   return {neighbors_.data() + begin, static_cast<std::size_t>(end - begin)};
 }
 
+std::span<const VertexId> CsrGraph::in_neighbors(VertexId v) const {
+  if (v >= vertex_count_) throw std::out_of_range("vertex id outside graph");
+  const auto begin = in_offsets_[v];
+  const auto end = in_offsets_[static_cast<std::size_t>(v) + 1];
+  return {in_neighbors_.data() + begin, static_cast<std::size_t>(end - begin)};
+}
+
 std::size_t CsrGraph::degree(VertexId v) const { return neighbors(v).size(); }
+
+bool CsrGraph::has_edge(VertexId u, VertexId v) const {
+  if (u >= vertex_count_ || v >= vertex_count_) return false;
+  const auto row = neighbors(u);
+  return std::binary_search(row.begin(), row.end(), v);
+}
 
 }
