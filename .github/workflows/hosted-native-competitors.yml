@@ -69,7 +69,7 @@ jobs:
       - name: Build VeloGraphX benchmarks and correctness tests
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
-          cmake --build build --parallel 2
+          cmake --build build --parallel 4
           ctest --test-dir build --output-on-failure
           test -x build/velographx_benchmark
           test -x build/velographx_public_dataset_benchmark
@@ -79,7 +79,7 @@ jobs:
           cmake -S external/GraphBLAS -B external/GraphBLAS/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/external/install"
-          cmake --build external/GraphBLAS/build --parallel 2
+          cmake --build external/GraphBLAS/build --parallel 4
           cmake --install external/GraphBLAS/build
 
       - name: Enable LAGraph benchmark self-check
@@ -101,13 +101,13 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$PWD/external/install" \
             -DCMAKE_INSTALL_PREFIX="$PWD/external/install"
-          cmake --build external/LAGraph/build --parallel 2
+          cmake --build external/LAGraph/build --parallel 4
           cmake --install external/LAGraph/build
           test -x external/LAGraph/build/src/benchmark/bfs_demo
 
       - name: Build GAP Benchmark Suite BFS
         run: |
-          make -C external/gapbs bfs -j2
+          make -C external/gapbs bfs -j4
           test -x external/gapbs/bfs
 
       - name: Execute same-runner 1/2/4-thread hosted measurements
