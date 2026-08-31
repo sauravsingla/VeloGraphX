@@ -18,17 +18,11 @@ class BasicIncrementalTriangleCount {
 
   void apply(const UpdateBatch& batch) {
     if (batch.empty()) return;
-
-    // Apply operations sequentially so later operations observe earlier ones,
-    // but do not reach into storage-private state. This makes the algorithm
-    // usable by any mutable graph backend implementing the UpdateBatch surface.
     for (const auto& op : batch.updates) {
       const bool exists = has_edge(graph_, op.src, op.dst);
       const auto common = common_neighbors(op.src, op.dst);
-
       if (op.add && !exists) triangles_ += common;
       if (!op.add && exists) triangles_ -= std::min<std::uint64_t>(triangles_, common);
-
       UpdateBatch one;
       one.updates.push_back(op);
       apply_updates(graph_, one);
@@ -61,6 +55,11 @@ class BasicIncrementalTriangleCount {
   std::uint64_t triangles_{0};
 };
 
-using IncrementalTriangleCount = BasicIncrementalTriangleCount<DynamicGraph>;
+// DynamicGraph forward-declares this name for historical friend compatibility,
+// so keep it as a real class while delegating all behavior to the generic core.
+class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGraph> {
+ public:
+  using BasicIncrementalTriangleCount<DynamicGraph>::BasicIncrementalTriangleCount;
+};
 
 } // namespace velographx
