@@ -4,35 +4,27 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 
-**VeloGraphX is a CPU-native C++20 research engine for exact analytics on changing graphs.** It combines mutable graph storage, exact localized repair, adaptive incremental-vs-full recomputation, storage-independent algorithm implementations, and reproducible benchmarking.
+**VeloGraphX is a CPU-native C++20 research engine for exact analytics on changing graphs.** It combines mutable graph storage, localized exact repair, and workload-aware incremental-vs-full recomputation.
 
-## Why VeloGraphX
+## Research focus
 
-Dynamic graph systems must balance two costs after updates: repairing an existing result or recomputing it from scratch. VeloGraphX provides both paths and uses workload signals to choose between them while preserving exactness.
+VeloGraphX does not claim novelty for BFS, SSSP, connected components, triangle counting, k-core, PageRank, or incremental graph processing individually. Its research focus is the **system-level coupling of mutable storage, exact localized repair, affected-work/cost signals, and adaptive repair-vs-recompute selection**.
+
+The runtime can choose recomputation before excessive repair work is incurred, avoiding a repair-then-recompute penalty when an update batch crosses the incremental crossover region.
 
 ```text
-update stream
-    ↓
-mutable graph storage
-    ↓
-work / cost estimation
-    ↓
-exact localized repair  ↔  full recomputation
-    ↓
-CPU execution
-    ↓
-exact maintained result
+updates → mutable graph → work/cost estimation
+        → localized exact repair  ↔  full recomputation
+        → exact maintained result
 ```
 
-The project focuses on the systems integration of mutable storage, exact dynamic algorithms, adaptive execution, CPU-oriented implementation, and reproducible evaluation.
+## Validated results
 
-## Current validated results
+Results below are retained GitHub Actions measurements from 31 August 2026. They are workload-specific engineering evidence, not publication-grade hardware claims.
 
-The results below come from retained GitHub Actions artifacts produced on 31 August 2026. They are workload-specific engineering measurements, not universal or publication-grade performance claims.
+### GAP + LAGraph comparison
 
-### Native BFS and SSSP vs GAP and LAGraph
-
-Following external methodology guidance from Prof. Timothy A. Davis, VeloGraphX is compared on the same hosted Linux runner with both the GAP Benchmark Suite and LAGraph/SuiteSparse:GraphBLAS. The campaign pins LAGraph `v1.3.x` to an immutable revision, uses SuiteSparse:GraphBLAS `v10.5.0`, builds GAP BFS and SSSP, applies `OMP_PLACES=cores` and `OMP_PROC_BIND=spread`, uses the same source vertex, and retains five repetitions per configuration.
+Five repetitions per configuration, same hosted Linux runner, same source vertex, correctness checks enabled, `OMP_PLACES=cores`, `OMP_PROC_BIND=spread`.
 
 | Algorithm | Threads | VeloGraphX | GAP | LAGraph |
 | --- | ---: | ---: | ---: | ---: |
@@ -43,95 +35,54 @@ Following external methodology guidance from Prof. Timothy A. Davis, VeloGraphX 
 | SSSP | 2 | 8.587 ms | **1.190 ms** | 23.600 ms |
 | SSSP | 4 | 9.003 ms | **1.290 ms** | 27.100 ms |
 
-On this workload, VeloGraphX was fastest for BFS at every tested thread count, while GAP was substantially faster for SSSP. VeloGraphX was faster than LAGraph for both algorithms. GAP verification, LAGraph self-checks, and VeloGraphX exactness checks passed for every measured configuration.
+VeloGraphX was fastest for BFS on this workload; GAP was substantially faster for SSSP; VeloGraphX was faster than LAGraph for both. All measured configurations passed correctness checks.
 
-The same campaign also measured dynamic crossover using deterministic addition batches. For BFS, VeloGraphX incremental repair was faster than its own full recomputation at 0.1% and 1% update fractions, while full recomputation became faster at 5% updates. For weighted SSSP, VeloGraphX incremental repair remained faster than its own full recomputation across 0.1%, 1%, and 5% updates, although GAP full recomputation was faster on this workload.
-
-GitHub Actions run `33418520303`; retained artifact `9768499895`. See [Hosted native competitor methodology](docs/hosted-native-competitors.md).
-
-### Dynamic BFS vs NetworKit 11.2.1
-
-A native C++ comparison on `web-Google` uses one thread, identical update streams, five paired repetitions, and independent full-BFS verification after every batch.
-
-| System | Mean batch latency |
-| --- | ---: |
-| **VeloGraphX** | **36.328 ms** |
-| NetworKit 11.2.1 | 45.740 ms |
-
-VeloGraphX delivered approximately **20.6% lower mean batch latency** in this five-run comparison, with all repetitions exact.
-
-GitHub Actions run `33301190847`; retained artifact `9766977170`.
+Dynamic BFS also showed the intended crossover: incremental repair beat VeloGraphX full recomputation at **0.1% and 1%** updates, while full recomputation became faster at **5%**. See [hosted native methodology](docs/hosted-native-competitors.md). Run `33418520303`, artifact `9768499895`.
 
 ### Adaptive BFS policy
 
-The current multi-root validation uses checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` datasets with **3 graph families × 3 roots × 3 update regimes × 5 repetitions**.
+Checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google`; 3 roots × 3 update regimes × 5 repetitions.
 
 | Metric | Result |
 | --- | ---: |
 | Exactness | **100%** |
 | Adaptive regime wins | **19 / 27** |
-| Mean relative to regime-best policy | **1.0274x** |
+| Mean relative to regime-best | **1.0274x** |
 | Mean overhead from regime-best | **~2.74%** |
 
-Exactness is a hard workflow invariant. Timing thresholds on shared GitHub-hosted runners are retained as benchmark evidence rather than treated as deterministic correctness gates.
+Run `33410705480`, artifact `9767029881`.
 
-GitHub Actions run `33410705480`; retained artifact `9767029881`.
+### Dynamic BFS vs NetworKit 11.2.1
 
-### SNAP roadNet-CA
+On `web-Google`, one thread, identical update streams, five paired repetitions, independent full-BFS verification:
 
-The public benchmark contract verifies **1,965,206 source vertices** and **2,766,607 undirected roads** before measurement.
+| VeloGraphX | NetworKit |
+| ---: | ---: |
+| **36.328 ms** | 45.740 ms |
 
-| Operation | Kernel time |
-| --- | ---: |
-| BFS | **52.848 ms** |
-| Connected components | **50.538 ms** |
-| Triangle counting | **54.537 ms** |
-| PageRank | **2.043 s** |
+Run `33301190847`, artifact `9766977170`.
 
-GitHub Actions run `33355564089`; retained artifact `9766755354`.
+## Capabilities
 
-## Algorithms
-
-- BFS / unweighted SSSP
-- weighted SSSP
-- connected components
-- exact triangle counting
-- k-core
-- PageRank
-
-## Architecture
-
-| Area | Implementation |
-| --- | --- |
-| Dynamic storage | Segmented CSR, packed deltas, sparse row patches, reverse adjacency, validated consolidation |
-| Algorithm/storage separation | C++20 graph-access contract with reusable `BasicIncremental*<Graph>` implementations |
-| Read-optimized backend | Forward and reverse `CsrGraph` representation for storage-independent execution |
-| Adaptive execution | Update-density preflight, affected-work signals, graph-scale conditioning, online cost estimates, uncertainty-aware selection |
-| CPU execution | SIMD intersections, multicore scheduling, push/pull frontiers, work stealing, NUMA-aware policies |
-| Interoperability | C++20, pybind11, NumPy, SciPy CSR, Apache Arrow |
-| Reproducibility | Checksum-pinned datasets, immutable baseline revisions, exactness gates, environment capture, retained artifacts |
-
-### Storage-independent algorithm layer
-
-Core incremental implementations are templated on graph representation rather than hard-wired to `DynamicGraph`. Compatibility aliases preserve the existing public class names, while reusable implementations such as `BasicIncrementalBFS<Graph>`, `BasicIncrementalSSSP<Graph>`, `BasicIncrementalComponents<Graph>`, `BasicIncrementalKCore<Graph>`, `BasicIncrementalPageRank<Graph>`, and `BasicIncrementalTriangleCount<Graph>` can run over compatible graph representations.
-
-Hot traversal paths use callback/span-style adjacency access rather than materializing a `std::vector` for each vertex visit. `CsrGraph` maintains forward and reverse CSR, enabling the same algorithm implementation to run against mutable and read-optimized storage. The backend BFS benchmark gates timing output on identical distance vectors.
-
-See [Storage-independent graph algorithm contract](docs/graph-abstraction.md).
+- Exact BFS / unweighted SSSP, weighted SSSP, connected components, triangle counting, k-core, and PageRank
+- Segmented CSR, packed deltas, sparse row patches, reverse adjacency, and validated consolidation
+- Storage-independent `BasicIncremental*<Graph>` algorithm implementations
+- Adaptive exact execution using update density, affected-work signals, graph scale, online cost estimates, and uncertainty-aware selection
+- SIMD intersections, multicore scheduling, push/pull frontiers, work stealing, and NUMA-aware policies
+- C++20, pybind11, NumPy, SciPy CSR, and Apache Arrow interoperability
 
 ## Correctness and reproducibility
 
-CI covers Ubuntu and macOS builds, Linux ASan/UBSan, graph mutation and storage consistency, incremental-vs-full differential testing, SIMD/scalar agreement, Python interoperability with NumPy/SciPy/Arrow, dataset provenance, benchmark contracts, and independent reference checks.
+CI covers Ubuntu/macOS builds, Linux ASan/UBSan, mutation/storage consistency, incremental-vs-full differential testing, SIMD/scalar agreement, Python interoperability, dataset provenance, benchmark contracts, and independent reference checks.
 
-Experiments use explicit thread settings, repeated measurements, exactness gates, environment capture, immutable external revisions where applicable, and retained GitHub Actions artifacts. Hosted-runner timing is treated as reproducible engineering evidence within a recorded environment, not as a hardware-independent performance guarantee. Dedicated controlled hardware remains required for publication-grade scalability, NUMA, and hardware-counter claims.
+Experiments use pinned datasets or baseline revisions, repeated measurements, exactness gates, environment capture, and retained artifacts. Hosted CI is treated as engineering evidence; dedicated controlled hardware is still required for publication-grade scalability, NUMA, and hardware-counter claims.
 
-## Methodology and documentation
+## Documentation
 
 - [Benchmark methodology](docs/benchmark-methodology.md)
-- [Hosted native GAP/LAGraph methodology](docs/hosted-native-competitors.md)
-- [Storage-independent graph algorithm contract](docs/graph-abstraction.md)
+- [Hosted GAP/LAGraph methodology](docs/hosted-native-competitors.md)
+- [Graph abstraction](docs/graph-abstraction.md)
 - [External dynamic baselines](docs/external-dynamic-baselines.md)
-- [External baseline timing contract](docs/external-baseline-timing-contract.md)
 - [Ablation study](docs/ablation-study.md)
 - [Related-work positioning](docs/related-work-positioning.md)
 - [Current limitations](docs/limitations.md)
@@ -146,7 +97,7 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-Enable Python bindings with:
+Python bindings:
 
 ```bash
 cmake -S . -B build -DVELOGRAPHX_BUILD_PYTHON=ON
