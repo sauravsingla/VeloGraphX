@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc-10 g++-10 libtbb-dev libnuma-dev
+          sudo apt-get install -y cmake ninja-build gcc-10 g++-10 libboost-all-dev libpapi-dev libsqlite3-dev libtbb-dev libnuma-dev
 
       - name: Build VeloGraphX library and tests
         run: |
@@ -43,7 +43,7 @@ jobs:
           test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
           test -f external/sortledton/CMakeLists.txt
 
-      - name: Record and conditionally adapt legacy TBB build declarations
+      - name: Record pinned build metadata
         run: |
           mkdir -p artifacts/sortledton
           cp external/sortledton/CMakeLists.txt artifacts/sortledton/upstream-CMakeLists.txt
@@ -51,28 +51,14 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          p = Path('external/sortledton/CMakeLists.txt')
-          text = p.read_text()
-          replacements = [
-              ('find_package(TBB REQUIRED COMPONENTS tbbmalloc tbbmalloc_proxy)', 'find_package(TBB REQUIRED)'),
-              ('target_link_libraries(sortledton tbb)', 'target_link_libraries(sortledton TBB::tbb)'),
-              ('target_link_libraries(sortledton_bin tbb)', 'target_link_libraries(sortledton_bin TBB::tbb)'),
-          ]
-          applied = []
-          for old, new in replacements:
-              if old in text:
-                  text = text.replace(old, new)
-                  applied.append({'from': old, 'to': new})
-          if applied:
-              p.write_text(text)
           Path('artifacts/sortledton/build-compatibility.json').write_text(json.dumps({
-              'scope': 'build-system-only',
+              'scope': 'none',
               'sortledton_commit': '6eb638f3ad38f8a10a127e7e118528f4c8d07a6e',
               'graph_storage_source_changed': False,
-              'cmake_adjustments': applied,
+              'cmake_adjustments': [],
           }, indent=2, sort_keys=True) + '\n')
+          Path('artifacts/sortledton/sortledton-build-compat.patch').write_text('')
           PY
-          git -C external/sortledton diff -- CMakeLists.txt > artifacts/sortledton/sortledton-build-compat.patch || true
 
       - name: Build Sortledton
         run: |
@@ -81,7 +67,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-10 \
             -DCMAKE_CXX_COMPILER=g++-10 2>&1 | tee artifacts/sortledton/configure.log
-          cmake --build "$SORTLEDTON_BUILD" --parallel 2 2>&1 | tee artifacts/sortledton/build.log
+          cmake --build "$SORTLEDTON_BUILD" --target sortledton --parallel 2 2>&1 | tee artifacts/sortledton/build.log
           test -f "$SORTLEDTON_BUILD/libsortledton.a"
 
       - name: Compile same-algorithm Sortledton storage benchmark
@@ -95,7 +81,7 @@ jobs:
             benchmarks/external_sortledton_storage_bfs.cpp \
             build/libvelographx.a \
             "$SORTLEDTON_BUILD/libsortledton.a" \
-            -ltbb -ltbbmalloc -ltbbmalloc_proxy -lnuma -lpthread \
+            -ltbb -ltbbmalloc -ltbbmalloc_proxy -lnuma -lsqlite3 -lpapi -lpthread \
             -o build/velographx_external_sortledton_storage_bfs 2>&1 | tee artifacts/sortledton/adapter-compile.log
 
       - name: Run portability and incremental correctness campaign
@@ -133,10 +119,8 @@ jobs:
       - name: Record immutable provenance
         run: |
           python - <<'PY'
-          import hashlib, json, platform, subprocess
+          import json, platform, subprocess
           from pathlib import Path
-          compat = json.loads(Path('artifacts/sortledton/build-compatibility.json').read_text())
-          patch = Path('artifacts/sortledton/sortledton-build-compat.patch')
           payload = {
               'schema_version': 2,
               'artifact_type': 'velographx-sortledton-storage-adapter',
@@ -146,9 +130,8 @@ jobs:
               'backend': 'Sortledton',
               'sortledton_commit': subprocess.check_output(['git','-C','external/sortledton','rev-parse','HEAD'], text=True).strip(),
               'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
-              'build_compatibility_patch_sha256': hashlib.sha256(patch.read_bytes()).hexdigest(),
-              'build_compatibility_adjustments': compat['cmake_adjustments'],
-              'build_compatibility_scope': 'build metadata only; no Sortledton graph/storage source changes',
+              'build_compatibility_adjustments': [],
+              'build_compatibility_scope': 'none; pinned upstream source and CMake used unchanged',
               'compiler': subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
               'runner': 'github-hosted ubuntu-22.04',
