@@ -67,7 +67,7 @@ jobs:
             -lnuma -levent_pthreads -levent_core -pthread \
             -o build/velographx_external_teseo_storage_bfs
 
-      - name: Run exact storage-swap campaign
+      - name: Run recompute and incremental storage campaign
         run: |
           mkdir -p artifacts/teseo
           build/velographx_external_teseo_storage_bfs 8192 | tee artifacts/teseo/teseo-8192.json
@@ -80,14 +80,19 @@ jobs:
           from pathlib import Path
           for path in sorted(Path('artifacts/teseo').glob('teseo-*.json')):
               row = json.loads(path.read_text())
-              assert row['schema_version'] == 1
+              assert row['schema_version'] == 2
               assert row['benchmark'] == 'same-algorithm-storage-bfs'
-              assert row['algorithm'] == 'BasicIncrementalBFS::recompute'
+              assert row['algorithm'] == 'BasicIncrementalBFS'
               assert row['repetitions'] == 5
+              assert row['incremental_batches'] == 5
               assert row['exact'] is True
+              assert row['recompute_exact'] is True
+              assert row['incremental_exact'] is True
               assert row['dynamic_graph_median_us'] > 0
               assert row['csr_graph_median_us'] > 0
               assert row['teseo_median_us'] > 0
+              assert row['dynamic_incremental_median_us'] > 0
+              assert row['teseo_incremental_median_us'] > 0
           PY
 
       - name: Record immutable experiment metadata
@@ -96,17 +101,18 @@ jobs:
           import json, os, platform, subprocess
           from pathlib import Path
           payload = {
-              'schema_version': 1,
-              'artifact_type': 'velographx-teseo-storage-swap',
+              'schema_version': 2,
+              'artifact_type': 'velographx-teseo-storage-swap-and-incremental',
               'publication_grade': False,
-              'same_algorithm': 'BasicIncrementalBFS::recompute',
+              'same_algorithm': 'BasicIncrementalBFS',
               'teseo_commit': os.environ['TESEO_SHA'],
               'teseo_semantics': 'undirected simple weighted graph; unit weights; dense vertex IDs',
               'compiler': subprocess.check_output(['c++', '--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
               'runner': 'github-hosted ubuntu-22.04',
-              'timing_scope': 'five median recomputations after graph construction; input/build time excluded',
-              'claim_gate': 'engineering storage-swap evidence only; not publication-grade hardware evidence',
+              'timing_scope': 'five median recomputations plus five mixed incremental update batches; input/build time excluded',
+              'correctness_gate': 'full BFS distance vector equality after initial recompute and every incremental batch',
+              'claim_gate': 'engineering storage-independence evidence only; not publication-grade hardware evidence',
           }
           Path('artifacts/teseo/metadata.json').write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
           PY
@@ -115,6 +121,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: velographx-teseo-storage-swap
+          name: velographx-teseo-storage-swap-and-incremental
           path: artifacts/teseo
           retention-days: 30
