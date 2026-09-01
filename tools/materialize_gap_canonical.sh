@@ -109,7 +109,7 @@ cat > "$OUT/$DATASET.metadata.json" <<JSON
 }
 JSON
 
-sha256sum -c "$OUT/$DATASET.sha256" --ignore-missing
+(cd "$OUT" && sha256sum -c "$DATASET.sha256")
 python - "$OUT/$DATASET.metadata.json" "$DATASET" <<'PY'
 import json, sys
 p, dataset = sys.argv[1:]
