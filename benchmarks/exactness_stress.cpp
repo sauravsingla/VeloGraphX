@@ -204,4 +204,4 @@ int main(int argc, char** argv) {
   return total == total_operations ? 0 : 5;
 }
 
-// Validation harness intentionally deterministic; comment change retriggers the campaign.
+// Validation harness is deterministic; this comment also lets helper-only fixes retrigger the campaign.
