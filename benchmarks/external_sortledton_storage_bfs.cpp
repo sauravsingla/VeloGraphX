@@ -9,11 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "data-structure/EdgeDoesNotExistsPrecondition.h"
 #include "data-structure/TransactionManager.h"
 #include "data-structure/VersionedBlockedEdgeIterator.h"
 #include "data-structure/VersioningBlockedSkipListAdjacencyList.h"
-#include "data-structure/VertexExistsPrecondition.h"
 #include "velographx/csr_graph.hpp"
 #include "velographx/incremental/bfs.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
@@ -75,12 +73,9 @@ class Graph {
     bool completed = false;
     try {
       const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
-      VertexExistsPrecondition source_exists(edge.src);
-      VertexExistsPrecondition destination_exists(edge.dst);
-      EdgeDoesNotExistsPrecondition edge_absent(edge);
-      tx.register_precondition(&source_exists);
-      tx.register_precondition(&destination_exists);
-      tx.register_precondition(&edge_absent);
+      tx.use_vertex_does_not_exists_semantics();
+      tx.insert_vertex(edge.src);
+      tx.insert_vertex(edge.dst);
       double weight = 1.0;
       tx.insert_edge(edge, reinterpret_cast<char*>(&weight), sizeof(weight));
       tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<char*>(&weight), sizeof(weight));
