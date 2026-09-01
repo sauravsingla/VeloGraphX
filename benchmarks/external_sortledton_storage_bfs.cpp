@@ -26,6 +26,16 @@ using velographx::VertexId;
   throw std::runtime_error("Sortledton stage failed: " + stage);
 }
 
+class PinnedReadTransaction : public SnapshotTransaction {
+ public:
+  using SnapshotTransaction::SnapshotTransaction;
+
+  void pin(version_t version) {
+    clear(false);
+    read_version = version;
+  }
+};
+
 class Graph {
  public:
   Graph(std::size_t vertices, const std::vector<std::pair<VertexId, VertexId>>& edges)
@@ -49,6 +59,7 @@ class Graph {
   mutable TransactionManager manager_;
   mutable VersioningBlockedSkipListAdjacencyList storage_;
   std::uint64_t version_{0};
+  version_t storage_read_version_{NO_TRANSACTION};
   bool registered_{false};
 
   void insert_vertex(VertexId v) {
@@ -63,6 +74,7 @@ class Graph {
       bool ok = false;
       try { ok = tx.execute(); }
       catch (...) { throw_stage("insert_vertex execute v=" + std::to_string(v)); }
+      storage_read_version_ = tx.get_commit_version();
       try { manager_.transactionCompleted(tx); completed = true; }
       catch (...) { throw_stage("insert_vertex transactionCompleted v=" + std::to_string(v)); }
       if (!ok) throw std::runtime_error("Sortledton vertex insertion returned false v=" + std::to_string(v));
@@ -93,6 +105,7 @@ class Graph {
       bool ok = false;
       try { ok = tx.execute(); }
       catch (...) { throw_stage("insert_edge execute " + std::to_string(u) + "->" + std::to_string(v)); }
+      storage_read_version_ = tx.get_commit_version();
       try { manager_.transactionCompleted(tx); completed = true; }
       catch (...) { throw_stage("insert_edge transactionCompleted " + std::to_string(u) + "->" + std::to_string(v)); }
       if (!ok) throw std::runtime_error("Sortledton edge insertion returned false " + std::to_string(u) + "->" + std::to_string(v));
@@ -119,6 +132,7 @@ class Graph {
       bool ok = false;
       try { ok = tx.execute(); }
       catch (...) { throw_stage("delete_edge execute " + std::to_string(u) + "->" + std::to_string(v)); }
+      storage_read_version_ = tx.get_commit_version();
       try { manager_.transactionCompleted(tx); completed = true; }
       catch (...) { throw_stage("delete_edge transactionCompleted " + std::to_string(u) + "->" + std::to_string(v)); }
       if (!ok) throw std::runtime_error("Sortledton edge deletion returned false " + std::to_string(u) + "->" + std::to_string(v));
@@ -135,9 +149,11 @@ std::uint64_t vx_version(const Graph& graph) { return graph.version_; }
 
 template <class Fn>
 void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
-  SnapshotTransaction tx(&graph.manager_, true, &graph.storage_);
-  tx.clear(false);
-  tx.read_version = graph.manager_.get_epoch();
+  if (graph.storage_read_version_ == NO_TRANSACTION) {
+    throw_stage("neighbors missing committed read version");
+  }
+  PinnedReadTransaction tx(&graph.manager_, true, &graph.storage_);
+  tx.pin(graph.storage_read_version_);
 
   bool present = false;
   try { present = tx.has_vertex(u); }
@@ -207,16 +223,18 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
 }
 
 bool vx_has_edge(const Graph& graph, VertexId u, VertexId v) {
-  SnapshotTransaction tx(&graph.manager_, true, &graph.storage_);
-  tx.clear(false);
-  tx.read_version = graph.manager_.get_epoch();
+  if (graph.storage_read_version_ == NO_TRANSACTION) {
+    throw_stage("has_edge missing committed read version");
+  }
+  PinnedReadTransaction tx(&graph.manager_, true, &graph.storage_);
+  tx.pin(graph.storage_read_version_);
   try {
     if (!tx.has_vertex(u) || !tx.has_vertex(v)) return false;
     const auto pu = tx.physical_id(u);
     const auto pv = tx.physical_id(v);
     return tx.has_edge_p(edge_t{static_cast<dst_t>(pu), static_cast<dst_t>(pv)});
   } catch (...) {
-    throw_stage("has_edge quiescent read " + std::to_string(u) + "->" + std::to_string(v));
+    throw_stage("has_edge committed-version read " + std::to_string(u) + "->" + std::to_string(v));
   }
 }
 
