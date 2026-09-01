@@ -33,7 +33,7 @@ class Graph {
     std::cerr << "[sortledton-adapter] load-vertices\n";
     for (VertexId v = 0; v < vertices_; ++v) insert_vertex(v);
     std::cerr << "[sortledton-adapter] load-edges count=" << edges.size() << "\n";
-    for (const auto& [u, v] : edges) insert_edge(u, v);
+    for (const auto& [u, v] : edges) insert_edge(u, v, false);
     std::cerr << "[sortledton-adapter] ready\n";
   }
 
@@ -60,34 +60,58 @@ class Graph {
 
   void insert_vertex(VertexId v) {
     auto tx = manager_.getSnapshotTransaction(&storage_, true);
-    tx.insert_vertex(v);
-    if (!tx.execute()) throw std::runtime_error("Sortledton vertex insertion failed at vertex " + std::to_string(v));
-    manager_.transactionCompleted(tx);
+    try {
+      tx.insert_vertex(v);
+      const bool ok = tx.execute();
+      manager_.transactionCompleted(tx);
+      if (!ok) throw std::runtime_error("Sortledton vertex insertion failed at vertex " + std::to_string(v));
+    } catch (...) {
+      try { manager_.transactionCompleted(tx); } catch (...) {}
+      throw;
+    }
   }
 
-  void insert_edge(VertexId u, VertexId v) {
+  void insert_edge(VertexId u, VertexId v, bool trace = true) {
+    if (trace) std::cerr << "[sortledton-adapter] update-insert " << u << ' ' << v << "\n";
     auto tx = manager_.getSnapshotTransaction(&storage_, true);
-    const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
-    VertexExistsPrecondition source_exists(edge.src);
-    VertexExistsPrecondition destination_exists(edge.dst);
-    EdgeDoesNotExistsPrecondition edge_absent(edge);
-    tx.register_precondition(&source_exists);
-    tx.register_precondition(&destination_exists);
-    tx.register_precondition(&edge_absent);
-    double weight = 1.0;
-    tx.insert_edge(edge, reinterpret_cast<char*>(&weight), sizeof(weight));
-    tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<char*>(&weight), sizeof(weight));
-    if (!tx.execute()) throw std::runtime_error("Sortledton edge insertion failed");
-    manager_.transactionCompleted(tx);
+    try {
+      const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
+      VertexExistsPrecondition source_exists(edge.src);
+      VertexExistsPrecondition destination_exists(edge.dst);
+      EdgeDoesNotExistsPrecondition edge_absent(edge);
+      tx.register_precondition(&source_exists);
+      tx.register_precondition(&destination_exists);
+      tx.register_precondition(&edge_absent);
+      double weight = 1.0;
+      tx.insert_edge(edge, reinterpret_cast<char*>(&weight), sizeof(weight));
+      tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<char*>(&weight), sizeof(weight));
+      const bool ok = tx.execute();
+      manager_.transactionCompleted(tx);
+      if (!ok) throw std::runtime_error("Sortledton edge insertion returned false");
+      if (trace) std::cerr << "[sortledton-adapter] update-insert-complete\n";
+    } catch (...) {
+      std::cerr << "[sortledton-adapter] update-insert-exception " << u << ' ' << v << "\n";
+      try { manager_.transactionCompleted(tx); } catch (...) {}
+      throw;
+    }
   }
 
   void delete_edge(VertexId u, VertexId v) {
+    std::cerr << "[sortledton-adapter] update-delete " << u << ' ' << v << "\n";
     auto tx = manager_.getSnapshotTransaction(&storage_, true);
-    const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
-    tx.delete_edge(edge);
-    tx.delete_edge({edge.dst, edge.src});
-    if (!tx.execute()) throw std::runtime_error("Sortledton edge deletion failed");
-    manager_.transactionCompleted(tx);
+    try {
+      const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
+      tx.delete_edge(edge);
+      tx.delete_edge({edge.dst, edge.src});
+      const bool ok = tx.execute();
+      manager_.transactionCompleted(tx);
+      if (!ok) throw std::runtime_error("Sortledton edge deletion returned false");
+      std::cerr << "[sortledton-adapter] update-delete-complete\n";
+    } catch (...) {
+      std::cerr << "[sortledton-adapter] update-delete-exception " << u << ' ' << v << "\n";
+      try { manager_.transactionCompleted(tx); } catch (...) {}
+      throw;
+    }
   }
 };
 
@@ -98,35 +122,48 @@ std::uint64_t vx_version(const Graph& graph) { return graph.version_; }
 template <class Fn>
 void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
   auto tx = graph.manager_.getSnapshotTransaction(&graph.storage_, false);
-  if (!tx.has_vertex(u)) {
-    graph.manager_.transactionCompleted(tx);
-    return;
-  }
-  const auto physical = tx.physical_id(u);
-  auto iter = tx.neighbourhood_blocked_p(physical);
-  while (iter.has_next_block()) {
-    auto [versioned, begin, end] = iter.next_block();
-    if (versioned) {
-      while (iter.has_next_edge()) fn(static_cast<VertexId>(tx.logical_id(iter.next())));
-    } else {
-      for (auto it = begin; it < end; ++it) fn(static_cast<VertexId>(tx.logical_id(*it)));
+  try {
+    if (!tx.has_vertex(u)) {
+      graph.manager_.transactionCompleted(tx);
+      return;
     }
+    const auto physical = tx.physical_id(u);
+    auto iter = tx.neighbourhood_blocked_p(physical);
+    while (iter.has_next_block()) {
+      auto [versioned, begin, end] = iter.next_block();
+      if (versioned) {
+        while (iter.has_next_edge()) fn(static_cast<VertexId>(tx.logical_id(iter.next())));
+      } else {
+        for (auto it = begin; it < end; ++it) fn(static_cast<VertexId>(tx.logical_id(*it)));
+      }
+    }
+    graph.manager_.transactionCompleted(tx);
+  } catch (...) {
+    try { graph.manager_.transactionCompleted(tx); } catch (...) {}
+    throw;
   }
-  graph.manager_.transactionCompleted(tx);
 }
 
 bool vx_has_edge(const Graph& graph, VertexId u, VertexId v) {
   auto tx = graph.manager_.getSnapshotTransaction(&graph.storage_, false);
-  const bool result = tx.has_edge(edge_t{static_cast<dst_t>(u), static_cast<dst_t>(v)});
-  graph.manager_.transactionCompleted(tx);
-  return result;
+  try {
+    const bool result = tx.has_edge(edge_t{static_cast<dst_t>(u), static_cast<dst_t>(v)});
+    graph.manager_.transactionCompleted(tx);
+    return result;
+  } catch (...) {
+    try { graph.manager_.transactionCompleted(tx); } catch (...) {}
+    throw;
+  }
 }
 
 void vx_apply_updates(Graph& graph, const UpdateBatch& batch) {
   if (batch.empty()) return;
+  std::cerr << "[sortledton-adapter] update-batch-start ops=" << batch.updates.size() << "\n";
   for (const auto& op : batch.updates) {
     if (op.src >= graph.vertices_ || op.dst >= graph.vertices_) continue;
+    std::cerr << "[sortledton-adapter] update-check " << (op.add ? "add " : "del ") << op.src << ' ' << op.dst << "\n";
     const bool exists = vx_has_edge(graph, op.src, op.dst);
+    std::cerr << "[sortledton-adapter] update-exists=" << exists << "\n";
     if (op.add) {
       if (!exists) graph.insert_edge(op.src, op.dst);
     } else if (exists) {
@@ -134,6 +171,7 @@ void vx_apply_updates(Graph& graph, const UpdateBatch& batch) {
     }
   }
   ++graph.version_;
+  std::cerr << "[sortledton-adapter] update-batch-complete version=" << graph.version_ << "\n";
 }
 
 }  // namespace sortledton_adapter
@@ -204,9 +242,6 @@ int run_campaign(std::size_t vertices) {
   const VertexId source = 0;
   const auto edges = make_graph(vertices);
 
-  // Establish the native oracle before constructing the external backend. This
-  // prevents an external-storage fault from being misattributed to CSR and also
-  // gives us immutable reference vectors for the exactness gate.
   std::cerr << "[sortledton-adapter] construct-native\n";
   DynamicGraph dynamic(vertices, false);
   dynamic.bulk_load_edges(edges);
