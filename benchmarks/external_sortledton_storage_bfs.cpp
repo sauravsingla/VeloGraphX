@@ -177,18 +177,31 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
 
     try {
       while (iter.has_next_block()) {
-        auto [begin, end] = iter.next_block();
-        for (auto it = begin; it < end; ++it) {
-          if (isDeleted(*it)) continue;
-          const auto raw = *it;
-          const auto unversioned = make_unversioned(raw);
-          VertexId logical = 0;
-          try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
-          catch (...) {
-            throw_stage("neighbors logical_id u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                        " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
+        auto [versioned, begin, end] = iter.next_block();
+        if (versioned) {
+          while (iter.has_next_edge()) {
+            const auto raw = iter.next();
+            const auto unversioned = make_unversioned(raw);
+            VertexId logical = 0;
+            try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
+            catch (...) {
+              throw_stage("neighbors logical_id versioned u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                          " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
+            }
+            fn(logical);
           }
-          fn(logical);
+        } else {
+          for (auto it = begin; it < end; ++it) {
+            const auto raw = *it;
+            const auto unversioned = make_unversioned(raw);
+            VertexId logical = 0;
+            try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
+            catch (...) {
+              throw_stage("neighbors logical_id plain u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                          " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
+            }
+            fn(logical);
+          }
         }
       }
     } catch (const std::runtime_error&) {
