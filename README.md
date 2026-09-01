@@ -1,118 +1,87 @@
 # VeloGraphX
 
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-**VeloGraphX is a CPU-native C++20 research engine for exact analytics on changing graphs.** It combines mutable graph storage, localized exact repair, and workload-aware incremental-vs-full recomputation.
+## What it is
 
-## Why VeloGraphX?
+VeloGraphX is a C++20 CPU engine for **exact analytics on changing graphs**. It maintains graph state with localized repair when updates are cheap enough, but can switch to full recomputation when repair becomes more expensive. The goal is predictable exactness with measurable update/recompute trade-offs, not new BFS/SSSP/triangle algorithms.
 
-The individual graph algorithms are established. VeloGraphX focuses on their **system-level integration for dynamic graphs**: compact mutable storage, exact localized repair, affected-work and cost signals, and adaptive selection between incremental repair and full recomputation.
+## Novelty
 
-```text
-updates → mutable graph → work/cost estimation
-        → localized exact repair  ↔  full recomputation
-        → exact maintained result
-```
+- Couples **compact mutable storage + exact localized repair + measured affected work + repair-vs-recompute selection** in one CPU-native system.
+- Makes the incremental/full crossover explicit: the selector owns the decision before excessive repair work is incurred.
+- Treats **exactness as a benchmark gate**: incremental outputs are checked against independent full recomputation/reference implementations.
+- Evaluates policy quality with pinned datasets, multiple roots/update regimes, repeated runs and retained artifacts; broader validation exposes regimes where the selector still loses.
 
-The runtime can choose recomputation before excessive repair work is incurred when an update batch crosses the incremental crossover region.
+See [related-work positioning](docs/related-work-positioning.md) and the [ablation study](docs/ablation-study.md).
 
-## Key results
+## Results
 
-Retained GitHub Actions measurements from 31 August–1 September 2026. Results are workload-specific hosted engineering evidence, not publication-grade hardware claims.
+GitHub-hosted results below are **engineering evidence, not publication-grade hardware claims**.
 
-### Exactness stress: 2 million updates
+| Evidence | Result | Scope |
+| --- | ---: | --- |
+| Dynamic exactness stress | **2,000,000 updates, 0 BFS mismatches, 0 triangle mismatches** | 6 adversarial graph/update scenarios; check after every batch |
+| Adaptive BFS, original campaign | **19/27 regime wins; 2.74% mean overhead from regime-best; 100% exact** | `ca-GrQc`, `soc-Epinions1`, `web-Google` |
+| Adaptive BFS, broader campaign | **108/108 executions exact; 10.85% mean overhead** | 3 datasets × 4 roots × 3 regimes × 3 reps |
+| Multicore BFS workload | **2.74× at 4 threads (~69% efficiency)** | 50K vertices, degree 8, 32 independent tasks, median of 5 reps |
+| Connected-components workload | **2.50× at 4 threads (~62%)** | same workload contract |
+| Triangle-count workload | **2.24× at 4 threads (~56%)** | same workload contract |
+| Variable-byte adjacency compression | **3.25×–3.78× smaller** | 100K vertices, tested degrees 4/8/16 |
+| Compressed BFS trade-off | **3.8×–5.7× slower than raw traversal** | same end-to-end compression campaign |
+| Public dynamic graph scale | **875,713 vertices / 5,105,039 edges** | pinned `web-Google` normalization |
 
-A deterministic stress campaign exercised incremental BFS and triangle counting across **2,000,000 update operations** and six structurally different scenarios: randomized updates, destructive/deletion-heavy updates, disconnected graphs, high-degree hubs, long paths, and dense components.
+Evidence: Current Capacity Validation run `33467637208` (`9785416050`, `9785510370`, `9785516485`, `9785422293`) and adaptive run `33410705480` (`9767029881`).
 
-| Metric | Result |
-| --- | ---: |
-| Update operations | **2,000,000** |
-| Stress scenarios | **6** |
-| BFS mismatches vs independent full recomputation | **0** |
-| Triangle-count mismatches vs independent reference | **0** |
+## Comparisons
 
-Exactness was checked after every update batch, including repeated forced compaction. Run `33467637208`, artifact `9785416050`.
+### Static native BFS / SSSP
 
-### Static BFS / SSSP vs GAP and LAGraph
+Same hosted runner, graph/source/thread count, five repetitions, kernel-only timing, pinned external versions and correctness checks. LAGraph/SuiteSparse:GraphBLAS and GAP follow the repository's Davis benchmark contract.
 
-| Algorithm | Threads | VeloGraphX | GAP | LAGraph |
+| Kernel | Threads | VeloGraphX | GAP v1.5 | LAGraph v1.3.x |
 | --- | ---: | ---: | ---: | ---: |
 | BFS | 1 | **0.425 ms** | 0.790 ms | 4.000 ms |
-| BFS | 2 | **0.420 ms** | 0.670 ms | 4.000 ms |
 | BFS | 4 | **0.406 ms** | 0.830 ms | 4.800 ms |
 | SSSP | 1 | 8.982 ms | **1.060 ms** | 23.500 ms |
-| SSSP | 2 | 8.587 ms | **1.190 ms** | 23.600 ms |
 | SSSP | 4 | 9.003 ms | **1.290 ms** | 27.100 ms |
 
-Five repetitions per configuration on the same hosted runner with exactness checks. VeloGraphX led BFS on this workload; GAP led SSSP. Dynamic BFS showed the intended crossover: incremental repair won at **0.1% and 1%** updates, while full recomputation won at **5%**. Run `33418520303`, artifact `9768499895`.
-
-### Adaptive dynamic BFS
-
-The original validation on checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` covered 27 root/update-regime combinations:
-
-| Metric | Result |
-| --- | ---: |
-| Exactness | **100%** |
-| Adaptive regime wins | **19 / 27** |
-| Mean overhead from regime-best | **~2.74%** |
-
-Run `33410705480`, artifact `9767029881`.
-
-A broader follow-up campaign expanded coverage to **4 roots × 3 update regimes × 3 datasets × 3 repetitions = 108 executions**. Every execution passed exactness verification. Across the resulting 36 root/regime configurations, adaptive selection averaged about **10.85% overhead from the regime-best policy**. Results varied by dataset: approximately **1.8%** mean overhead on `ca-GrQc`, **5.0%** on `soc-Epinions1`, and **25.8%** on `web-Google`. This broader study exposes root/workload sensitivity that is useful for further selector refinement rather than hiding it behind aggregate results. Run `33467637208`, artifact `9785510370`.
-
-### Multicore workload scaling
-
-A separate workload-level campaign measured independent BFS, connected-components, and triangle-count tasks across 1, 2, and 4 threads. Five repetitions were summarized by median throughput; result digests were required to remain identical across thread counts.
-
-| Workload | 2-thread speedup | 4-thread speedup | 4-thread efficiency |
-| --- | ---: | ---: | ---: |
-| BFS | **~2.01×** | **~2.74×** | **~69%** |
-| Connected components | **~1.98×** | **~2.50×** | **~62%** |
-| Triangle count | **~1.99×** | **~2.24×** | **~56%** |
-
-These numbers measure parallel throughput across independent graph-analysis tasks, not internal single-kernel scaling. Run `33467637208`, artifact `9785516485`.
-
-### Compression: space vs traversal cost
-
-End-to-end compressed traversal was tested on 100K-vertex generated graphs at multiple degrees. Variable-byte delta encoding reduced adjacency storage by roughly **3.25×–3.78×** in the tested cases. Direct BFS through variable-byte decoding was approximately **3.8×–5.7× slower than raw adjacency traversal**, making the current compression path primarily a **memory-footprint optimization with an explicit CPU-time trade-off**, not a traversal-speed claim. Vectorized fixed-width decoding improved decode/traversal behavior relative to scalar fixed-width decoding in higher-degree cases, while fixed-width storage was not always smaller than raw adjacency. Run `33467637208`, artifact `9785422293`.
-
-### Architecture campaign
-
-| Capability | Hosted result |
-| --- | --- |
-| Multicore BFS | **2.85×** speedup at 4 threads; ~71% efficiency |
-| Compression microbenchmark | Variable-byte encoding reached **up to 4×** space reduction |
-| SIMD decode | Fixed-width vectorized decoding was roughly **3–4× faster** than variable-byte decoding on representative tested distributions |
-| Out-of-core paths | Partition cache, partition file, and async loader passed **5/5** runs each |
-| NUMA/runtime | Detection, placement, partitioning, scheduling, work stealing, and execution-plan tests passed |
-
-All thread-count runs produced identical result digests. The hosted runner exposed one NUMA node, so NUMA evidence is functional rather than cross-socket performance evidence. Run `33464276799`, artifact `9784295720`.
+VeloGraphX wins BFS on this workload; **GAP remains substantially faster for SSSP**. Pinned contract: SuiteSparse:GraphBLAS `v10.5.0`, LAGraph `d01064de77b606473744b99f63b1487963556194`, GAP `v1.5`. Run `33418520303`, artifact `9768499895`.
 
 ### Dynamic BFS vs NetworKit 11.2.1
 
-On `web-Google`, one thread and identical update streams, five paired repetitions measured **36.328 ms for VeloGraphX vs 45.740 ms for NetworKit**, with independent full-BFS verification. Run `33301190847`, artifact `9766977170`.
+Native C++, one OpenMP thread, same machine/update stream, five paired repetitions, exactness and nontrivial-reachability gates.
 
-## Architecture and capabilities
+| Dataset | VeloGraphX | NetworKit `DynBFS` | VX / NK |
+| --- | ---: | ---: | ---: |
+| `web-Google` | **36.305 ms** | 45.845 ms | **0.788×** |
+| `ca-GrQc` | 0.1193 ms | **0.0892 ms** | **1.333×** |
 
-- **Exact analytics:** BFS / unweighted SSSP, weighted SSSP, connected components, triangle counting, k-core, PageRank
-- **Dynamic execution:** localized exact repair with adaptive repair-vs-recompute selection
-- **Mutable storage:** segmented CSR, packed deltas, sparse row patches, reverse adjacency, consolidation
-- **Storage independence:** templated `BasicIncremental*<Graph>` implementations
-- **Parallel execution:** SIMD intersections, push/pull frontiers, multicore scheduling, work stealing, NUMA-aware policies
-- **Large-graph infrastructure:** compression, bounded partition cache, partition-file access, asynchronous loading
-- **Interoperability:** C++20, pybind11, NumPy, SciPy CSR, Apache Arrow
+So VeloGraphX wins the larger `web-Google` case but **loses on `ca-GrQc`**. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33301190847`, artifact `9766977170`.
 
-## Correctness and reproducibility
+RisGraph and other dynamic systems are relevant prior work, but results from different runners or incompatible semantics are intentionally **not merged into this table**.
 
-CI covers Ubuntu and macOS builds, Linux ASan/UBSan, storage consistency, incremental-vs-full differential tests, SIMD/scalar agreement, Python interoperability, dataset provenance, benchmark contracts, and independent reference checks.
+## How it works
 
-The expanded validation adds a two-million-update adversarial exactness campaign, 108 broader adaptive-policy executions across multiple roots and regimes, end-to-end compressed traversal, and workload-level multicore scaling. Experiments use pinned datasets or deterministic generated inputs, repeated measurements, exactness gates, environment capture, and retained artifacts.
+```text
+update batch
+   ↓
+mutable graph: base CSR + deltas/row patches + consolidation
+   ↓
+affected-work / cost signals
+   ↓
+localized exact repair  ← selector →  full recomputation
+   ↓
+exact maintained result
+```
 
-Dedicated controlled hardware is still required for publication-grade many-core scaling, cross-NUMA performance, storage-device throughput, and hardware-counter claims. The broader adaptive results also identify `web-Google` as a harder selector regime; improving root/reachability/work-density conditioning remains an active optimization opportunity.
+Implemented analytics include BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank-related paths. Runtime/storage code also includes SIMD intersections, work stealing, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
 
-## Quick start
+## Quick Start
+
+Requires CMake ≥ 3.20 and a C++20 compiler.
 
 ```bash
 git clone https://github.com/sauravsingla/VeloGraphX.git
@@ -120,12 +89,42 @@ cd VeloGraphX
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
+./build/velographx_example
+./build/velographx_dynamic_example
 ```
 
-## Documentation
+The default build includes **28 CTest targets** plus benchmark executables.
 
-[Benchmark methodology](docs/benchmark-methodology.md) · [Hosted baselines](docs/hosted-native-competitors.md) · [Graph abstraction](docs/graph-abstraction.md) · [Ablation study](docs/ablation-study.md) · [Related work](docs/related-work-positioning.md) · [Limitations](docs/limitations.md)
+## Reproduce
 
-## License
+The headline campaigns are encoded as GitHub Actions workflows so dataset pins, versions, exactness gates and artifacts stay with the run.
 
-Licensed under the [Apache License 2.0](LICENSE).
+```bash
+# Requires an authenticated GitHub CLI.
+gh workflow run current-capacity-validation.yml --ref main
+gh workflow run hosted-native-competitors.yml --ref main
+
+# Watch the latest dispatches.
+gh run list --workflow current-capacity-validation.yml --limit 1
+gh run list --workflow hosted-native-competitors.yml --limit 1
+```
+
+For a local correctness run:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+Benchmark contracts and interpretation rules: [benchmark methodology](docs/benchmark-methodology.md), [native competitors](docs/hosted-native-competitors.md), [limitations](docs/limitations.md).
+
+## Limitations / Roadmap
+
+**Current:** hosted CI establishes correctness, reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs and same-run native comparisons. The broader adaptive study is exact but reaches **25.8% mean overhead on `web-Google`**, showing root/workload sensitivity. Compression saves space but currently slows BFS traversal.
+
+**Next:** dedicated 8/16/32+ core experiments; true multi-socket NUMA measurements; same-machine dynamic comparison with more external systems; dedicated NVMe/`io_uring` throughput; hardware counters; broader weighted-dynamic evaluation; selector features for reachability/component/work-density; a frozen long-term Python API. See [limitations](docs/limitations.md).
+
+## License / Contributing
+
+Apache License 2.0 — see [LICENSE](LICENSE). Contributions should be small, tested and benchmarked when performance claims change; see [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
