@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build libtbb-dev libnuma-dev curl
+          sudo apt-get install -y cmake ninja-build libtbb-dev libnuma-dev libboost-dev curl
 
       - name: Build and test VeloGraphX abstraction contract
         run: |
@@ -69,7 +69,7 @@ jobs:
           fi
           echo "Using Sortledton CMake source: $CMAKE_SRC"
           cmake -S "$CMAKE_SRC" -B external/sortledton-build -DCMAKE_BUILD_TYPE=Release
-          cmake --build external/sortledton-build --parallel 2
+          cmake --build external/sortledton-build --target sortledton --parallel 2
 
           find external/sortledton-build -type f \( -name 'libsortledton.a' -o -name 'libsortledton.so' -o -name '*.a' -o -name '*.so' \) -print | sort | tee /tmp/sortledton-libs.txt
           SORTLEDTON_LIB="$(grep -E '/libsortledton\.(a|so)$' /tmp/sortledton-libs.txt | head -n1 || true)"
