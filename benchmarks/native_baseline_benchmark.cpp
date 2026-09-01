@@ -211,11 +211,13 @@ int main(int argc, char** argv) {
       return 2;
     }
     const std::string mode = argv[1];
-    const auto static_source = static_cast<VertexId>(std::stoul(argv[3]));
-    if (mode == "bfs") return static_bfs(argv[2], static_source, false);
-    if (mode == "bfs-directed") return static_bfs(argv[2], static_source, true);
-    if (mode == "sssp") return static_sssp(argv[2], static_source, false);
-    if (mode == "sssp-directed") return static_sssp(argv[2], static_source, true);
+    if (mode == "bfs" || mode == "bfs-directed" || mode == "sssp" || mode == "sssp-directed") {
+      const auto source = static_cast<VertexId>(std::stoul(argv[3]));
+      if (mode == "bfs") return static_bfs(argv[2], source, false);
+      if (mode == "bfs-directed") return static_bfs(argv[2], source, true);
+      if (mode == "sssp") return static_sssp(argv[2], source, false);
+      return static_sssp(argv[2], source, true);
+    }
     if (argc != 5) return 2;
     const auto source = static_cast<VertexId>(std::stoul(argv[4]));
     if (mode == "dynamic-bfs") return dynamic_bfs(argv[2], argv[3], source);
