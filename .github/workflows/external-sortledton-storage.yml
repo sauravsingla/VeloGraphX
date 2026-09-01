@@ -40,7 +40,6 @@ jobs:
             -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure
-          test "$(build/velographx_example >/dev/null 2>&1; g++-10 -dumpfullversion -dumpversion)" = "$(g++-10 -dumpfullversion -dumpversion)"
 
       - name: Clone immutable Sortledton revision
         run: |
@@ -49,24 +48,31 @@ jobs:
           test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
           test -f external/sortledton/CMakeLists.txt
 
-      - name: Record pinned build metadata
+      - name: Record pinned source and add diagnostic-only constructor probe
         run: |
           mkdir -p artifacts/sortledton
           cp external/sortledton/CMakeLists.txt artifacts/sortledton/upstream-CMakeLists.txt
+          cp external/sortledton/data-structure/VersioningBlockedSkipListAdjacencyList.cpp artifacts/sortledton/upstream-VersioningBlockedSkipListAdjacencyList.cpp
           git -C external/sortledton diff --exit-code
           python - <<'PY'
           import json, subprocess
           from pathlib import Path
+          p = Path('external/sortledton/data-structure/VersioningBlockedSkipListAdjacencyList.cpp')
+          text = p.read_text()
+          needle = '  cout << "Sortledton.3" << endl;\n'
+          assert needle in text
+          probe = needle + '  cerr << "Sortledton constructor probe: block_size=" << block_size << " rounded=" << round_up_power_of_two(block_size) << " property_size=" << property_size << endl;\n'
+          p.write_text(text.replace(needle, probe, 1))
+          subprocess.run(['git','-C','external/sortledton','diff','--','data-structure/VersioningBlockedSkipListAdjacencyList.cpp'], check=True, stdout=open('artifacts/sortledton/diagnostic-only.patch','w'))
           gcc = subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0]
           Path('artifacts/sortledton/build-compatibility.json').write_text(json.dumps({
-              'scope': 'none',
+              'scope': 'diagnostic-output-only',
               'sortledton_commit': '6eb638f3ad38f8a10a127e7e118528f4c8d07a6e',
-              'graph_storage_source_changed': False,
-              'cmake_adjustments': [],
+              'graph_storage_semantics_changed': False,
+              'diagnostic_adjustment': 'print constructor block_size, rounded value, and property_size before the existing validation',
               'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all built with GCC/G++ 10',
               'compiler': gcc,
           }, indent=2, sort_keys=True) + '\n')
-          Path('artifacts/sortledton/sortledton-build-compat.patch').write_text('')
           PY
 
       - name: Build Sortledton
@@ -86,7 +92,6 @@ jobs:
             -Iinclude \
             -Iexternal/sortledton \
             -Iexternal/sortledton/data-structure \
-            -Iexternal/sortledton/data-structures \
             benchmarks/external_sortledton_storage_bfs.cpp \
             build/libvelographx.a \
             "$SORTLEDTON_BUILD/libsortledton.a" \
@@ -148,10 +153,8 @@ jobs:
               'backend': 'Sortledton',
               'sortledton_commit': subprocess.check_output(['git','-C','external/sortledton','rev-parse','HEAD'], text=True).strip(),
               'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
-              'build_compatibility_adjustments': [],
-              'build_compatibility_scope': 'none; pinned upstream source and CMake used unchanged',
+              'diagnostic_source_adjustment': 'constructor values printed only; no storage semantics changed',
               'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all GCC/G++ 10',
-              'linkage_note': 'link Sortledton with its required TBB runtime only; do not interpose tbbmalloc_proxy on the combined VeloGraphX process',
               'compiler': subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
               'runner': 'github-hosted ubuntu-22.04',
