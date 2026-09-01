@@ -1,0 +1,206 @@
+name: GAP Canonical Multiroot Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/gap-canonical-multiroot.yml'
+      - 'tools/run_gap_canonical_multiroot.py'
+      - 'tools/materialize_gap_canonical.sh'
+      - 'benchmarks/native_baseline_benchmark.cpp'
+      - 'include/velographx/incremental/weighted_sssp.hpp'
+      - 'include/velographx/graph_access.hpp'
+  pull_request:
+    paths:
+      - '.github/workflows/gap-canonical-multiroot.yml'
+      - 'tools/run_gap_canonical_multiroot.py'
+      - 'tools/materialize_gap_canonical.sh'
+      - 'benchmarks/native_baseline_benchmark.cpp'
+      - 'include/velographx/incremental/weighted_sssp.hpp'
+      - 'include/velographx/graph_access.hpp'
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Exact GAP v1.5 canonical dataset to materialise
+        type: choice
+        required: true
+        default: road
+        options:
+          - twitter
+          - web
+          - road
+          - kron
+          - urand
+      roots:
+        description: Comma-separated source vertices
+        type: string
+        required: true
+        default: '0,1,2,3,7,15,31,63'
+      threads:
+        description: Comma-separated thread counts
+        type: string
+        required: true
+        default: '1,2,4'
+      repeat:
+        description: Repetitions per root/thread pair
+        type: number
+        required: true
+        default: 5
+
+jobs:
+  contract-smoke:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      GAPBS_TAG: v1.5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build VeloGraphX benchmark
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Build pinned GAP BFS, SSSP and converter
+        run: |
+          git clone --branch "$GAPBS_TAG" --depth 1 https://github.com/sbeamer/gapbs.git external/gapbs
+          make -C external/gapbs -j2 bfs sssp converter
+          test "$(git -C external/gapbs describe --tags --exact-match)" = "$GAPBS_TAG"
+
+      - name: Generate reduced contract graph
+        run: |
+          mkdir -p artifacts/gap-contract
+          # This is deliberately NOT labelled canonical. It only tests the exact
+          # multiroot runner contract in hosted CI.
+          external/gapbs/converter -g12 -k8 -e artifacts/gap-contract/kron.el
+          external/gapbs/converter -g12 -k8 -e artifacts/gap-contract/kron.wel -w
+
+      - name: Run multiroot correctness/timing contract
+        run: |
+          python tools/run_gap_canonical_multiroot.py \
+            --output artifacts/gap-contract/result.json \
+            --dataset-name kron \
+            --edge-list artifacts/gap-contract/kron.el \
+            --weighted-edge-list artifacts/gap-contract/kron.wel \
+            --velographx build/velographx_native_baseline_benchmark \
+            --gap-bfs external/gapbs/bfs \
+            --gap-sssp external/gapbs/sssp \
+            --roots 0,1,7,31 \
+            --threads 1,2 \
+            --repeat 2 \
+            --gap-revision "$GAPBS_TAG"
+
+      - name: Validate smoke is not canonical evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          row = json.loads(Path('artifacts/gap-contract/result.json').read_text())
+          assert row['campaign'] == 'gap-canonical-multiroot'
+          assert len(row['roots']) == 4
+          assert len(row['threads']) == 2
+          assert len(row['rows']) == 8
+          assert all(x['bfs']['gap']['verification_passed'] for x in row['rows'])
+          assert all(x['sssp']['gap']['verification_passed'] for x in row['rows'])
+          Path('artifacts/gap-contract/metadata.json').write_text(json.dumps({
+              'schema_version': 1,
+              'artifact_type': 'gap-multiroot-contract-smoke',
+              'canonical_dataset_result': False,
+              'purpose': 'CI validation of the runner only; generated with -g12 -k8, not GAP canonical -g27 -k16',
+          }, indent=2, sort_keys=True) + '\n')
+          PY
+
+      - name: Upload contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gap-multiroot-contract-smoke
+          path: artifacts/gap-contract
+          retention-days: 30
+
+  canonical-campaign:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      GAPBS_TAG: v1.5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build VeloGraphX benchmark
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Build pinned GAP tools
+        run: |
+          git clone --branch "$GAPBS_TAG" --depth 1 https://github.com/sbeamer/gapbs.git external/gapbs
+          make -C external/gapbs -j2 bfs sssp converter
+          test "$(git -C external/gapbs describe --tags --exact-match)" = "$GAPBS_TAG"
+
+      - name: Materialise exact canonical dataset
+        run: |
+          bash tools/materialize_gap_canonical.sh external/gapbs '${{ inputs.dataset }}' artifacts/gap-canonical
+
+      - name: Resolve corpus semantics
+        id: semantics
+        shell: bash
+        run: |
+          case '${{ inputs.dataset }}' in
+            twitter|web|road) echo 'directed=--directed' >> "$GITHUB_OUTPUT" ;;
+            kron|urand) echo 'directed=' >> "$GITHUB_OUTPUT" ;;
+          esac
+          case '${{ inputs.dataset }}' in
+            road) echo 'delta=50000' >> "$GITHUB_OUTPUT" ;;
+            *) echo 'delta=2' >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Run exact multiroot campaign
+        run: |
+          python tools/run_gap_canonical_multiroot.py \
+            --output 'artifacts/gap-canonical/${{ inputs.dataset }}.result.json' \
+            --dataset-name '${{ inputs.dataset }}' \
+            --edge-list 'artifacts/gap-canonical/${{ inputs.dataset }}.el' \
+            --weighted-edge-list 'artifacts/gap-canonical/${{ inputs.dataset }}.wel' \
+            --velographx build/velographx_native_baseline_benchmark \
+            --gap-bfs external/gapbs/bfs \
+            --gap-sssp external/gapbs/sssp \
+            --roots '${{ inputs.roots }}' \
+            --threads '${{ inputs.threads }}' \
+            --repeat '${{ inputs.repeat }}' \
+            --sssp-delta '${{ steps.semantics.outputs.delta }}' \
+            --gap-revision "$GAPBS_TAG" \
+            ${{ steps.semantics.outputs.directed }}
+
+      - name: Mark exact canonical evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          dataset = '${{ inputs.dataset }}'
+          result = json.loads(Path(f'artifacts/gap-canonical/{dataset}.result.json').read_text())
+          source = json.loads(Path(f'artifacts/gap-canonical/{dataset}.metadata.json').read_text())
+          assert source['canonical'] is True
+          assert source['gap_revision'] == 'v1.5'
+          assert len(result['roots']) >= 2
+          Path(f'artifacts/gap-canonical/{dataset}.evidence.json').write_text(json.dumps({
+              'schema_version': 1,
+              'artifact_type': 'gap-canonical-multiroot-evidence',
+              'canonical_dataset_result': True,
+              'dataset': dataset,
+              'gap_revision': 'v1.5',
+              'roots': result['roots'],
+              'threads': result['threads'],
+              'correctness_gate': result['correctness_gate'],
+          }, indent=2, sort_keys=True) + '\n')
+          PY
+
+      - name: Upload canonical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gap-canonical-${{ inputs.dataset }}-multiroot
+          path: artifacts/gap-canonical
+          retention-days: 30

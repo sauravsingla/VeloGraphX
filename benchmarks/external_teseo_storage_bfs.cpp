@@ -4,7 +4,6 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
-#include <numeric>
 #include <set>
 #include <utility>
 #include <vector>
@@ -16,6 +15,7 @@
 
 namespace teseo_adapter {
 
+using velographx::UpdateBatch;
 using velographx::VertexId;
 
 class Graph {
@@ -31,10 +31,7 @@ class Graph {
   Graph(const Graph&) = delete;
   Graph& operator=(const Graph&) = delete;
 
-  ~Graph() {
-    if (iterator_) iterator_->close();
-    if (snapshot_) snapshot_->commit();
-  }
+  ~Graph() { reset_snapshot(); }
 
   void ensure_snapshot() const {
     if (snapshot_) return;
@@ -42,16 +39,29 @@ class Graph {
     iterator_ = std::make_unique<teseo::Iterator>(snapshot_->iterator());
   }
 
+  void reset_snapshot() const {
+    if (iterator_) {
+      iterator_->close();
+      iterator_.reset();
+    }
+    if (snapshot_) {
+      snapshot_->commit();
+      snapshot_.reset();
+    }
+  }
+
   mutable teseo::Teseo database_;
   std::size_t vertices_{0};
+  std::uint64_t version_{0};
   mutable std::unique_ptr<teseo::Transaction> snapshot_;
   mutable std::unique_ptr<teseo::Iterator> iterator_;
 };
 
-// Non-intrusive customization only: Graph intentionally has no vertex_count(),
-// directed(), neighbors(), or for_each_neighbor() member functions.
+// Non-intrusive customization only: Graph intentionally has no VeloGraphX
+// graph API members. Both read and mutation paths are supplied through ADL.
 std::size_t vx_vertex_count(const Graph& graph) { return graph.vertices_; }
 bool vx_is_directed(const Graph&) { return false; }
+std::uint64_t vx_version(const Graph& graph) { return graph.version_; }
 
 template <class Fn>
 void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
@@ -61,6 +71,28 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
   });
 }
 
+bool vx_has_edge(const Graph& graph, VertexId u, VertexId v) {
+  graph.ensure_snapshot();
+  return graph.snapshot_->has_edge(static_cast<std::uint64_t>(u), static_cast<std::uint64_t>(v));
+}
+
+void vx_apply_updates(Graph& graph, const UpdateBatch& batch) {
+  if (batch.empty()) return;
+  graph.reset_snapshot();
+  auto tx = graph.database_.start_transaction();
+  for (const auto& op : batch.updates) {
+    const auto u = static_cast<std::uint64_t>(op.src);
+    const auto v = static_cast<std::uint64_t>(op.dst);
+    if (op.add) {
+      if (!tx.has_edge(u, v)) tx.insert_edge(u, v, 1.0);
+    } else {
+      if (tx.has_edge(u, v)) tx.remove_edge(u, v);
+    }
+  }
+  tx.commit();
+  ++graph.version_;
+}
+
 }  // namespace teseo_adapter
 
 namespace {
@@ -68,6 +100,7 @@ namespace {
 using velographx::BasicIncrementalBFS;
 using velographx::CsrGraph;
 using velographx::DynamicGraph;
+using velographx::UpdateBatch;
 using velographx::VertexId;
 
 std::vector<std::pair<VertexId, VertexId>> make_graph(std::size_t vertices) {
@@ -100,6 +133,21 @@ double median_recompute_us(Graph& graph, VertexId source, std::vector<std::uint3
   return samples[samples.size() / 2];
 }
 
+std::vector<UpdateBatch> make_incremental_batches(std::size_t vertices) {
+  std::vector<UpdateBatch> batches;
+  batches.reserve(5);
+  for (VertexId i = 0; i < 5; ++i) {
+    UpdateBatch batch;
+    const VertexId u = static_cast<VertexId>((i * 17) % vertices);
+    const VertexId ring = static_cast<VertexId>((static_cast<std::size_t>(u) + 1) % vertices);
+    const VertexId chord = static_cast<VertexId>((static_cast<std::size_t>(u) + 3) % vertices);
+    batch.remove(std::min(u, ring), std::max(u, ring), i * 2);
+    batch.add(std::min(u, chord), std::max(u, chord), i * 2 + 1);
+    batches.push_back(std::move(batch));
+  }
+  return batches;
+}
+
 std::uint64_t digest(const std::vector<std::uint32_t>& distances) {
   std::uint64_t h = 1469598103934665603ULL;
   for (auto d : distances) {
@@ -128,21 +176,52 @@ int main(int argc, char** argv) {
   const double dynamic_us = median_recompute_us(dynamic, source, dynamic_dist);
   const double csr_us = median_recompute_us(csr, source, csr_dist);
   const double teseo_us = median_recompute_us(teseo_graph, source, teseo_dist);
+  const bool recompute_exact = dynamic_dist == csr_dist && dynamic_dist == teseo_dist;
 
-  const bool exact = dynamic_dist == csr_dist && dynamic_dist == teseo_dist;
+  BasicIncrementalBFS<DynamicGraph> dynamic_incremental(dynamic, source);
+  BasicIncrementalBFS<teseo_adapter::Graph> teseo_incremental(teseo_graph, source);
+  std::vector<double> dynamic_apply_samples;
+  std::vector<double> teseo_apply_samples;
+  bool incremental_exact = true;
+
+  for (const auto& batch : make_incremental_batches(vertices)) {
+    auto start = std::chrono::steady_clock::now();
+    dynamic_incremental.apply(batch);
+    auto stop = std::chrono::steady_clock::now();
+    dynamic_apply_samples.push_back(std::chrono::duration<double, std::micro>(stop - start).count());
+
+    start = std::chrono::steady_clock::now();
+    teseo_incremental.apply(batch);
+    stop = std::chrono::steady_clock::now();
+    teseo_apply_samples.push_back(std::chrono::duration<double, std::micro>(stop - start).count());
+
+    incremental_exact = incremental_exact &&
+        dynamic_incremental.distances() == teseo_incremental.distances();
+  }
+  std::sort(dynamic_apply_samples.begin(), dynamic_apply_samples.end());
+  std::sort(teseo_apply_samples.begin(), teseo_apply_samples.end());
+  const double dynamic_apply_us = dynamic_apply_samples[dynamic_apply_samples.size() / 2];
+  const double teseo_apply_us = teseo_apply_samples[teseo_apply_samples.size() / 2];
+
+  const bool exact = recompute_exact && incremental_exact;
   std::cout << std::fixed << std::setprecision(3)
-            << "{\"schema_version\":1,"
+            << "{\"schema_version\":2,"
             << "\"benchmark\":\"same-algorithm-storage-bfs\","
-            << "\"algorithm\":\"BasicIncrementalBFS::recompute\","
+            << "\"algorithm\":\"BasicIncrementalBFS\","
             << "\"vertices\":" << vertices << ','
             << "\"edges\":" << edges.size() << ','
             << "\"source\":" << source << ','
             << "\"repetitions\":5,"
             << "\"exact\":" << (exact ? "true" : "false") << ','
-            << "\"digest\":" << digest(dynamic_dist) << ','
+            << "\"recompute_exact\":" << (recompute_exact ? "true" : "false") << ','
+            << "\"incremental_exact\":" << (incremental_exact ? "true" : "false") << ','
+            << "\"incremental_batches\":5,"
+            << "\"digest\":" << digest(dynamic_incremental.distances()) << ','
             << "\"dynamic_graph_median_us\":" << dynamic_us << ','
             << "\"csr_graph_median_us\":" << csr_us << ','
             << "\"teseo_median_us\":" << teseo_us << ','
+            << "\"dynamic_incremental_median_us\":" << dynamic_apply_us << ','
+            << "\"teseo_incremental_median_us\":" << teseo_apply_us << ','
             << "\"dynamic_over_csr\":" << (dynamic_us / csr_us) << ','
             << "\"dynamic_over_teseo\":" << (dynamic_us / teseo_us)
             << "}\n";

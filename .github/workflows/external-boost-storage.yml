@@ -1,0 +1,99 @@
+name: External Boost Storage Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/external-boost-storage.yml'
+      - 'benchmarks/external_boost_storage_bfs.cpp'
+      - 'include/velographx/graph_access.hpp'
+      - 'include/velographx/incremental/bfs.hpp'
+  pull_request:
+    paths:
+      - '.github/workflows/external-boost-storage.yml'
+      - 'benchmarks/external_boost_storage_bfs.cpp'
+      - 'include/velographx/graph_access.hpp'
+      - 'include/velographx/incremental/bfs.hpp'
+  workflow_dispatch:
+
+jobs:
+  boost-storage-adapter:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Boost Graph
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-graph-dev
+
+      - name: Build VeloGraphX library
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Compile same-algorithm Boost storage benchmark
+        run: |
+          c++ -O3 -DNDEBUG -std=c++20 \
+            -Iinclude \
+            benchmarks/external_boost_storage_bfs.cpp \
+            build/libvelographx.a \
+            -o build/velographx_external_boost_storage_bfs
+
+      - name: Run storage and incremental campaign
+        run: |
+          mkdir -p artifacts/boost
+          build/velographx_external_boost_storage_bfs 8192 | tee artifacts/boost/boost-8192.json
+          build/velographx_external_boost_storage_bfs 32768 | tee artifacts/boost/boost-32768.json
+
+      - name: Validate exactness contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path('artifacts/boost').glob('boost-*.json')):
+              row = json.loads(path.read_text())
+              assert row['schema_version'] == 1
+              assert row['benchmark'] == 'same-algorithm-storage-bfs'
+              assert row['backend'] == 'boost-adjacency-list'
+              assert row['algorithm'] == 'BasicIncrementalBFS'
+              assert row['repetitions'] == 5
+              assert row['incremental_batches'] == 5
+              assert row['exact'] is True
+              assert row['recompute_exact'] is True
+              assert row['incremental_exact'] is True
+              assert row['dynamic_graph_median_us'] > 0
+              assert row['csr_graph_median_us'] > 0
+              assert row['boost_median_us'] > 0
+              assert row['dynamic_incremental_median_us'] > 0
+              assert row['boost_incremental_median_us'] > 0
+          PY
+
+      - name: Record metadata
+        run: |
+          python - <<'PY'
+          import json, platform, subprocess
+          from pathlib import Path
+          payload = {
+              'schema_version': 1,
+              'artifact_type': 'velographx-boost-storage-adapter',
+              'publication_grade': False,
+              'same_algorithm': 'BasicIncrementalBFS',
+              'backend': 'Boost.Graph adjacency_list<vecS,vecS,undirectedS>',
+              'compiler': subprocess.check_output(['c++', '--version'], text=True).splitlines()[0],
+              'platform': platform.platform(),
+              'runner': 'github-hosted ubuntu-22.04',
+              'correctness_gate': 'full BFS distance vector equality after recompute and every mixed incremental batch',
+              'claim_gate': 'engineering storage-independence evidence only',
+          }
+          Path('artifacts/boost/metadata.json').write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-boost-storage-adapter
+          path: artifacts/boost
+          retention-days: 30

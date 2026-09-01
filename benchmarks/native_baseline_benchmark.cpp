@@ -65,8 +65,8 @@ WeightedInput read_weighted_edges(const std::string& path) {
   return out;
 }
 
-velographx::WeightedDynamicGraph build_weighted(const WeightedInput& input) {
-  velographx::WeightedDynamicGraph graph(input.vertices, false);
+velographx::WeightedDynamicGraph build_weighted(const WeightedInput& input, bool directed = false) {
+  velographx::WeightedDynamicGraph graph(input.vertices, directed);
   velographx::WeightedUpdateBatch batch;
   batch.updates.reserve(input.edges.size());
   for (const auto& [u, v, w] : input.edges) batch.add(u, v, w);
@@ -98,7 +98,7 @@ std::vector<std::uint64_t> serial_dijkstra(const velographx::WeightedDynamicGrap
   return dist;
 }
 
-velographx::DynamicGraph read_dynamic_unweighted(const std::string& path) {
+velographx::DynamicGraph read_dynamic_unweighted(const std::string& path, bool directed = false) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("cannot open edge list: " + path);
   std::vector<std::pair<VertexId, VertexId>> edges;
@@ -108,7 +108,7 @@ velographx::DynamicGraph read_dynamic_unweighted(const std::string& path) {
     edges.emplace_back(static_cast<VertexId>(u), static_cast<VertexId>(v));
     vertices = std::max<std::size_t>(vertices, std::max(u, v) + 1);
   }
-  velographx::DynamicGraph graph(vertices, false);
+  velographx::DynamicGraph graph(vertices, directed);
   graph.bulk_load_edges(edges);
   return graph;
 }
@@ -141,26 +141,26 @@ void print_json(const std::string& algorithm, VertexId source, std::uint64_t ker
   std::cout << "}\n";
 }
 
-int static_bfs(const std::string& path, VertexId source) {
-  const auto graph = velographx::load_edge_list(path, false);
+int static_bfs(const std::string& path, VertexId source, bool directed = false) {
+  const auto graph = velographx::load_edge_list(path, directed);
   const auto begin = clock_type::now();
   const auto dist = velographx::bfs_distances(graph, source);
   const auto end = clock_type::now();
-  print_json("bfs", source, elapsed_us(begin, end), digest(dist), true,
+  print_json(directed ? "bfs_directed" : "bfs", source, elapsed_us(begin, end), digest(dist), true,
              graph.vertex_count());
   return 0;
 }
 
-int static_sssp(const std::string& path, VertexId source) {
+int static_sssp(const std::string& path, VertexId source, bool directed = false) {
   const auto input = read_weighted_edges(path);
-  auto graph = build_weighted(input);
+  auto graph = build_weighted(input, directed);
   const auto begin = clock_type::now();
   velographx::IncrementalWeightedSSSP sssp(graph, source);
   const auto end = clock_type::now();
   const auto oracle = serial_dijkstra(graph, source);
   const bool exact = sssp.distances() == oracle;
-  print_json("sssp", source, elapsed_us(begin, end), digest(sssp.distances()), exact,
-             graph.vertex_count());
+  print_json(directed ? "sssp_directed" : "sssp", source, elapsed_us(begin, end),
+             digest(sssp.distances()), exact, graph.vertex_count());
   return exact ? 0 : 3;
 }
 
@@ -206,12 +206,18 @@ int main(int argc, char** argv) {
   try {
     if (argc < 4) {
       std::cerr << "usage: velographx_native_baseline_benchmark "
-                   "<bfs|sssp|dynamic-bfs|dynamic-sssp> <input> [updates] <source>\n";
+                   "<bfs|bfs-directed|sssp|sssp-directed|dynamic-bfs|dynamic-sssp> "
+                   "<input> [updates] <source>\n";
       return 2;
     }
     const std::string mode = argv[1];
-    if (mode == "bfs") return static_bfs(argv[2], static_cast<VertexId>(std::stoul(argv[3])));
-    if (mode == "sssp") return static_sssp(argv[2], static_cast<VertexId>(std::stoul(argv[3])));
+    if (mode == "bfs" || mode == "bfs-directed" || mode == "sssp" || mode == "sssp-directed") {
+      const auto source = static_cast<VertexId>(std::stoul(argv[3]));
+      if (mode == "bfs") return static_bfs(argv[2], source, false);
+      if (mode == "bfs-directed") return static_bfs(argv[2], source, true);
+      if (mode == "sssp") return static_sssp(argv[2], source, false);
+      return static_sssp(argv[2], source, true);
+    }
     if (argc != 5) return 2;
     const auto source = static_cast<VertexId>(std::stoul(argv[4]));
     if (mode == "dynamic-bfs") return dynamic_bfs(argv[2], argv[3], source);

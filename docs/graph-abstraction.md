@@ -6,33 +6,42 @@ VeloGraphX separates graph algorithms from graph representation so storage/layou
 
 The lightweight C++20 customisation layer is defined in `include/velographx/graph_access.hpp`. Generic algorithms use free-function accessors such as `vertex_count`, `is_directed`, `for_each_neighbor`, `for_each_in_neighbor`, `has_edge`, and `apply_updates` rather than depending on a concrete `DynamicGraph` type.
 
+Weighted algorithms use the same non-intrusive model through `for_each_weighted_neighbor` and `edge_weight`. A foreign weighted graph can provide `vx_for_each_weighted_neighbor` and `vx_edge_weight` without inheriting from, wrapping, or modifying a VeloGraphX storage class.
+
 The accessors support two paths:
 
 1. an in-tree graph can provide the corresponding member operation;
-2. a foreign graph can opt in non-intrusively through ADL customisation hooks such as `vx_vertex_count`, `vx_is_directed`, `vx_for_each_neighbor`, `vx_for_each_in_neighbor`, `vx_has_edge`, and `vx_apply_updates`.
+2. a foreign graph can opt in non-intrusively through ADL customisation hooks such as `vx_vertex_count`, `vx_is_directed`, `vx_for_each_neighbor`, `vx_for_each_in_neighbor`, `vx_has_edge`, `vx_apply_updates`, `vx_for_each_weighted_neighbor`, and `vx_edge_weight`.
 
 No inheritance, base class, or modification of the foreign graph type is required. This is a BGL-style non-intrusive customisation approach implemented with C++20 concepts rather than a claim of Boost.Graph API compatibility.
 
-The default public names (`IncrementalBFS`, `IncrementalSSSP`, `IncrementalComponents`, `IncrementalKCore`, `IncrementalPageRank`, `IncrementalTriangleCount`) preserve the normal `DynamicGraph` API. Reusable implementations are `BasicIncremental*<Graph>` templates. Weighted SSSP currently keeps a specialised weighted-graph contract while sharing the common Dijkstra queue/relaxation engine.
+The default public names (`IncrementalBFS`, `IncrementalSSSP`, `IncrementalComponents`, `IncrementalKCore`, `IncrementalPageRank`, `IncrementalTriangleCount`, `IncrementalWeightedSSSP`) preserve the normal in-tree API. Reusable implementations are `BasicIncremental*<Graph>` templates, including `BasicIncrementalWeightedSSSP<Graph>`.
 
 ## Backends
 
-Two in-tree backends exercise the same algorithm implementations:
+Two in-tree backends exercise the same unweighted algorithm implementations:
 
 1. `DynamicGraph`: segmented CSR + packed deltas + sparse row patches + reverse adjacency.
 2. `CsrGraph`: read-optimised CSR with reverse CSR for incoming traversal.
 
 `CsrGraph` deliberately does not implement mutation. It is used as a read-optimised recomputation backend and as a controlled storage baseline.
 
-A third, external backend is now exercised in CI through an ADL-only Teseo adapter. See [Teseo same-algorithm storage evidence](teseo-storage-evidence.md).
+Two independent external representations now exercise the same non-intrusive contract in CI:
+
+1. **Teseo**, pinned and built from source, supports both fixed-algorithm recomputation and mixed insertion/deletion batches through `BasicIncrementalBFS::apply()`.
+2. **Boost.Graph `adjacency_list`**, adapted only through ADL hooks, provides a second independently implemented mutable storage representation and is checked through the same recomputation and incremental-update sequence.
+
+The Boost adapter is intentionally used as the second regression backend instead of adding an unverified Sortledton-specific build shim. Sortledton remains a useful system-level replication target when its exact upstream revision/build environment is available, but no result is reported for it unless that integration can be pinned and CI-validated.
 
 ## Zero-allocation traversal
 
 Hot algorithm paths use callback traversal (`for_each_neighbor` / `for_each_in_neighbor`) rather than materialising `std::vector` adjacency lists. `DynamicGraph::neighbors()` remains available as a compatibility/materialisation API, but the generic incremental algorithms do not need it. `WeightedDynamicGraph` likewise provides allocation-free callback traversal.
 
-## Shared SSSP implementation
+## Shared and storage-independent SSSP
 
-Weighted and unweighted SSSP share the queue/relaxation engine in `incremental/dijkstra.hpp`. The varying input is the edge-weight enumeration: unit cost for unweighted graphs and stored weights for weighted graphs.
+Weighted and unweighted SSSP share the queue/relaxation engine in `incremental/dijkstra.hpp`. Unweighted SSSP supplies unit cost. `BasicIncrementalWeightedSSSP<Graph>` obtains stored weights through the weighted graph-access hooks and applies update batches through the same non-intrusive mutation path.
+
+`tests/test_weighted_sssp.cpp` defines a foreign weighted graph that exposes no VeloGraphX storage API. It is adapted only with `vx_*` functions and must match `WeightedDynamicGraph` exactly after initial computation, a weight decrease, insertion, weight increase, and deletion. This is the regression gate for weighted storage independence.
 
 ## Controlled in-tree benchmark
 
@@ -52,24 +61,26 @@ This benchmark answers a storage question: with algorithm semantics fixed, how m
 
 `test_storage_independence.cpp` executes identical algorithm templates on `DynamicGraph` and `CsrGraph` for BFS, unweighted SSSP, connected components, k-core, triangle counting, and PageRank. Results are checked for exact equality where appropriate and a tight numerical tolerance for PageRank.
 
-`test_graph_access_adl.cpp` goes further: it defines a foreign graph type with no VeloGraphX-style graph member API and adapts it only through ADL free functions. `BasicIncrementalBFS` and `BasicIncrementalSSSP` are then exercised through insertion and deletion updates. This is the regression gate for the non-intrusive customisation contract.
+`test_graph_access_adl.cpp` goes further: it defines a foreign graph type with no VeloGraphX-style graph member API and adapts it only through ADL free functions. `BasicIncrementalBFS` and `BasicIncrementalSSSP` are then exercised through insertion and deletion updates. This is the regression gate for the non-intrusive unweighted customisation contract.
+
+`test_weighted_sssp.cpp` provides the analogous weighted ADL regression described above.
 
 ## External dynamic graph adapters
 
-Teseo is now a real same-algorithm storage experiment rather than a future placeholder. The external workflow pins Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`, builds it from source, and runs the same `BasicIncrementalBFS::recompute()` implementation over `DynamicGraph`, `CsrGraph`, and the Teseo adapter. Full BFS distance vectors must match. The retained hosted evidence is documented in [teseo-storage-evidence.md](teseo-storage-evidence.md).
+Teseo is a real same-algorithm mutable-storage experiment. The external workflow pins Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`, builds it from source, and runs the same `BasicIncrementalBFS` implementation over `DynamicGraph`, `CsrGraph`, and the Teseo adapter. It checks complete BFS distance-vector equality for recomputation and then checks `DynamicGraph` versus Teseo after every mixed incremental batch. See [Teseo same-algorithm storage evidence](teseo-storage-evidence.md).
+
+The Boost.Graph workflow independently compiles an `adjacency_list<vecS, vecS, undirectedS>` adapter and performs the same full-vector recomputation and incremental correctness gates. It is evidence that the interface is not accidentally specialised to VeloGraphX or Teseo.
 
 A fair external adapter must satisfy all of the following before benchmark numbers are reported:
 
-- pin an immutable upstream revision/version;
+- pin an immutable upstream revision/version when an external source tree is required;
 - use identical graph inputs and update streams or snapshots as required by the experiment;
 - preserve directed/undirected and duplicate/self-loop semantics;
 - keep the VeloGraphX algorithm implementation fixed for a storage-swap experiment;
 - separate conversion/build time from steady-state kernel time;
 - validate outputs against an independent or cross-backend reference;
-- report compiler flags, hardware, threads, NUMA placement and repetitions;
+- report compiler flags, hardware, threads, NUMA placement and repetitions when making performance claims;
 - distinguish storage-interface evidence from a system-level comparison of each project's native algorithms.
-
-Sortledton remains a useful additional backend for independent replication. It is not folded into the current table until an equally pinned, same-semantics adapter is validated.
 
 ## Experiment families
 
@@ -78,11 +89,11 @@ Sortledton remains a useful additional backend for independent replication. It i
 Hold algorithm and workload fixed:
 
 ```text
-BasicIncrementalBFS::recompute
+BasicIncrementalBFS
   -> DynamicGraph
-  -> CsrGraph
+  -> CsrGraph (recompute only)
   -> Teseo adapter
-  -> another external adapter when semantics permit
+  -> Boost.Graph adapter
 ```
 
 ### Incremental repair vs recomputation
