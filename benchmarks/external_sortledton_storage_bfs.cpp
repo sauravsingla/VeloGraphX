@@ -136,108 +136,87 @@ std::uint64_t vx_version(const Graph& graph) { return graph.version_; }
 template <class Fn>
 void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
   SnapshotTransaction tx(&graph.manager_, true, &graph.storage_);
-  try { graph.manager_.getSnapshotTransaction(&graph.storage_, false, tx); }
-  catch (...) { throw_stage("neighbors reusable getSnapshotTransaction u=" + std::to_string(u)); }
-  bool completed = false;
-  try {
-    bool present = false;
-    try { present = tx.has_vertex(u); }
-    catch (...) { throw_stage("neighbors has_vertex u=" + std::to_string(u)); }
-    if (!present) {
-      try { graph.manager_.transactionCompleted(tx); completed = true; }
-      catch (...) { throw_stage("neighbors transactionCompleted absent u=" + std::to_string(u)); }
-      return;
-    }
+  tx.clear(false);
+  tx.read_version = graph.manager_.get_epoch();
 
-    vertex_id_t physical = 0;
-    try { physical = tx.physical_id(u); }
-    catch (...) { throw_stage("neighbors physical_id u=" + std::to_string(u)); }
+  bool present = false;
+  try { present = tx.has_vertex(u); }
+  catch (...) { throw_stage("neighbors has_vertex u=" + std::to_string(u)); }
+  if (!present) return;
 
-    std::size_t degree = 0;
-    try { degree = tx.neighbourhood_size_p(physical); }
-    catch (...) { throw_stage("neighbors degree u=" + std::to_string(u) + " p=" + std::to_string(physical)); }
+  vertex_id_t physical = 0;
+  try { physical = tx.physical_id(u); }
+  catch (...) { throw_stage("neighbors physical_id u=" + std::to_string(u)); }
 
-    const auto read_version = tx.get_version();
-    int set_type = -1;
-    try { set_type = static_cast<int>(graph.storage_.get_set_type(physical, read_version)); }
+  std::size_t degree = 0;
+  try { degree = tx.neighbourhood_size_p(physical); }
+  catch (...) { throw_stage("neighbors degree u=" + std::to_string(u) + " p=" + std::to_string(physical)); }
+
+  const auto read_version = tx.get_version();
+  int set_type = -1;
+  try { set_type = static_cast<int>(graph.storage_.get_set_type(physical, read_version)); }
+  catch (...) {
+    throw_stage("neighbors set_type u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                " degree=" + std::to_string(degree) + " version=" + std::to_string(read_version));
+  }
+
+  auto iter = [&]() {
+    try { return tx.neighbourhood_blocked_p(physical); }
     catch (...) {
-      throw_stage("neighbors set_type u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                  " degree=" + std::to_string(degree) + " version=" + std::to_string(read_version));
+      throw_stage("neighbors iterator-create u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                  " degree=" + std::to_string(degree) + " type=" + std::to_string(set_type) +
+                  " version=" + std::to_string(read_version));
     }
+  }();
 
-    auto iter = [&]() {
-      try { return tx.neighbourhood_blocked_p(physical); }
-      catch (...) {
-        throw_stage("neighbors iterator-create u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                    " degree=" + std::to_string(degree) + " type=" + std::to_string(set_type) +
-                    " version=" + std::to_string(read_version));
-      }
-    }();
-
-    try {
-      while (iter.has_next_block()) {
-        auto [versioned, begin, end] = iter.next_block();
-        if (versioned) {
-          while (iter.has_next_edge()) {
-            const auto raw = iter.next();
-            const auto unversioned = make_unversioned(raw);
-            VertexId logical = 0;
-            try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
-            catch (...) {
-              throw_stage("neighbors logical_id versioned u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                          " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
-            }
-            fn(logical);
+  try {
+    while (iter.has_next_block()) {
+      auto [versioned, begin, end] = iter.next_block();
+      if (versioned) {
+        while (iter.has_next_edge()) {
+          const auto raw = iter.next();
+          const auto unversioned = make_unversioned(raw);
+          VertexId logical = 0;
+          try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
+          catch (...) {
+            throw_stage("neighbors logical_id versioned u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                        " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
           }
-        } else {
-          for (auto it = begin; it < end; ++it) {
-            const auto raw = *it;
-            const auto unversioned = make_unversioned(raw);
-            VertexId logical = 0;
-            try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
-            catch (...) {
-              throw_stage("neighbors logical_id plain u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                          " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
-            }
-            fn(logical);
+          fn(logical);
+        }
+      } else {
+        for (auto it = begin; it < end; ++it) {
+          const auto raw = *it;
+          const auto unversioned = make_unversioned(raw);
+          VertexId logical = 0;
+          try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
+          catch (...) {
+            throw_stage("neighbors logical_id plain u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                        " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
           }
+          fn(logical);
         }
       }
-    } catch (const std::runtime_error&) {
-      throw;
-    } catch (...) {
-      throw_stage("neighbors iterator-walk u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                  " degree=" + std::to_string(degree) + " type=" + std::to_string(set_type));
     }
-
-    try { graph.manager_.transactionCompleted(tx); completed = true; }
-    catch (...) { throw_stage("neighbors transactionCompleted u=" + std::to_string(u)); }
-  } catch (...) {
-    if (!completed) { try { graph.manager_.transactionCompleted(tx); } catch (...) {} }
+  } catch (const std::runtime_error&) {
     throw;
+  } catch (...) {
+    throw_stage("neighbors iterator-walk u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                " degree=" + std::to_string(degree) + " type=" + std::to_string(set_type));
   }
 }
 
 bool vx_has_edge(const Graph& graph, VertexId u, VertexId v) {
   SnapshotTransaction tx(&graph.manager_, true, &graph.storage_);
-  try { graph.manager_.getSnapshotTransaction(&graph.storage_, false, tx); }
-  catch (...) { throw_stage("has_edge reusable getSnapshotTransaction " + std::to_string(u) + "->" + std::to_string(v)); }
-  bool completed = false;
+  tx.clear(false);
+  tx.read_version = graph.manager_.get_epoch();
   try {
-    bool result = false;
-    try {
-      if (tx.has_vertex(u) && tx.has_vertex(v)) {
-        const auto pu = tx.physical_id(u);
-        const auto pv = tx.physical_id(v);
-        result = tx.has_edge_p(edge_t{static_cast<dst_t>(pu), static_cast<dst_t>(pv)});
-      }
-    } catch (...) { throw_stage("has_edge read " + std::to_string(u) + "->" + std::to_string(v)); }
-    try { graph.manager_.transactionCompleted(tx); completed = true; }
-    catch (...) { throw_stage("has_edge transactionCompleted " + std::to_string(u) + "->" + std::to_string(v)); }
-    return result;
+    if (!tx.has_vertex(u) || !tx.has_vertex(v)) return false;
+    const auto pu = tx.physical_id(u);
+    const auto pv = tx.physical_id(v);
+    return tx.has_edge_p(edge_t{static_cast<dst_t>(pu), static_cast<dst_t>(pv)});
   } catch (...) {
-    if (!completed) { try { graph.manager_.transactionCompleted(tx); } catch (...) {} }
-    throw;
+    throw_stage("has_edge quiescent read " + std::to_string(u) + "->" + std::to_string(v));
   }
 }
 
