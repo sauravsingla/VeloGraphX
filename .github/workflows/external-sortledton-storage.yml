@@ -48,29 +48,58 @@ jobs:
           test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
           test -f external/sortledton/CMakeLists.txt
 
-      - name: Record pinned source and apply validation-only compatibility guard
+      - name: Record pinned source and apply compatibility guards
         run: |
           mkdir -p artifacts/sortledton
           cp external/sortledton/CMakeLists.txt artifacts/sortledton/upstream-CMakeLists.txt
           cp external/sortledton/data-structure/VersioningBlockedSkipListAdjacencyList.cpp artifacts/sortledton/upstream-VersioningBlockedSkipListAdjacencyList.cpp
+          cp external/sortledton/data-structure/TransactionManager.cpp artifacts/sortledton/upstream-TransactionManager.cpp
           git -C external/sortledton diff --exit-code
           python - <<'PY'
           import json, subprocess
           from pathlib import Path
-          p = Path('external/sortledton/data-structure/VersioningBlockedSkipListAdjacencyList.cpp')
-          text = p.read_text()
+
+          storage = Path('external/sortledton/data-structure/VersioningBlockedSkipListAdjacencyList.cpp')
+          text = storage.read_text()
           old = '  if (round_up_power_of_two(block_size) != block_size) {\n    throw ConfigurationError("Block size needs to be a power of two.");\n  }'
           new = '  if (block_size == 0 || (block_size & (block_size - 1)) != 0) {\n    throw ConfigurationError("Block size needs to be a power of two.");\n  }'
           assert old in text
-          p.write_text(text.replace(old, new, 1))
+          storage.write_text(text.replace(old, new, 1))
+
+          tm = Path('external/sortledton/data-structure/TransactionManager.cpp')
+          text = tm.read_text()
+          old = '''SnapshotTransaction TransactionManager::getSnapshotTransaction(VersionedTopologyInterface* ti, bool write_only, bool analytics) {
+  
+  return SnapshotTransaction(this, write_only, ti, analytics);
+}'''
+          new = '''SnapshotTransaction TransactionManager::getSnapshotTransaction(VersionedTopologyInterface* ti, bool write_only, bool analytics) {
+  if (write_only) {
+    return SnapshotTransaction(this, true, ti, analytics);
+  }
+  SnapshotTransaction tx(this, true, ti, analytics);
+  tx.clear(false);
+  tx.set_read_timestamp(draw_timestamp(false));
+  return tx;
+}'''
+          assert old in text
+          tm.write_text(text.replace(old, new, 1))
+
           with open('artifacts/sortledton/build-compatibility.patch','w') as out:
-              subprocess.run(['git','-C','external/sortledton','diff','--','data-structure/VersioningBlockedSkipListAdjacencyList.cpp'], check=True, stdout=out)
+              subprocess.run([
+                  'git','-C','external/sortledton','diff','--',
+                  'data-structure/VersioningBlockedSkipListAdjacencyList.cpp',
+                  'data-structure/TransactionManager.cpp'
+              ], check=True, stdout=out)
+
           gcc = subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0]
           Path('artifacts/sortledton/build-compatibility.json').write_text(json.dumps({
-              'scope': 'constructor-validation-only',
+              'scope': 'constructor-validation-and-read-transaction-lifecycle',
               'sortledton_commit': '6eb638f3ad38f8a10a127e7e118528f4c8d07a6e',
               'graph_storage_semantics_changed': False,
-              'compatibility_adjustment': 'replace round_up_power_of_two equality guard with the equivalent direct nonzero power-of-two bit test',
+              'compatibility_adjustments': [
+                  'replace round_up_power_of_two equality guard with the equivalent direct nonzero power-of-two bit test',
+                  'initialize fresh read transactions with the same clear(false)+draw_timestamp(false) lifecycle used by Sortledton reusable transactions',
+              ],
               'validated_block_size': 1024,
               'property_size': 8,
               'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all built with GCC/G++ 10',
@@ -157,7 +186,7 @@ jobs:
               'backend': 'Sortledton',
               'sortledton_commit': subprocess.check_output(['git','-C','external/sortledton','rev-parse','HEAD'], text=True).strip(),
               'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
-              'build_compatibility_scope': 'constructor validation expression only; graph storage/update semantics unchanged',
+              'build_compatibility_scope': 'constructor validation and fresh-read transaction lifecycle only; graph storage/update semantics unchanged',
               'build_compatibility_patch_sha256': hashlib.sha256(patch.read_bytes()).hexdigest(),
               'sortledton_block_size': 1024,
               'property_size': 8,
