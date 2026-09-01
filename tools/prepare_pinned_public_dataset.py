@@ -3,12 +3,42 @@ import argparse
 import hashlib
 import json
 import pathlib
+import socket
+import time
+import urllib.error
 import urllib.request
 
 
 def git_blob_sha1(data: bytes) -> str:
     payload = f"blob {len(data)}\0".encode("ascii") + data
     return hashlib.sha1(payload).hexdigest()
+
+
+def download_with_retry(url: str, *, attempts: int = 5, timeout: int = 30) -> bytes:
+    """Download immutable public data with bounded retries for transient network failures."""
+    last_error: Exception | None = None
+    headers = {"User-Agent": "VeloGraphX-pinned-dataset-fetch/1"}
+
+    for attempt in range(1, attempts + 1):
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout) as exc:
+            last_error = exc
+            if attempt == attempts:
+                break
+            delay = min(2 ** (attempt - 1), 8)
+            print(
+                f"dataset download attempt {attempt}/{attempts} failed: {exc}; "
+                f"retrying in {delay}s",
+                flush=True,
+            )
+            time.sleep(delay)
+
+    raise RuntimeError(
+        f"dataset download failed after {attempts} attempts: {last_error}"
+    ) from last_error
 
 
 def main() -> int:
@@ -38,8 +68,7 @@ def main() -> int:
     if revision not in url:
         raise ValueError("dataset URL must contain the immutable source_revision")
 
-    with urllib.request.urlopen(url) as response:
-        data = response.read()
+    data = download_with_retry(url)
     actual_blob = git_blob_sha1(data)
     if actual_blob != expected_blob:
         raise ValueError(f"Git blob mismatch: expected {expected_blob}, got {actual_blob}")
