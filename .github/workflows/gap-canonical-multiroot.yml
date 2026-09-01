@@ -180,7 +180,7 @@ jobs:
       - name: Materialise and verify exact canonical dataset
         run: |
           bash tools/materialize_gap_canonical.sh external/gapbs '${{ inputs.dataset }}' artifacts/gap-canonical
-          sha256sum -c "artifacts/gap-canonical/${{ inputs.dataset }}.sha256" --ignore-missing
+          (cd artifacts/gap-canonical && sha256sum -c '${{ inputs.dataset }}.sha256')
 
       - name: Resolve canonical corpus semantics
         id: semantics
