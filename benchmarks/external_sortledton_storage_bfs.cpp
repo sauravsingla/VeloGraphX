@@ -30,7 +30,8 @@ class Graph {
  public:
   Graph(std::size_t vertices, const std::vector<std::pair<VertexId, VertexId>>& edges)
       : vertices_(vertices), manager_(1), storage_(1024, sizeof(double), manager_) {
-    try { manager_.register_thread(0); } catch (...) { throw_stage("register_thread(0)"); }
+    try { manager_.register_thread(0); }
+    catch (...) { throw_stage("register_thread(0)"); }
     registered_ = true;
     for (VertexId v = 0; v < vertices_; ++v) insert_vertex(v);
     for (const auto& [u, v] : edges) insert_edge(u, v);
@@ -50,7 +51,6 @@ class Graph {
   std::uint64_t version_{0};
   bool registered_{false};
 
- public:
   void insert_vertex(VertexId v) {
     SnapshotTransaction tx = [&]() {
       try { return manager_.getSnapshotTransaction(&storage_, true); }
@@ -87,7 +87,9 @@ class Graph {
         double weight = 1.0;
         tx.insert_edge(edge, reinterpret_cast<char*>(&weight), sizeof(weight));
         tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<char*>(&weight), sizeof(weight));
-      } catch (...) { throw_stage("insert_edge enqueue " + std::to_string(u) + "->" + std::to_string(v)); }
+      } catch (...) {
+        throw_stage("insert_edge enqueue " + std::to_string(u) + "->" + std::to_string(v));
+      }
       bool ok = false;
       try { ok = tx.execute(); }
       catch (...) { throw_stage("insert_edge execute " + std::to_string(u) + "->" + std::to_string(v)); }
@@ -111,7 +113,9 @@ class Graph {
       try {
         tx.delete_edge(edge);
         tx.delete_edge({edge.dst, edge.src});
-      } catch (...) { throw_stage("delete_edge enqueue " + std::to_string(u) + "->" + std::to_string(v)); }
+      } catch (...) {
+        throw_stage("delete_edge enqueue " + std::to_string(u) + "->" + std::to_string(v));
+      }
       bool ok = false;
       try { ok = tx.execute(); }
       catch (...) { throw_stage("delete_edge execute " + std::to_string(u) + "->" + std::to_string(v)); }
@@ -131,25 +135,36 @@ std::uint64_t vx_version(const Graph& graph) { return graph.version_; }
 
 template <class Fn>
 void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
-  auto tx = graph.manager_.getSnapshotTransaction(&graph.storage_, false);
+  SnapshotTransaction tx = [&]() {
+    try { return graph.manager_.getSnapshotTransaction(&graph.storage_, false); }
+    catch (...) { throw_stage("neighbors getSnapshotTransaction u=" + std::to_string(u)); }
+  }();
   bool completed = false;
   try {
-    if (!tx.has_vertex(u)) {
-      graph.manager_.transactionCompleted(tx);
+    bool present = false;
+    try { present = tx.has_vertex(u); }
+    catch (...) { throw_stage("neighbors has_vertex u=" + std::to_string(u)); }
+    if (!present) {
+      try { graph.manager_.transactionCompleted(tx); completed = true; }
+      catch (...) { throw_stage("neighbors transactionCompleted absent u=" + std::to_string(u)); }
       return;
     }
-    const auto physical = tx.physical_id(u);
-    auto iter = tx.neighbourhood_blocked_p(physical);
-    while (iter.has_next_block()) {
-      auto [versioned, begin, end] = iter.next_block();
-      if (versioned) {
-        while (iter.has_next_edge()) fn(static_cast<VertexId>(tx.logical_id(iter.next())));
-      } else {
-        for (auto it = begin; it < end; ++it) fn(static_cast<VertexId>(tx.logical_id(*it)));
+    vertex_id_t physical = 0;
+    try { physical = tx.physical_id(u); }
+    catch (...) { throw_stage("neighbors physical_id u=" + std::to_string(u)); }
+    try {
+      auto iter = tx.neighbourhood_blocked_p(physical);
+      while (iter.has_next_block()) {
+        auto [versioned, begin, end] = iter.next_block();
+        if (versioned) {
+          while (iter.has_next_edge()) fn(static_cast<VertexId>(tx.logical_id(iter.next())));
+        } else {
+          for (auto it = begin; it < end; ++it) fn(static_cast<VertexId>(tx.logical_id(*it)));
+        }
       }
-    }
-    graph.manager_.transactionCompleted(tx);
-    completed = true;
+    } catch (...) { throw_stage("neighbors iterate u=" + std::to_string(u)); }
+    try { graph.manager_.transactionCompleted(tx); completed = true; }
+    catch (...) { throw_stage("neighbors transactionCompleted u=" + std::to_string(u)); }
   } catch (...) {
     if (!completed) { try { graph.manager_.transactionCompleted(tx); } catch (...) {} }
     throw;
@@ -157,17 +172,22 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
 }
 
 bool vx_has_edge(const Graph& graph, VertexId u, VertexId v) {
-  auto tx = graph.manager_.getSnapshotTransaction(&graph.storage_, false);
+  SnapshotTransaction tx = [&]() {
+    try { return graph.manager_.getSnapshotTransaction(&graph.storage_, false); }
+    catch (...) { throw_stage("has_edge getSnapshotTransaction " + std::to_string(u) + "->" + std::to_string(v)); }
+  }();
   bool completed = false;
   try {
     bool result = false;
-    if (tx.has_vertex(u) && tx.has_vertex(v)) {
-      const auto pu = tx.physical_id(u);
-      const auto pv = tx.physical_id(v);
-      result = tx.has_edge_p(edge_t{static_cast<dst_t>(pu), static_cast<dst_t>(pv)});
-    }
-    graph.manager_.transactionCompleted(tx);
-    completed = true;
+    try {
+      if (tx.has_vertex(u) && tx.has_vertex(v)) {
+        const auto pu = tx.physical_id(u);
+        const auto pv = tx.physical_id(v);
+        result = tx.has_edge_p(edge_t{static_cast<dst_t>(pu), static_cast<dst_t>(pv)});
+      }
+    } catch (...) { throw_stage("has_edge read " + std::to_string(u) + "->" + std::to_string(v)); }
+    try { graph.manager_.transactionCompleted(tx); completed = true; }
+    catch (...) { throw_stage("has_edge transactionCompleted " + std::to_string(u) + "->" + std::to_string(v)); }
     return result;
   } catch (...) {
     if (!completed) { try { graph.manager_.transactionCompleted(tx); } catch (...) {} }
@@ -257,6 +277,7 @@ int run(std::size_t vertices) {
   }
   const VertexId source = 0;
   const auto edges = make_graph(vertices);
+
   DynamicGraph dynamic(vertices, false);
   dynamic.bulk_load_edges(edges);
   CsrGraph csr(edges, false);
@@ -275,22 +296,31 @@ int run(std::size_t vertices) {
   std::vector<double> dynamic_samples, sortledton_samples;
   bool incremental_exact = true;
   for (const auto& batch : make_batches(vertices)) {
-    auto begin = std::chrono::steady_clock::now(); dynamic_inc.apply(batch); auto end = std::chrono::steady_clock::now();
+    auto begin = std::chrono::steady_clock::now();
+    dynamic_inc.apply(batch);
+    auto end = std::chrono::steady_clock::now();
     dynamic_samples.push_back(std::chrono::duration<double, std::micro>(end - begin).count());
-    begin = std::chrono::steady_clock::now(); sortledton_inc.apply(batch); end = std::chrono::steady_clock::now();
+
+    begin = std::chrono::steady_clock::now();
+    sortledton_inc.apply(batch);
+    end = std::chrono::steady_clock::now();
     sortledton_samples.push_back(std::chrono::duration<double, std::micro>(end - begin).count());
     incremental_exact = incremental_exact && dynamic_inc.distances() == sortledton_inc.distances();
   }
   std::sort(dynamic_samples.begin(), dynamic_samples.end());
   std::sort(sortledton_samples.begin(), sortledton_samples.end());
   const bool exact = recompute_exact && incremental_exact;
+
   std::cout << std::fixed << std::setprecision(3)
             << "{\"schema_version\":1,\"benchmark\":\"same-algorithm-storage-bfs\",\"backend\":\"sortledton\",\"algorithm\":\"BasicIncrementalBFS\",\"claim_scope\":\"correctness-and-storage-portability-only\",\"publication_grade\":false,"
             << "\"vertices\":" << vertices << ",\"edges\":" << edges.size() << ",\"source\":" << source
             << ",\"repetitions\":5,\"incremental_batches\":5,\"exact\":" << (exact ? "true" : "false")
-            << ",\"recompute_exact\":" << (recompute_exact ? "true" : "false") << ",\"incremental_exact\":" << (incremental_exact ? "true" : "false")
-            << ",\"digest\":" << digest(dynamic_inc.distances()) << ",\"dynamic_graph_median_us\":" << dynamic_us
-            << ",\"csr_graph_median_us\":" << csr_us << ",\"sortledton_median_us\":" << sortledton_us
+            << ",\"recompute_exact\":" << (recompute_exact ? "true" : "false")
+            << ",\"incremental_exact\":" << (incremental_exact ? "true" : "false")
+            << ",\"digest\":" << digest(dynamic_inc.distances())
+            << ",\"dynamic_graph_median_us\":" << dynamic_us
+            << ",\"csr_graph_median_us\":" << csr_us
+            << ",\"sortledton_median_us\":" << sortledton_us
             << ",\"dynamic_incremental_median_us\":" << dynamic_samples[dynamic_samples.size()/2]
             << ",\"sortledton_incremental_median_us\":" << sortledton_samples[sortledton_samples.size()/2] << "}\n";
   return exact ? 0 : 2;
