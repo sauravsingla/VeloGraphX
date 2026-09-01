@@ -27,7 +27,7 @@ using velographx::VertexId;
 class Graph {
  public:
   Graph(std::size_t vertices, const std::vector<std::pair<VertexId, VertexId>>& edges)
-      : vertices_(vertices), manager_(1), storage_(512, sizeof(double), manager_) {
+      : vertices_(vertices), manager_(1), storage_(1024, sizeof(double), manager_) {
     try { manager_.register_thread(0); } catch (...) { throw_stage("register_thread(0)"); }
     registered_ = true;
     for (VertexId v = 0; v < vertices_; ++v) insert_vertex(v);
