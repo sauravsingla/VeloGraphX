@@ -3,6 +3,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -103,6 +104,19 @@ void for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
 }
 
 template <ReadableGraph Graph, class Fn>
+void for_each_weighted_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
+  if constexpr (requires { graph.for_each_neighbor(u, std::forward<Fn>(fn)); }) {
+    graph.for_each_neighbor(u, std::forward<Fn>(fn));
+  } else if constexpr (requires { vx_for_each_weighted_neighbor(graph, u, std::forward<Fn>(fn)); }) {
+    vx_for_each_weighted_neighbor(graph, u, std::forward<Fn>(fn));
+  } else {
+    for (const auto& neighbor : graph.neighbors(u)) {
+      fn(static_cast<VertexId>(neighbor.first), static_cast<std::uint64_t>(neighbor.second));
+    }
+  }
+}
+
+template <ReadableGraph Graph, class Fn>
 void for_each_in_neighbor(const Graph& graph, VertexId v, Fn&& fn) {
   if constexpr (requires { graph.for_each_in_neighbor(v, std::forward<Fn>(fn)); }) {
     graph.for_each_in_neighbor(v, std::forward<Fn>(fn));
@@ -144,6 +158,25 @@ template <ReadableGraph Graph>
     bool found = false;
     for_each_neighbor(graph, u, [&](VertexId dst) { found = found || dst == v; });
     return found;
+  }
+}
+
+template <ReadableGraph Graph>
+[[nodiscard]] std::optional<std::uint64_t> edge_weight(const Graph& graph, VertexId u, VertexId v) {
+  if constexpr (requires { graph.weight(u, v); }) {
+    const auto value = graph.weight(u, v);
+    if (!value) return std::nullopt;
+    return static_cast<std::uint64_t>(*value);
+  } else if constexpr (requires { vx_edge_weight(graph, u, v); }) {
+    const auto value = vx_edge_weight(graph, u, v);
+    if (!value) return std::nullopt;
+    return static_cast<std::uint64_t>(*value);
+  } else {
+    std::optional<std::uint64_t> result;
+    for_each_weighted_neighbor(graph, u, [&](VertexId dst, auto weight) {
+      if (dst == v) result = static_cast<std::uint64_t>(weight);
+    });
+    return result;
   }
 }
 
