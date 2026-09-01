@@ -1,5 +1,5 @@
 # Frozen native NetworKit campaign; benchmark semantics unchanged.
-name: Native NetworKit Multi-dataset Campaign
+name: Native NetworKit Multi-dataset Multi-root Campaign
 
 on:
   push:
@@ -10,7 +10,6 @@ on:
       - 'tools/prepare_dataset.py'
       - 'tools/prepare_pinned_edge_stream.py'
       - 'tools/prepare_symmetric_pinned_edge_stream.py'
-      - 'tools/select_bfs_root.py'
       - 'tools/capture_benchmark_environment.py'
       - 'datasets/manifest.public-small.json'
       - 'include/velographx/incremental/bfs.hpp'
@@ -116,28 +115,31 @@ jobs:
             --expected-unique-nonloop-pairs 14484
 
           python - <<'PY'
-          import json, subprocess
-          configs=[('web-Google','0.99'), ('ca-GrQc','0.75')]
-          for name, rate in configs:
-              n=json.load(open(f'build/native-campaign/{name}-normalization.json'))
-              if name == 'ca-GrQc':
-                  assert n['source_rows'] == 28980
-                  assert n['source_self_loop_rows_removed'] == 12
-                  assert n['source_nonloop_rows'] == 28968
-                  assert n['source_unique_nonloop_undirected_edges'] == 14484
-                  assert n['source_expected_nonloop_pair_multiplicity'] == 2
-                  assert n['source_reciprocal_pairs_verified'] == 14484
-                  assert n['edge_count'] == 28968
-                  assert n['directed_representation_of_undirected_graph'] is True
-              cmd=['python','tools/select_bfs_root.py','--input',f'build/native-campaign/{name}.txt',
-                   '--imported-rate',rate,'--total-edges',str(n['edge_count']),
-                   '--output',f'build/native-campaign/{name}-root.json']
-              if name == 'ca-GrQc':
-                  cmd.append('--sliding-window-aware')
-              subprocess.run(cmd,check=True)
+          import json
+          from pathlib import Path
+
+          n=json.load(open('build/native-campaign/ca-GrQc-normalization.json'))
+          assert n['source_rows'] == 28980
+          assert n['source_self_loop_rows_removed'] == 12
+          assert n['source_nonloop_rows'] == 28968
+          assert n['source_unique_nonloop_undirected_edges'] == 14484
+          assert n['source_expected_nonloop_pair_multiplicity'] == 2
+          assert n['source_reciprocal_pairs_verified'] == 14484
+          assert n['edge_count'] == 28968
+          assert n['directed_representation_of_undirected_graph'] is True
+
+          # These are the frozen, reachability-screened roots from the accepted
+          # VeloGraphX multi-root campaign. Reusing them verbatim prevents root
+          # choice from becoming a system-specific tuning variable.
+          roots={
+              'web-Google':[481807,771121,391806],
+              'ca-GrQc':[4282,2465,1974],
+          }
+          Path('build/native-campaign/roots.json').write_text(
+              json.dumps({'selection':'frozen-from-accepted-multiroot-campaign','datasets':roots},indent=2,sort_keys=True)+'\n')
           PY
 
-      - name: Run five same-machine repetitions on both datasets
+      - name: Run five paired same-machine repetitions for every dataset and root
         env:
           OMP_NUM_THREADS: '1'
           OMP_PROC_BIND: 'true'
@@ -147,23 +149,25 @@ jobs:
           import json, subprocess
           from pathlib import Path
           configs=[('web-Google',0.99,4096,100000),('ca-GrQc',0.75,256,1000)]
+          roots=json.load(open('build/native-campaign/roots.json'))['datasets']
           repeats=5
           for name,rate,batch,min_reachable in configs:
-              root=json.load(open(f'build/native-campaign/{name}-root.json'))['root']
-              for rep in range(1,repeats+1):
-                  vx=Path(f'build/native-campaign/runs/{name}-r{rep}-velographx.json')
-                  nk=Path(f'build/native-campaign/runs/{name}-r{rep}-networkit.json')
-                  with vx.open('w') as out:
-                      subprocess.run(['build/vx/velographx_external_risgraph_bfs',f'build/native-campaign/{name}.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
-                  with nk.open('w') as out:
-                      subprocess.run(['build/networkit_native_bfs',f'build/native-campaign/{name}.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
-                  a=json.load(vx.open()); b=json.load(nk.open())
-                  assert a['correct'] and a['legacy_correct']
-                  assert b['native_cpp'] and b['all_batches_correct_against_fresh_full_bfs']
-                  assert a['root']==b['root'] and a['batch_size']==b['batch_size'] and a['batches']==b['batches']
-                  assert a['initial_edges']==b['initial_edges'] and a['final_edges']==b['final_edges']
-                  assert a['layer_counts']==b['layer_counts']
-                  assert b['visited_vertices'] >= min_reachable, (name, b['visited_vertices'], min_reachable)
+              for root in roots[name]:
+                  for rep in range(1,repeats+1):
+                      stem=f'{name}-root-{root}-r{rep}'
+                      vx=Path(f'build/native-campaign/runs/{stem}-velographx.json')
+                      nk=Path(f'build/native-campaign/runs/{stem}-networkit.json')
+                      with vx.open('w') as out:
+                          subprocess.run(['build/vx/velographx_external_risgraph_bfs',f'build/native-campaign/{name}.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
+                      with nk.open('w') as out:
+                          subprocess.run(['build/networkit_native_bfs',f'build/native-campaign/{name}.txt',str(root),str(rate),str(batch)],stdout=out,check=True)
+                      a=json.load(vx.open()); b=json.load(nk.open())
+                      assert a['correct'] and a['legacy_correct']
+                      assert b['native_cpp'] and b['all_batches_correct_against_fresh_full_bfs']
+                      assert a['root']==b['root'] and a['batch_size']==b['batch_size'] and a['batches']==b['batches']
+                      assert a['initial_edges']==b['initial_edges'] and a['final_edges']==b['final_edges']
+                      assert a['layer_counts']==b['layer_counts']
+                      assert b['visited_vertices'] >= min_reachable, (name, root, b['visited_vertices'], min_reachable)
           PY
 
       - name: Build repeated-run statistical summary
@@ -172,32 +176,44 @@ jobs:
           import json, statistics
           from pathlib import Path
           configs=[('web-Google',100000),('ca-GrQc',1000)]
-          summary={'schema_version':2,'artifact_type':'velographx-native-networkit-multidataset-campaign',
+          roots=json.load(open('build/native-campaign/roots.json'))['datasets']
+          summary={'schema_version':3,'artifact_type':'velographx-native-networkit-multidataset-multiroot-campaign',
                    'networkit_revision':'359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c',
                    'networkit_version':'11.2.1','native_cpp':True,'same_machine':True,
-                   'repetitions_per_dataset':5,'research_claim':False,'datasets':{}}
+                   'one_thread':True,'roots_per_dataset':3,'repetitions_per_root':5,
+                   'paired_executions':30,'research_claim':False,'datasets':{}}
           for name,min_reachable in configs:
-              vx=[]; nk=[]; visited=None; batches=None
-              for rep in range(1,6):
-                  a=json.load(open(f'build/native-campaign/runs/{name}-r{rep}-velographx.json'))
-                  b=json.load(open(f'build/native-campaign/runs/{name}-r{rep}-networkit.json'))
-                  vx.append(a['wall_mean_us']); nk.append(b['wall_mean_us'])
-                  visited=b['visited_vertices']; batches=b['batches']
-              ratios=[a/b for a,b in zip(vx,nk)]
+              root_rows=[]
+              for root in roots[name]:
+                  vx=[]; nk=[]; visited=None; batches=None
+                  for rep in range(1,6):
+                      stem=f'{name}-root-{root}-r{rep}'
+                      a=json.load(open(f'build/native-campaign/runs/{stem}-velographx.json'))
+                      b=json.load(open(f'build/native-campaign/runs/{stem}-networkit.json'))
+                      vx.append(a['wall_mean_us']); nk.append(b['wall_mean_us'])
+                      visited=b['visited_vertices']; batches=b['batches']
+                  ratios=[a/b for a,b in zip(vx,nk)]
+                  root_rows.append({
+                      'root':root,'batches':batches,'visited_vertices':visited,
+                      'minimum_accepted_reachable_vertices':min_reachable,
+                      'nontrivial_reachability_gate_passed':visited >= min_reachable,
+                      'velographx_mean_batch_us':statistics.mean(vx),
+                      'velographx_median_batch_us':statistics.median(vx),
+                      'velographx_stdev_batch_us':statistics.stdev(vx),
+                      'networkit_mean_batch_us':statistics.mean(nk),
+                      'networkit_median_batch_us':statistics.median(nk),
+                      'networkit_stdev_batch_us':statistics.stdev(nk),
+                      'paired_ratio_velographx_over_networkit_mean':statistics.mean(ratios),
+                      'paired_ratio_velographx_over_networkit_median':statistics.median(ratios),
+                      'all_five_repetitions_exact':True,
+                      'velographx_samples_us':vx,'networkit_samples_us':nk,
+                  })
               summary['datasets'][name]={
-                  'batches':batches,'visited_vertices':visited,
-                  'minimum_accepted_reachable_vertices':min_reachable,
-                  'nontrivial_reachability_gate_passed':visited >= min_reachable,
-                  'velographx_mean_batch_us':statistics.mean(vx),
-                  'velographx_median_batch_us':statistics.median(vx),
-                  'velographx_stdev_batch_us':statistics.stdev(vx),
-                  'networkit_mean_batch_us':statistics.mean(nk),
-                  'networkit_median_batch_us':statistics.median(nk),
-                  'networkit_stdev_batch_us':statistics.stdev(nk),
-                  'paired_ratio_velographx_over_networkit_mean':statistics.mean(ratios),
-                  'paired_ratio_velographx_over_networkit_median':statistics.median(ratios),
-                  'all_repetitions_exact':True,
-                  'velographx_samples_us':vx,'networkit_samples_us':nk
+                  'roots':root_rows,
+                  'mean_of_root_velographx_means_us':statistics.mean(r['velographx_mean_batch_us'] for r in root_rows),
+                  'mean_of_root_networkit_means_us':statistics.mean(r['networkit_mean_batch_us'] for r in root_rows),
+                  'mean_of_root_paired_ratios':statistics.mean(r['paired_ratio_velographx_over_networkit_mean'] for r in root_rows),
+                  'all_roots_all_repetitions_exact':True,
               }
           Path('build/native-campaign/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
           print(json.dumps(summary,sort_keys=True))

@@ -26,12 +26,13 @@ Two in-tree backends exercise the same unweighted algorithm implementations:
 
 `CsrGraph` deliberately does not implement mutation. It is used as a read-optimised recomputation backend and as a controlled storage baseline.
 
-Two independent external representations now exercise the same non-intrusive contract in CI:
+Three independent external representations now exercise the same non-intrusive contract in CI:
 
 1. **Teseo**, pinned and built from source, supports both fixed-algorithm recomputation and mixed insertion/deletion batches through `BasicIncrementalBFS::apply()`.
 2. **Boost.Graph `adjacency_list`**, adapted only through ADL hooks, provides a second independently implemented mutable storage representation and is checked through the same recomputation and incremental-update sequence.
+3. **Sortledton**, pinned at commit `6eb638f3ad38f8a10a127e7e118528f4c8d07a6e`, is built from source and exercised through the same fixed `BasicIncrementalBFS` algorithm for recomputation and deterministic mixed insertion/deletion batches.
 
-The Boost adapter is intentionally used as the second regression backend instead of adding an unverified Sortledton-specific build shim. Sortledton remains a useful system-level replication target when its exact upstream revision/build environment is available, but no result is reported for it unless that integration can be pinned and CI-validated.
+The Sortledton workflow records its immutable upstream sources and applies one documented constructor-validation compatibility guard for GCC 10. The guard replaces a power-of-two check with an equivalent nonzero bit test; it does not change graph storage, update, or transaction-manager semantics. All three implementations are built with GCC/G++ 10, and complete BFS distance vectors must match after recomputation and every update batch. This is storage-portability and correctness evidence, not a publication-grade system performance comparison.
 
 ## Zero-allocation traversal
 
@@ -71,6 +72,8 @@ Teseo is a real same-algorithm mutable-storage experiment. The external workflow
 
 The Boost.Graph workflow independently compiles an `adjacency_list<vecS, vecS, undirectedS>` adapter and performs the same full-vector recomputation and incremental correctness gates. It is evidence that the interface is not accidentally specialised to VeloGraphX or Teseo.
 
+The Sortledton workflow independently builds the pinned upstream storage library, compiles `benchmarks/external_sortledton_storage_bfs.cpp`, and runs five repetitions at 2,048 and 8,192 vertices. It requires exact recomputation equality and exact incremental equality after all five deterministic mixed-update batches at both sizes. Timings are retained only as hosted-CI diagnostics and are explicitly gated from publication claims.
+
 A fair external adapter must satisfy all of the following before benchmark numbers are reported:
 
 - pin an immutable upstream revision/version when an external source tree is required;
@@ -94,6 +97,7 @@ BasicIncrementalBFS
   -> CsrGraph (recompute only)
   -> Teseo adapter
   -> Boost.Graph adapter
+  -> Sortledton adapter
 ```
 
 ### Incremental repair vs recomputation
