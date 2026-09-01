@@ -20,11 +20,15 @@ namespace sortledton_adapter {
 using velographx::UpdateBatch;
 using velographx::VertexId;
 
+[[noreturn]] void throw_stage(const std::string& stage) {
+  throw std::runtime_error("Sortledton stage failed: " + stage);
+}
+
 class Graph {
  public:
   Graph(std::size_t vertices, const std::vector<std::pair<VertexId, VertexId>>& edges)
       : vertices_(vertices), manager_(1), storage_(512, sizeof(double), manager_) {
-    manager_.register_thread(0);
+    try { manager_.register_thread(0); } catch (...) { throw_stage("register_thread(0)"); }
     registered_ = true;
     for (VertexId v = 0; v < vertices_; ++v) insert_vertex(v);
     for (const auto& [u, v] : edges) insert_edge(u, v);
@@ -44,59 +48,78 @@ class Graph {
   std::uint64_t version_{0};
   bool registered_{false};
 
- private:
-  template <class Fn>
-  void write_transaction(Fn&& fn, const char* failure) {
-    auto tx = manager_.getSnapshotTransaction(&storage_, true);
+ public:
+  void insert_vertex(VertexId v) {
+    SnapshotTransaction tx = [&]() {
+      try { return manager_.getSnapshotTransaction(&storage_, true); }
+      catch (...) { throw_stage("insert_vertex getSnapshotTransaction v=" + std::to_string(v)); }
+    }();
     bool completed = false;
     try {
-      fn(tx);
-      const bool ok = tx.execute();
-      manager_.transactionCompleted(tx);
-      completed = true;
-      if (!ok) throw std::runtime_error(failure);
+      try { tx.insert_vertex(v); }
+      catch (...) { throw_stage("insert_vertex enqueue v=" + std::to_string(v)); }
+      bool ok = false;
+      try { ok = tx.execute(); }
+      catch (...) { throw_stage("insert_vertex execute v=" + std::to_string(v)); }
+      try { manager_.transactionCompleted(tx); completed = true; }
+      catch (...) { throw_stage("insert_vertex transactionCompleted v=" + std::to_string(v)); }
+      if (!ok) throw std::runtime_error("Sortledton vertex insertion returned false v=" + std::to_string(v));
     } catch (...) {
-      if (!completed) {
-        try { manager_.transactionCompleted(tx); } catch (...) {}
-      }
+      if (!completed) { try { manager_.transactionCompleted(tx); } catch (...) {} }
       throw;
     }
   }
 
- public:
-  void insert_vertex(VertexId v) {
-    write_transaction([&](auto& tx) { tx.insert_vertex(v); }, "Sortledton vertex insertion failed");
-  }
-
   void insert_edge(VertexId u, VertexId v) {
-    auto tx = manager_.getSnapshotTransaction(&storage_, true);
+    SnapshotTransaction tx = [&]() {
+      try { return manager_.getSnapshotTransaction(&storage_, true); }
+      catch (...) { throw_stage("insert_edge getSnapshotTransaction " + std::to_string(u) + "->" + std::to_string(v)); }
+    }();
     bool completed = false;
     try {
       const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
-      tx.use_vertex_does_not_exists_semantics();
-      tx.insert_vertex(edge.src);
-      tx.insert_vertex(edge.dst);
-      double weight = 1.0;
-      tx.insert_edge(edge, reinterpret_cast<char*>(&weight), sizeof(weight));
-      tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<char*>(&weight), sizeof(weight));
-      const bool ok = tx.execute();
-      manager_.transactionCompleted(tx);
-      completed = true;
-      if (!ok) throw std::runtime_error("Sortledton edge insertion failed");
+      try {
+        tx.use_vertex_does_not_exists_semantics();
+        tx.insert_vertex(edge.src);
+        tx.insert_vertex(edge.dst);
+        double weight = 1.0;
+        tx.insert_edge(edge, reinterpret_cast<char*>(&weight), sizeof(weight));
+        tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<char*>(&weight), sizeof(weight));
+      } catch (...) { throw_stage("insert_edge enqueue " + std::to_string(u) + "->" + std::to_string(v)); }
+      bool ok = false;
+      try { ok = tx.execute(); }
+      catch (...) { throw_stage("insert_edge execute " + std::to_string(u) + "->" + std::to_string(v)); }
+      try { manager_.transactionCompleted(tx); completed = true; }
+      catch (...) { throw_stage("insert_edge transactionCompleted " + std::to_string(u) + "->" + std::to_string(v)); }
+      if (!ok) throw std::runtime_error("Sortledton edge insertion returned false " + std::to_string(u) + "->" + std::to_string(v));
     } catch (...) {
-      if (!completed) {
-        try { manager_.transactionCompleted(tx); } catch (...) {}
-      }
+      if (!completed) { try { manager_.transactionCompleted(tx); } catch (...) {} }
       throw;
     }
   }
 
   void delete_edge(VertexId u, VertexId v) {
-    write_transaction([&](auto& tx) {
+    SnapshotTransaction tx = [&]() {
+      try { return manager_.getSnapshotTransaction(&storage_, true); }
+      catch (...) { throw_stage("delete_edge getSnapshotTransaction " + std::to_string(u) + "->" + std::to_string(v)); }
+    }();
+    bool completed = false;
+    try {
       const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
-      tx.delete_edge(edge);
-      tx.delete_edge({edge.dst, edge.src});
-    }, "Sortledton edge deletion failed");
+      try {
+        tx.delete_edge(edge);
+        tx.delete_edge({edge.dst, edge.src});
+      } catch (...) { throw_stage("delete_edge enqueue " + std::to_string(u) + "->" + std::to_string(v)); }
+      bool ok = false;
+      try { ok = tx.execute(); }
+      catch (...) { throw_stage("delete_edge execute " + std::to_string(u) + "->" + std::to_string(v)); }
+      try { manager_.transactionCompleted(tx); completed = true; }
+      catch (...) { throw_stage("delete_edge transactionCompleted " + std::to_string(u) + "->" + std::to_string(v)); }
+      if (!ok) throw std::runtime_error("Sortledton edge deletion returned false " + std::to_string(u) + "->" + std::to_string(v));
+    } catch (...) {
+      if (!completed) { try { manager_.transactionCompleted(tx); } catch (...) {} }
+      throw;
+    }
   }
 };
 
@@ -126,9 +149,7 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
     graph.manager_.transactionCompleted(tx);
     completed = true;
   } catch (...) {
-    if (!completed) {
-      try { graph.manager_.transactionCompleted(tx); } catch (...) {}
-    }
+    if (!completed) { try { graph.manager_.transactionCompleted(tx); } catch (...) {} }
     throw;
   }
 }
@@ -147,9 +168,7 @@ bool vx_has_edge(const Graph& graph, VertexId u, VertexId v) {
     completed = true;
     return result;
   } catch (...) {
-    if (!completed) {
-      try { graph.manager_.transactionCompleted(tx); } catch (...) {}
-    }
+    if (!completed) { try { graph.manager_.transactionCompleted(tx); } catch (...) {} }
     throw;
   }
 }
@@ -231,7 +250,6 @@ std::uint64_t digest(const std::vector<std::uint32_t>& distances) {
 int run(std::size_t vertices) {
   const VertexId source = 0;
   const auto edges = make_graph(vertices);
-
   DynamicGraph dynamic(vertices, false);
   dynamic.bulk_load_edges(edges);
   CsrGraph csr(edges, false);
@@ -250,43 +268,24 @@ int run(std::size_t vertices) {
   std::vector<double> dynamic_samples, sortledton_samples;
   bool incremental_exact = true;
   for (const auto& batch : make_batches(vertices)) {
-    auto begin = std::chrono::steady_clock::now();
-    dynamic_inc.apply(batch);
-    auto end = std::chrono::steady_clock::now();
+    auto begin = std::chrono::steady_clock::now(); dynamic_inc.apply(batch); auto end = std::chrono::steady_clock::now();
     dynamic_samples.push_back(std::chrono::duration<double, std::micro>(end - begin).count());
-
-    begin = std::chrono::steady_clock::now();
-    sortledton_inc.apply(batch);
-    end = std::chrono::steady_clock::now();
+    begin = std::chrono::steady_clock::now(); sortledton_inc.apply(batch); end = std::chrono::steady_clock::now();
     sortledton_samples.push_back(std::chrono::duration<double, std::micro>(end - begin).count());
     incremental_exact = incremental_exact && dynamic_inc.distances() == sortledton_inc.distances();
   }
   std::sort(dynamic_samples.begin(), dynamic_samples.end());
   std::sort(sortledton_samples.begin(), sortledton_samples.end());
   const bool exact = recompute_exact && incremental_exact;
-
   std::cout << std::fixed << std::setprecision(3)
-            << "{\"schema_version\":1,"
-            << "\"benchmark\":\"same-algorithm-storage-bfs\","
-            << "\"backend\":\"sortledton\","
-            << "\"algorithm\":\"BasicIncrementalBFS\","
-            << "\"claim_scope\":\"correctness-and-storage-portability-only\","
-            << "\"publication_grade\":false,"
-            << "\"vertices\":" << vertices << ','
-            << "\"edges\":" << edges.size() << ','
-            << "\"source\":" << source << ','
-            << "\"repetitions\":5,"
-            << "\"incremental_batches\":5,"
-            << "\"exact\":" << (exact ? "true" : "false") << ','
-            << "\"recompute_exact\":" << (recompute_exact ? "true" : "false") << ','
-            << "\"incremental_exact\":" << (incremental_exact ? "true" : "false") << ','
-            << "\"digest\":" << digest(dynamic_inc.distances()) << ','
-            << "\"dynamic_graph_median_us\":" << dynamic_us << ','
-            << "\"csr_graph_median_us\":" << csr_us << ','
-            << "\"sortledton_median_us\":" << sortledton_us << ','
-            << "\"dynamic_incremental_median_us\":" << dynamic_samples[dynamic_samples.size()/2] << ','
-            << "\"sortledton_incremental_median_us\":" << sortledton_samples[sortledton_samples.size()/2]
-            << "}\n";
+            << "{\"schema_version\":1,\"benchmark\":\"same-algorithm-storage-bfs\",\"backend\":\"sortledton\",\"algorithm\":\"BasicIncrementalBFS\",\"claim_scope\":\"correctness-and-storage-portability-only\",\"publication_grade\":false,"
+            << "\"vertices\":" << vertices << ",\"edges\":" << edges.size() << ",\"source\":" << source
+            << ",\"repetitions\":5,\"incremental_batches\":5,\"exact\":" << (exact ? "true" : "false")
+            << ",\"recompute_exact\":" << (recompute_exact ? "true" : "false") << ",\"incremental_exact\":" << (incremental_exact ? "true" : "false")
+            << ",\"digest\":" << digest(dynamic_inc.distances()) << ",\"dynamic_graph_median_us\":" << dynamic_us
+            << ",\"csr_graph_median_us\":" << csr_us << ",\"sortledton_median_us\":" << sortledton_us
+            << ",\"dynamic_incremental_median_us\":" << dynamic_samples[dynamic_samples.size()/2]
+            << ",\"sortledton_incremental_median_us\":" << sortledton_samples[sortledton_samples.size()/2] << "}\n";
   return exact ? 0 : 2;
 }
 }  // namespace
