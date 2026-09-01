@@ -15,6 +15,19 @@ on:
       - 'include/velographx/incremental/bfs.hpp'
       - 'include/velographx/storage/**'
       - 'CMakeLists.txt'
+  pull_request:
+    paths:
+      - '.github/workflows/external-networkit-native-multidataset.yml'
+      - 'benchmarks/external_networkit_native_bfs.cpp'
+      - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'tools/prepare_dataset.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/prepare_symmetric_pinned_edge_stream.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'datasets/manifest.public-small.json'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/storage/**'
+      - 'CMakeLists.txt'
   workflow_dispatch:
 
 jobs:
