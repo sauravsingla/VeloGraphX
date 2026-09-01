@@ -1,0 +1,123 @@
+name: External Sortledton Storage Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/external-sortledton-storage.yml'
+      - 'benchmarks/external_sortledton_storage_bfs.cpp'
+      - 'include/velographx/graph_access.hpp'
+      - 'include/velographx/incremental/bfs.hpp'
+  pull_request:
+    paths:
+      - '.github/workflows/external-sortledton-storage.yml'
+      - 'benchmarks/external_sortledton_storage_bfs.cpp'
+      - 'include/velographx/graph_access.hpp'
+      - 'include/velographx/incremental/bfs.hpp'
+  workflow_dispatch:
+
+jobs:
+  sortledton-storage-adapter:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      SORTLEDTON_SHA: 6eb638f3ad38f8a10a127e7e118528f4c8d07a6e
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libtbb-dev libnuma-dev
+
+      - name: Build VeloGraphX library and tests
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Clone immutable Sortledton revision
+        run: |
+          git clone https://gitlab.db.in.tum.de/per.fuchs/sortledton.git external/sortledton
+          git -C external/sortledton checkout "$SORTLEDTON_SHA"
+          test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
+
+      - name: Build Sortledton
+        run: |
+          cmake -S external/sortledton -B external/sortledton/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build external/sortledton/build --parallel 2
+          test -f external/sortledton/build/libsortledton.a
+
+      - name: Compile same-algorithm Sortledton storage benchmark
+        run: |
+          c++ -O3 -DNDEBUG -std=c++20 -fopenmp \
+            -Iinclude \
+            -Iexternal/sortledton/include \
+            -Iexternal/sortledton \
+            benchmarks/external_sortledton_storage_bfs.cpp \
+            build/libvelographx.a \
+            external/sortledton/build/libsortledton.a \
+            -ltbb -lnuma -lpthread \
+            -o build/velographx_external_sortledton_storage_bfs
+
+      - name: Run portability and incremental correctness campaign
+        run: |
+          mkdir -p artifacts/sortledton
+          build/velographx_external_sortledton_storage_bfs 2048 | tee artifacts/sortledton/sortledton-2048.json
+          build/velographx_external_sortledton_storage_bfs 8192 | tee artifacts/sortledton/sortledton-8192.json
+
+      - name: Validate exactness and claim gates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path('artifacts/sortledton').glob('sortledton-*.json')):
+              row = json.loads(path.read_text())
+              assert row['schema_version'] == 1
+              assert row['benchmark'] == 'same-algorithm-storage-bfs'
+              assert row['backend'] == 'sortledton'
+              assert row['algorithm'] == 'BasicIncrementalBFS'
+              assert row['claim_scope'] == 'correctness-and-storage-portability-only'
+              assert row['publication_grade'] is False
+              assert row['repetitions'] == 5
+              assert row['incremental_batches'] == 5
+              assert row['exact'] is True
+              assert row['recompute_exact'] is True
+              assert row['incremental_exact'] is True
+              assert row['dynamic_graph_median_us'] > 0
+              assert row['csr_graph_median_us'] > 0
+              assert row['sortledton_median_us'] > 0
+              assert row['dynamic_incremental_median_us'] > 0
+              assert row['sortledton_incremental_median_us'] > 0
+          PY
+
+      - name: Record immutable provenance
+        run: |
+          python - <<'PY'
+          import json, platform, subprocess
+          from pathlib import Path
+          payload = {
+              'schema_version': 1,
+              'artifact_type': 'velographx-sortledton-storage-adapter',
+              'publication_grade': False,
+              'research_claim': False,
+              'same_algorithm': 'BasicIncrementalBFS',
+              'backend': 'Sortledton',
+              'sortledton_commit': subprocess.check_output(['git','-C','external/sortledton','rev-parse','HEAD'], text=True).strip(),
+              'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
+              'compiler': subprocess.check_output(['c++','--version'], text=True).splitlines()[0],
+              'platform': platform.platform(),
+              'runner': 'github-hosted ubuntu-22.04',
+              'correctness_gate': 'full BFS distance-vector equality after recompute and every deterministic mixed insertion/deletion batch',
+              'claim_gate': 'storage portability/correctness evidence only; timings are not publication-grade system comparisons',
+          }
+          assert payload['sortledton_commit'] == '6eb638f3ad38f8a10a127e7e118528f4c8d07a6e'
+          Path('artifacts/sortledton/metadata.json').write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-sortledton-storage-adapter
+          path: artifacts/sortledton
+          retention-days: 30
