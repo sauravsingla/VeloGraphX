@@ -7,7 +7,9 @@ on:
       - 'benchmarks/external_teseo_storage_bfs.cpp'
       - 'include/velographx/graph_access.hpp'
       - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/incremental/weighted_sssp.hpp'
       - 'tests/test_graph_access_adl.cpp'
+      - 'datasets/manifest.public-small.json'
       - 'CMakeLists.txt'
   pull_request:
     paths:
@@ -15,23 +17,27 @@ on:
       - 'benchmarks/external_teseo_storage_bfs.cpp'
       - 'include/velographx/graph_access.hpp'
       - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/incremental/weighted_sssp.hpp'
       - 'tests/test_graph_access_adl.cpp'
+      - 'datasets/manifest.public-small.json'
       - 'CMakeLists.txt'
   workflow_dispatch:
 
 jobs:
   teseo-storage-swap:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 75
     env:
       TESEO_SHA: 2c37c2831c4d2acaaa838a86e1318363ce68c45b
+      GRQC_URL: https://raw.githubusercontent.com/CheemaMeshal/AstroPhysics-Network-Analysis/a2c89c74098ff191caa2379778c9c1dc00c011ba/CA-GrQc.txt
+      GRQC_SHA256: 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake libtool pkg-config libnuma-dev libevent-dev
+          sudo apt-get install -y autoconf automake libtool pkg-config libnuma-dev libevent-dev curl
 
       - name: Build and test VeloGraphX abstraction contract
         run: |
@@ -67,27 +73,47 @@ jobs:
             -lnuma -levent_pthreads -levent_core -pthread \
             -o build/velographx_external_teseo_storage_bfs
 
-      - name: Run exact storage-swap campaign
+      - name: Acquire checksum-pinned ca-GrQc
         run: |
-          mkdir -p artifacts/teseo
+          mkdir -p artifacts/teseo/input
+          curl --fail --location --retry 6 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 20 --max-time 180 \
+            "$GRQC_URL" -o artifacts/teseo/input/ca-GrQc.txt
+          echo "$GRQC_SHA256  artifacts/teseo/input/ca-GrQc.txt" | sha256sum -c -
+
+      - name: Run exact storage-swap and mutation campaign
+        run: |
           build/velographx_external_teseo_storage_bfs 8192 | tee artifacts/teseo/teseo-8192.json
           build/velographx_external_teseo_storage_bfs 32768 | tee artifacts/teseo/teseo-32768.json
+          build/velographx_external_teseo_storage_bfs --edge-list artifacts/teseo/input/ca-GrQc.txt \
+            | tee artifacts/teseo/teseo-ca-GrQc.json
 
       - name: Validate result contract
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
+          rows = []
           for path in sorted(Path('artifacts/teseo').glob('teseo-*.json')):
               row = json.loads(path.read_text())
-              assert row['schema_version'] == 1
+              rows.append(row)
+              assert row['schema_version'] == 2
               assert row['benchmark'] == 'same-algorithm-storage-bfs'
-              assert row['algorithm'] == 'BasicIncrementalBFS::recompute'
+              assert row['algorithm'] == 'BasicIncrementalBFS'
               assert row['repetitions'] == 5
+              assert row['update_count'] > 0
+              assert row['recompute_exact'] is True
+              assert row['update_exact'] is True
               assert row['exact'] is True
               assert row['dynamic_graph_median_us'] > 0
               assert row['csr_graph_median_us'] > 0
               assert row['teseo_median_us'] > 0
+              assert row['dynamic_update_us'] > 0
+              assert row['teseo_update_us'] > 0
+          assert len(rows) == 3
+          real = next(row for row in rows if row['dataset'].endswith('ca-GrQc.txt'))
+          assert real['vertices'] >= 5000
+          assert real['edges'] >= 10000
           PY
 
       - name: Record immutable experiment metadata
@@ -96,17 +122,19 @@ jobs:
           import json, os, platform, subprocess
           from pathlib import Path
           payload = {
-              'schema_version': 1,
+              'schema_version': 2,
               'artifact_type': 'velographx-teseo-storage-swap',
               'publication_grade': False,
-              'same_algorithm': 'BasicIncrementalBFS::recompute',
+              'same_algorithm': 'BasicIncrementalBFS recompute and apply',
               'teseo_commit': os.environ['TESEO_SHA'],
-              'teseo_semantics': 'undirected simple weighted graph; unit weights; dense vertex IDs',
+              'teseo_semantics': 'undirected simple graph; unit weights; dense vertex IDs',
+              'public_dataset': 'ca-GrQc',
+              'public_dataset_sha256': os.environ['GRQC_SHA256'],
               'compiler': subprocess.check_output(['c++', '--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
               'runner': 'github-hosted ubuntu-22.04',
-              'timing_scope': 'five median recomputations after graph construction; input/build time excluded',
-              'claim_gate': 'engineering storage-swap evidence only; not publication-grade hardware evidence',
+              'timing_scope': 'five median recomputations plus one identical 64-operation incremental batch after construction; input/build time excluded',
+              'claim_gate': 'engineering same-algorithm storage-interface evidence only; not a general native Teseo performance claim',
           }
           Path('artifacts/teseo/metadata.json').write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
           PY
