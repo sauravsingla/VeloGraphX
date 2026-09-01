@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "purpose": "Canonical real-dataset inputs for the controlled-hardware publication campaign.",
+  "datasets": [
+    {
+      "name": "web-Google",
+      "family": "scale-free-web",
+      "url": "https://raw.githubusercontent.com/ease-lab/dbg/3737683c0a0bcff6469a4691c16f51425a6bbfd3/datasets/web-Google.txt",
+      "sha256": "8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1",
+      "compression": "none",
+      "directed": true,
+      "drop_self_loops": false,
+      "expected_vertices": 875713,
+      "expected_normalized_rows": 5105039,
+      "source": 0
+    },
+    {
+      "name": "com-LiveJournal",
+      "family": "scale-free-social",
+      "url": "https://snap.stanford.edu/data/bigdata/communities/com-lj.ungraph.txt.gz",
+      "sha256": "e0e8996341b963ecbe0a572c71446c03fd6e93a6c521578eaae7566c68ff608e",
+      "compression": "gzip",
+      "directed": false,
+      "drop_self_loops": false,
+      "expected_vertices": 3997962,
+      "expected_normalized_rows": 34681189,
+      "source": 0
+    },
+    {
+      "name": "roadNet-CA",
+      "family": "road-network",
+      "url": "https://snap.stanford.edu/data/roadNet-CA.txt.gz",
+      "sha256": "383f7b14424530a9e25c392969a9c19dace32ebcfd141f0967a1433498c2acdd",
+      "compression": "gzip",
+      "directed": false,
+      "drop_self_loops": true,
+      "expected_vertices": 1965206,
+      "expected_normalized_rows": 5533214,
+      "source": 0
+    }
+  ]
+}

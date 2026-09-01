@@ -2,7 +2,7 @@
 """Run the publication-grade in-memory capacity boundary campaign.
 
 The sweep generates deterministic Kronecker workloads, executes the public
-benchmark under /usr/bin/time -v, records peak RSS and Linux swap activity,
+benchmark under a per-process POSIX resource wrapper, records peak RSS and Linux swap activity,
 and stops at the first scale that cannot complete as a clean in-memory run.
 
 A capacity boundary is established only when at least one scale succeeds and a
@@ -50,25 +50,6 @@ def read_vmstat() -> dict[str, int]:
     return values
 
 
-def parse_time_verbose(path: Path) -> dict[str, int | str]:
-    result: dict[str, int | str] = {}
-    if not path.exists():
-        return result
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        if key == "Maximum resident set size (kbytes)":
-            result["peak_rss_bytes"] = int(value) * 1024
-        elif key == "Elapsed (wall clock) time (h:mm:ss or m:ss)":
-            result["elapsed_wall"] = value
-        elif key == "Exit status":
-            result["time_exit_status"] = int(value)
-    return result
-
-
 def capture_command(command: list[str]) -> str:
     try:
         return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT).strip()
@@ -100,6 +81,7 @@ def main() -> int:
 
     root = Path(__file__).resolve().parents[1]
     prepare_script = root / "scripts" / "prepare_publication_datasets.py"
+    resource_helper = root / "tools" / "run_resource_measurement.py"
     benchmark = args.benchmark_binary or (args.build_dir / "velographx_public_dataset_benchmark")
     benchmark = benchmark.resolve()
     args.data_dir.mkdir(parents=True, exist_ok=True)
@@ -107,8 +89,8 @@ def main() -> int:
 
     if not benchmark.exists():
         raise SystemExit(f"benchmark binary not found: {benchmark}")
-    if shutil.which("/usr/bin/time") is None and not Path("/usr/bin/time").exists():
-        raise SystemExit("/usr/bin/time is required for publication-grade peak RSS capture")
+    if not resource_helper.is_file():
+        raise SystemExit(f"resource measurement helper not found: {resource_helper}")
 
     environment = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -147,7 +129,7 @@ def main() -> int:
         prepare_log = args.output_dir / f"{prefix}.prepare.log"
         csv_path = args.output_dir / f"{prefix}.csv"
         stderr_path = args.output_dir / f"{prefix}.stderr.txt"
-        time_path = args.output_dir / f"{prefix}.time.txt"
+        resource_path = args.output_dir / f"{prefix}.resources.json"
 
         prepare_cmd = [
             sys.executable,
@@ -191,10 +173,11 @@ def main() -> int:
         mem_before = read_meminfo()
 
         command = [
-            "/usr/bin/time",
-            "-v",
-            "-o",
-            str(time_path),
+            sys.executable,
+            str(resource_helper),
+            "--output",
+            str(resource_path),
+            "--",
             str(benchmark),
             str(edge_path),
             str(args.source),
@@ -204,7 +187,7 @@ def main() -> int:
 
         vm_after = read_vmstat()
         mem_after = read_meminfo()
-        timing = parse_time_verbose(time_path)
+        timing = json.loads(resource_path.read_text(encoding="utf-8")) if resource_path.exists() else {}
         swapin_delta = vm_after.get("pswpin", 0) - vm_before.get("pswpin", 0)
         swapout_delta = vm_after.get("pswpout", 0) - vm_before.get("pswpout", 0)
         oom_delta = vm_after.get("oom_kill", 0) - vm_before.get("oom_kill", 0)
@@ -214,7 +197,7 @@ def main() -> int:
             {
                 "benchmark_exit_code": completed.returncode,
                 "peak_rss_bytes": timing.get("peak_rss_bytes"),
-                "elapsed_wall": timing.get("elapsed_wall"),
+                "elapsed_wall_seconds": timing.get("wall_seconds"),
                 "pswpin_pages_delta": swapin_delta,
                 "pswpout_pages_delta": swapout_delta,
                 "oom_kill_delta": oom_delta,

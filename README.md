@@ -138,7 +138,7 @@ Benchmark contracts and interpretation rules: [benchmark methodology](docs/bench
 
 **Current:** hosted CI establishes exactness/reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs, same-run native comparisons and a pinned same-algorithm Teseo storage swap. The refined adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, but this is not evidence of universal selector optimality. The Teseo experiment isolates one BFS/storage interface on small synthetic graphs and is not a general Teseo performance comparison. Compression saves space but currently slows BFS traversal.
 
-**Next:** held-out graph families and roots for selector generalization; dedicated 8/16/32+ core experiments; true multi-socket NUMA measurements; broader same-machine dynamic-system comparisons; a second external storage adapter such as Sortledton; dedicated NVMe/`io_uring` throughput; hardware counters; broader weighted-dynamic evaluation; a frozen long-term Python API. See [limitations](docs/limitations.md).
+**Next:** execute the [unified canonical publication campaign](docs/canonical-publication-campaign.md) on the dedicated `velographx-benchmark` runner to cover checksum-pinned web/social/road graphs, the complete Kronecker/R-MAT series, the largest clean in-memory boundary, 1/2/4/8/16/32-thread scaling, NUMA placement and hardware counters. Broader same-machine dynamic-system comparisons, dedicated NVMe/`io_uring` throughput, weighted-dynamic evaluation and a frozen long-term Python API remain separate follow-ups. See [limitations](docs/limitations.md).
 
 ## License / Contributing
 

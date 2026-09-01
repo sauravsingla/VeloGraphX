@@ -1,0 +1,189 @@
+name: Canonical Publication Campaign
+
+on:
+  push:
+    paths:
+      - 'scripts/run_canonical_dataset_campaign.py'
+      - 'scripts/run_capacity_campaign.py'
+      - 'scripts/prepare_publication_datasets.py'
+      - 'tools/run_controlled_hardware_campaign.py'
+      - 'tools/hardware_campaign_driver.py'
+      - 'tools/run_resource_measurement.py'
+      - 'tools/finalize_canonical_publication_campaign.py'
+      - 'datasets/manifest.publication-canonical.json'
+      - '.github/workflows/canonical-publication-campaign.yml'
+      - 'benchmarks/public_dataset_benchmark.cpp'
+      - 'benchmarks/thread_scaling_bfs.cpp'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+    inputs:
+      run_controlled:
+        description: 'Run the complete publication campaign on the dedicated runner'
+        required: true
+        default: false
+        type: boolean
+      scales:
+        description: 'Strictly increasing Kronecker/R-MAT scales'
+        required: true
+        default: '16,18,20,22,24,26'
+        type: string
+      edgefactor:
+        description: 'Kronecker/R-MAT edge factor'
+        required: true
+        default: '16'
+        type: string
+      seed:
+        description: 'Kronecker/R-MAT seed'
+        required: true
+        default: '1'
+        type: string
+
+jobs:
+  contract-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build campaign targets
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build --target velographx_public_dataset_benchmark velographx_thread_scaling_bfs -j2
+      - name: Create checksum-pinned family fixtures
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('smoke-source'); root.mkdir()
+          rows={
+            'web-smoke': '0 1\n1 2\n2 0\n',
+            'social-smoke': '0 1\n1 2\n2 3\n3 0\n',
+            'road-smoke': '0 1\n1 2\n2 3\n',
+          }
+          families={'web-smoke':'scale-free-web','social-smoke':'scale-free-social','road-smoke':'road-network'}
+          entries=[]
+          for name,text in rows.items():
+              path=(root/f'{name}.txt').resolve(); path.write_text(text)
+              entries.append({'name':name,'family':families[name],'url':path.as_uri(),
+                'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'compression':'none','directed':False,
+                'drop_self_loops':False,'expected_vertices':4 if name != 'web-smoke' else 3,
+                'expected_normalized_rows':len(text.splitlines()),'source':0})
+          Path('smoke-manifest.json').write_text(json.dumps({'schema_version':1,'datasets':entries},indent=2))
+          PY
+      - name: Exercise complete real-dataset harness
+        run: |
+          python3 scripts/run_canonical_dataset_campaign.py \
+            --manifest smoke-manifest.json \
+            --benchmark-binary build/velographx_public_dataset_benchmark \
+            --data-dir smoke-data \
+            --output-dir smoke-artifacts \
+            --repeats 2 --warmups 0 --minimum-repeats 2 --minimum-warmups 0
+      - name: Exercise Kronecker capacity harness
+        run: |
+          python3 scripts/run_capacity_campaign.py \
+            --scales 10,11 --edgefactor 4 --seed 1 \
+            --build-dir build --data-dir smoke-capacity-data --output-dir smoke-capacity
+      - name: Validate final gate closes without controlled hardware
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          Path('smoke-hardware.json').write_text(json.dumps({'hardware_measurement_ready':False,'cases':[]}))
+          PY
+          python3 tools/finalize_canonical_publication_campaign.py \
+            --real smoke-artifacts/canonical-real-summary.json \
+            --capacity smoke-capacity/capacity-summary.json \
+            --hardware smoke-hardware.json \
+            --output smoke-final.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('smoke-final.json'))
+          assert d['publication_ready'] is False
+          assert d['checks']['controlled_hardware_measurements_valid'] is False
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: canonical-publication-contract-smoke
+          path: |
+            smoke-artifacts/
+            smoke-capacity/
+            smoke-final.json
+          retention-days: 14
+
+  controlled-complete-campaign:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_controlled }}
+    runs-on: [self-hosted, linux, x64, velographx-benchmark]
+    timeout-minutes: 1440
+    env:
+      OMP_PLACES: cores
+      OMP_PROC_BIND: spread
+      VELOGRAPHX_DEDICATED_RUNNER: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify dedicated hardware prerequisites
+        run: |
+          set -euo pipefail
+          test "${RUNNER_ENVIRONMENT:-}" = self-hosted
+          test "$(nproc)" -ge 32
+          command -v numactl
+          command -v perf
+          mkdir -p canonical-artifacts canonical-data capacity-artifacts capacity-data
+          lscpu | tee canonical-artifacts/lscpu.txt
+          numactl --hardware | tee canonical-artifacts/numa.txt
+          free -b | tee canonical-artifacts/memory-before.txt
+      - name: Build release campaign targets
+        run: |
+          cmake -S . -B build-publication -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build-publication -j"$(nproc)"
+          ctest --test-dir build-publication --output-on-failure -j"$(nproc)"
+      - name: Run all canonical real graph families
+        run: |
+          python3 scripts/run_canonical_dataset_campaign.py \
+            --manifest datasets/manifest.publication-canonical.json \
+            --benchmark-binary build-publication/velographx_public_dataset_benchmark \
+            --data-dir canonical-data \
+            --output-dir canonical-artifacts/real \
+            --repeats 10 --warmups 2 --keep-edge-files
+      - name: Run Kronecker/R-MAT series and establish memory boundary
+        run: |
+          python3 scripts/run_capacity_campaign.py \
+            --scales '${{ inputs.scales }}' \
+            --edgefactor '${{ inputs.edgefactor }}' \
+            --seed '${{ inputs.seed }}' \
+            --build-dir build-publication \
+            --data-dir capacity-data \
+            --output-dir capacity-artifacts \
+            --require-boundary
+      - name: Run repeated thread, NUMA, and hardware-counter cases
+        run: |
+          python3 tools/run_controlled_hardware_campaign.py \
+            --output canonical-artifacts/hardware.json \
+            --repeats 10 --warmups 2 \
+            --threads 1,2,4,8,16,32 \
+            --perf --numa --timeout-seconds 1800 -- \
+            build-publication/velographx_thread_scaling_bfs canonical-data/web-Google.edges 64
+      - name: Open publication gate only if every requirement passed
+        run: |
+          python3 tools/finalize_canonical_publication_campaign.py \
+            --real canonical-artifacts/real/canonical-real-summary.json \
+            --capacity capacity-artifacts/capacity-summary.json \
+            --hardware canonical-artifacts/hardware.json \
+            --output canonical-artifacts/canonical-publication-summary.json \
+            --expect-publication-ready
+      - name: Capture final state
+        if: always()
+        run: |
+          free -b | tee canonical-artifacts/memory-after.txt
+          git rev-parse HEAD | tee canonical-artifacts/git-head.txt
+          git status --porcelain | tee canonical-artifacts/git-status.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canonical-publication-campaign
+          path: |
+            canonical-artifacts/
+            canonical-data/*.metadata.json
+            capacity-artifacts/
+          retention-days: 90

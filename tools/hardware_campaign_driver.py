@@ -9,6 +9,21 @@ import sys
 import time
 
 
+def allocated_cpu_ids():
+    if hasattr(os, "sched_getaffinity"):
+        try:
+            cpus = sorted(os.sched_getaffinity(0))
+            if cpus:
+                return cpus
+        except OSError:
+            pass
+    return list(range(max(1, os.cpu_count() or 1)))
+
+
+def format_cpu_list(cpus):
+    return ",".join(str(cpu) for cpu in cpus)
+
+
 def build_command(args):
     command = list(args.command)
     wrappers = []
@@ -18,7 +33,10 @@ def build_command(args):
             raise ValueError("--threads must be at least 1")
         taskset = shutil.which("taskset")
         if taskset:
-            wrappers += [taskset, "-c", f"0-{args.threads - 1}"]
+            allocation = allocated_cpu_ids()
+            if args.threads > len(allocation):
+                raise ValueError(f"requested {args.threads} threads but only {len(allocation)} CPUs are allocated")
+            wrappers += [taskset, "-c", format_cpu_list(allocation[:args.threads])]
 
     if args.numa_policy != "none":
         numactl = shutil.which("numactl")
