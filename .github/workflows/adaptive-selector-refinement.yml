@@ -33,10 +33,11 @@ jobs:
           cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
           mkdir -p evidence/adaptive/datasets evidence/adaptive/runs evidence/adaptive/summary
-          python tools/refine_adaptive_selector.py --input benchmarks/adaptive_policy_bfs.cpp --output evidence/adaptive/adaptive_policy_bfs_v4.cpp
-          grep -q 'root-locality-affected-work-v4' evidence/adaptive/adaptive_policy_bfs_v4.cpp
-          grep -q 'guarded_root' evidence/adaptive/adaptive_policy_bfs_v4.cpp
-          c++ -O3 -DNDEBUG -std=c++20 -Iinclude evidence/adaptive/adaptive_policy_bfs_v4.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_v4
+          python tools/refine_adaptive_selector.py --input benchmarks/adaptive_policy_bfs.cpp --output evidence/adaptive/adaptive_policy_bfs_v5.cpp
+          grep -q 'root-locality-affected-work-v5' evidence/adaptive/adaptive_policy_bfs_v5.cpp
+          grep -q 'root_sink_ratio' evidence/adaptive/adaptive_policy_bfs_v5.cpp
+          grep -q 'large_root_locality_update_guard' evidence/adaptive/adaptive_policy_bfs_v5.cpp
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude evidence/adaptive/adaptive_policy_bfs_v5.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_v5
       - name: Prepare pinned datasets
         run: |
           python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir evidence/adaptive/datasets --dataset web-Google > evidence/adaptive/web-source.json
@@ -64,9 +65,9 @@ jobs:
                       for rep in range(1,4):
                           out=Path(f'evidence/adaptive/runs/{dataset}__r{root}__b{batch}__{rep}.json')
                           with out.open('w') as f:
-                              subprocess.run(['build/adaptive_policy_bfs_v4',f'evidence/adaptive/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
+                              subprocess.run(['build/adaptive_policy_bfs_v5',f'evidence/adaptive/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
                           d=json.load(out.open())
-                          assert d['selector'] == 'root-locality-affected-work-v4'
+                          assert d['selector'] == 'root-locality-affected-work-v5'
                           assert d['all_policies_exact'] and all(p['exact'] for p in d['policies'])
                           total += 1
           print('validated_runs=', total)
@@ -76,7 +77,7 @@ jobs:
         run: |
           python tools/summarize_adaptive_policy.py --input-dir evidence/adaptive/runs --output-dir evidence/adaptive/summary | tee evidence/adaptive/summary/stdout.json
           python - <<'PY'
-          import json, statistics
+          import json
           d=json.load(open('evidence/adaptive/summary/summary.json'))
           assert d['all_results_exact']
           adaptive=[r for r in d['rows'] if r['policy']=='adaptive']
@@ -107,6 +108,6 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: adaptive-selector-refinement-108
+          name: adaptive-selector-refinement-108-v5
           path: evidence/adaptive
           retention-days: 90
