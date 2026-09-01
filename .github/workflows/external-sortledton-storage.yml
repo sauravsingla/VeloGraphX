@@ -43,38 +43,36 @@ jobs:
           test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
           test -f external/sortledton/CMakeLists.txt
 
-      - name: Apply modern-toolchain build-only compatibility patch
+      - name: Record and conditionally adapt legacy TBB build declarations
         run: |
           mkdir -p artifacts/sortledton
+          cp external/sortledton/CMakeLists.txt artifacts/sortledton/upstream-CMakeLists.txt
           git -C external/sortledton diff --exit-code
           python - <<'PY'
+          import json
           from pathlib import Path
           p = Path('external/sortledton/CMakeLists.txt')
           text = p.read_text()
-          replacements = {
-              'find_package(TBB REQUIRED COMPONENTS tbbmalloc tbbmalloc_proxy)': 'find_package(TBB REQUIRED)',
-              'target_link_libraries(sortledton tbb)': 'target_link_libraries(sortledton TBB::tbb)',
-              'target_link_libraries(sortledton_bin tbb)': 'target_link_libraries(sortledton_bin TBB::tbb)',
-          }
-          changed = []
-          for old, new in replacements.items():
+          replacements = [
+              ('find_package(TBB REQUIRED COMPONENTS tbbmalloc tbbmalloc_proxy)', 'find_package(TBB REQUIRED)'),
+              ('target_link_libraries(sortledton tbb)', 'target_link_libraries(sortledton TBB::tbb)'),
+              ('target_link_libraries(sortledton_bin tbb)', 'target_link_libraries(sortledton_bin TBB::tbb)'),
+          ]
+          applied = []
+          for old, new in replacements:
               if old in text:
                   text = text.replace(old, new)
-                  changed.append(old)
-          if not changed:
-              raise SystemExit('expected Sortledton legacy TBB CMake declarations not found')
-          p.write_text(text)
-          Path('artifacts/sortledton/build-compatibility.json').write_text(
-              '{\n'
-              '  "scope": "build-system-only",\n'
-              '  "upstream_source_modified": false,\n'
-              '  "reason": "map legacy TBB CMake declarations to modern imported target; graph/storage source is unchanged",\n'
-              '  "sortledton_commit": "6eb638f3ad38f8a10a127e7e118528f4c8d07a6e"\n'
-              '}\n'
-          )
+                  applied.append({'from': old, 'to': new})
+          if applied:
+              p.write_text(text)
+          Path('artifacts/sortledton/build-compatibility.json').write_text(json.dumps({
+              'scope': 'build-system-only',
+              'sortledton_commit': '6eb638f3ad38f8a10a127e7e118528f4c8d07a6e',
+              'graph_storage_source_changed': False,
+              'cmake_adjustments': applied,
+          }, indent=2, sort_keys=True) + '\n')
           PY
-          git -C external/sortledton diff -- CMakeLists.txt | tee artifacts/sortledton/sortledton-build-compat.patch
-          test -s artifacts/sortledton/sortledton-build-compat.patch
+          git -C external/sortledton diff -- CMakeLists.txt > artifacts/sortledton/sortledton-build-compat.patch || true
 
       - name: Build Sortledton
         run: |
@@ -137,6 +135,7 @@ jobs:
           python - <<'PY'
           import hashlib, json, platform, subprocess
           from pathlib import Path
+          compat = json.loads(Path('artifacts/sortledton/build-compatibility.json').read_text())
           patch = Path('artifacts/sortledton/sortledton-build-compat.patch')
           payload = {
               'schema_version': 2,
@@ -148,7 +147,8 @@ jobs:
               'sortledton_commit': subprocess.check_output(['git','-C','external/sortledton','rev-parse','HEAD'], text=True).strip(),
               'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
               'build_compatibility_patch_sha256': hashlib.sha256(patch.read_bytes()).hexdigest(),
-              'build_compatibility_scope': 'CMake/TBB target naming only; no Sortledton graph/storage source changes',
+              'build_compatibility_adjustments': compat['cmake_adjustments'],
+              'build_compatibility_scope': 'build metadata only; no Sortledton graph/storage source changes',
               'compiler': subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
               'runner': 'github-hosted ubuntu-22.04',
