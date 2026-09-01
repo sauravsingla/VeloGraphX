@@ -1,0 +1,185 @@
+name: Current Capacity Validation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/current-capacity-validation.yml'
+      - 'benchmarks/exactness_stress.cpp'
+      - 'benchmarks/compression_end_to_end.cpp'
+      - 'benchmarks/thread_scaling_workloads.cpp'
+  workflow_dispatch:
+
+jobs:
+  exactness-stress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build stress harness
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/exactness_stress.cpp build/libvelographx.a -pthread -o build/exactness_stress
+      - name: Run two-million-update exactness campaign
+        run: |
+          mkdir -p evidence/exactness
+          /usr/bin/time -v build/exactness_stress 2000000 256 2>&1 | tee evidence/exactness/run.log
+          grep -q '"total_update_operations":2000000' evidence/exactness/run.log
+          grep -q '"mismatches":0' evidence/exactness/run.log
+          test "$(grep -c '"bfs_mismatches":0' evidence/exactness/run.log)" -eq 6
+          test "$(grep -c '"triangle_mismatches":0' evidence/exactness/run.log)" -eq 6
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exactness-stress-two-million
+          path: evidence/exactness
+          retention-days: 90
+
+  compression-end-to-end:
+    needs: exactness-stress
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build end-to-end compression benchmark
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/compression_end_to_end.cpp build/libvelographx.a -pthread -o build/compression_end_to_end
+      - name: Run compression traversal campaign
+        run: |
+          mkdir -p evidence/compression
+          for degree in 4 8 16; do
+            build/compression_end_to_end 100000 "$degree" | tee "evidence/compression/degree-${degree}.csv"
+          done
+          python - <<'PY'
+          import csv, glob, json
+          out=[]
+          for path in glob.glob('evidence/compression/degree-*.csv'):
+              with open(path) as f:
+                  rows=list(csv.DictReader(f))
+              assert len(rows)==4
+              for r in rows:
+                  assert float(r['compression_ratio']) > 0
+                  assert float(r['codec_bfs_ms']) > 0
+              out.extend(rows)
+          json.dump({'rows':out,'correctness':'digest-gated'},open('evidence/compression/summary.json','w'),indent=2)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compression-end-to-end-hosted
+          path: evidence/compression
+          retention-days: 90
+
+  adaptive-broader-validation:
+    needs: compression-end-to-end
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      SIMPLE_UPDATE_FRACTION: '0.01'
+      EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Build adaptive harness
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          mkdir -p evidence/adaptive/datasets evidence/adaptive/runs evidence/adaptive/summary
+          sed 's/policy == "always_incremental" ? 2.0 : 0.35/policy == "always_incremental" ? 2.0 : 0.05/; s/adaptive_affected_fraction\\\":0.35/adaptive_affected_fraction\\\":0.05/' benchmarks/adaptive_policy_bfs.cpp > evidence/adaptive/adaptive_policy_bfs.cpp
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude evidence/adaptive/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs
+      - name: Prepare pinned datasets
+        run: |
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir evidence/adaptive/datasets --dataset web-Google > evidence/adaptive/web-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir evidence/adaptive/datasets --dataset ca-GrQc > evidence/adaptive/ca-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir evidence/adaptive/datasets --dataset soc-Epinions1 > evidence/adaptive/epinions-source.json
+          python tools/prepare_pinned_edge_stream.py --input evidence/adaptive/datasets/web-Google.txt --output evidence/adaptive/web-Google.txt --report evidence/adaptive/web-normalization.json --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 --expected-vertices 875713 --expected-edges 5105039
+          python tools/prepare_symmetric_pinned_edge_stream.py --input evidence/adaptive/datasets/ca-GrQc.txt --output evidence/adaptive/ca-GrQc.txt --report evidence/adaptive/ca-normalization.json --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484
+          gzip -dc evidence/adaptive/datasets/soc-Epinions1.gz > evidence/adaptive/epinions-source.txt
+          test "$(sha256sum evidence/adaptive/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py --input evidence/adaptive/epinions-source.txt --output evidence/adaptive/soc-Epinions1.txt --report evidence/adaptive/epinions-normalization.json --expected-sha256 "$EPINIONS_TEXT_SHA256" --expected-vertices 75879 --expected-edges 508837
+      - name: Run broader roots and regimes
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          configs = {
+              'ca-GrQc': ([0,42,1024,1974],0.75,[96,384,1536]),
+              'soc-Epinions1': ([0,1234,35000,71391],0.90,[384,1536,6144]),
+              'web-Google': ([0,100000,391806,800000],0.99,[1536,6144,24576]),
+          }
+          total=0
+          for dataset,(roots,rate,batches) in configs.items():
+              for root in roots:
+                  for batch in batches:
+                      for rep in range(1,4):
+                          out=Path(f'evidence/adaptive/runs/{dataset}__r{root}__b{batch}__{rep}.json')
+                          with out.open('w') as f:
+                              subprocess.run(['build/adaptive_policy_bfs',f'evidence/adaptive/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
+                          d=json.load(out.open())
+                          assert d['all_policies_exact'] and all(p['exact'] for p in d['policies'])
+                          total += 1
+          print('validated_runs=', total)
+          assert total == 108
+          PY
+      - name: Summarize broader validation
+        run: |
+          python tools/summarize_adaptive_policy.py --input-dir evidence/adaptive/runs --output-dir evidence/adaptive/summary | tee evidence/adaptive/summary/stdout.json
+          python - <<'PY'
+          import json
+          d=json.load(open('evidence/adaptive/summary/summary.json'))
+          assert d['all_results_exact']
+          adaptive=[r for r in d['rows'] if r['policy']=='adaptive']
+          mean=sum(r['relative_to_regime_best'] for r in adaptive)/len(adaptive)
+          worst=max(r['relative_to_regime_best'] for r in adaptive)
+          json.dump({'all_results_exact':True,'adaptive_rows':len(adaptive),'mean_relative_to_regime_best':mean,'worst_relative_to_regime_best':worst},open('evidence/adaptive/broader-summary.json','w'),indent=2)
+          print('adaptive_rows=',len(adaptive),'mean=',mean,'worst=',worst)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-bfs-broader-validation
+          path: evidence/adaptive
+          retention-days: 90
+
+  multicore-workloads:
+    needs: adaptive-broader-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build multicore workload benchmark
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/thread_scaling_workloads.cpp build/libvelographx.a -pthread -o build/thread_scaling_workloads
+      - name: Run 1/2/4-thread workload scaling
+        run: |
+          mkdir -p evidence/multicore
+          lscpu > evidence/multicore/lscpu.txt
+          for rep in 1 2 3 4 5; do
+            build/thread_scaling_workloads 50000 8 32 1,2,4 | tee "evidence/multicore/run-${rep}.csv"
+          done
+          python - <<'PY'
+          import csv,glob,json,statistics
+          values={}
+          for path in glob.glob('evidence/multicore/run-*.csv'):
+              for r in csv.DictReader(open(path)):
+                  key=(r['algorithm'],int(r['threads']))
+                  values.setdefault(key,[]).append(float(r['speedup']))
+          summary=[]
+          for (alg,t),xs in sorted(values.items()):
+              summary.append({'algorithm':alg,'threads':t,'median_speedup':statistics.median(xs),'repetitions':len(xs)})
+          json.dump({'summary':summary},open('evidence/multicore/summary.json','w'),indent=2)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multicore-workload-scaling
+          path: evidence/multicore
+          retention-days: 90
