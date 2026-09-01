@@ -17,6 +17,8 @@ A publication-level campaign must cover all of the following families:
 
 The canonical road workload is SNAP `roadNet-CA`: 1,965,206 vertices and 2,766,607 undirected edges in the source dataset. Downloaded bytes must be checksum-pinned by the benchmark campaign before results are accepted.
 
+The complete controlled-hardware manifest is [`manifest.publication-canonical.json`](manifest.publication-canonical.json). It pins `web-Google`, `com-LiveJournal` and `roadNet-CA` by SHA-256 and declares the exact observed vertex/row counts enforced during preparation. The unified runner is documented in [`docs/canonical-publication-campaign.md`](../docs/canonical-publication-campaign.md).
+
 ## Synthetic graph parameters
 
 The default Kronecker/R-MAT contract uses:

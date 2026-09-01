@@ -31,7 +31,9 @@ Each dedicated-hardware campaign must identify the largest configured graph that
 
 If out-of-memory or external-memory behavior is studied, those results are a separate experiment class and must not be mixed with in-memory numbers.
 
-The executable campaign is `scripts/run_capacity_campaign.py`. It generates deterministic Kronecker workloads, records `/usr/bin/time -v` peak RSS and Linux swap/OOM counters, and only establishes a capacity boundary after at least one clean in-memory success and a larger rejected attempt. The manual `Dedicated Capacity Campaign` workflow targets `[self-hosted, linux, x64, velographx-benchmark]` and invokes the campaign with `--require-boundary`.
+The executable campaign is `scripts/run_capacity_campaign.py`. It generates deterministic Kronecker workloads, records per-process POSIX peak RSS plus Linux swap/OOM counters, and only establishes a capacity boundary after at least one clean in-memory success and a larger rejected attempt. The manual `Dedicated Capacity Campaign` workflow targets `[self-hosted, linux, x64, velographx-benchmark]` and invokes the campaign with `--require-boundary`.
+
+The unified execution entry point is the [canonical publication campaign](canonical-publication-campaign.md). It combines checksum-pinned `web-Google`, `com-LiveJournal` and `roadNet-CA` runs with the Kronecker series, capacity boundary, repeated 1/2/4/8/16/32-thread cases, genuine NUMA placement and hardware counters. Its finalizer opens the publication gate only when every component succeeds on the dedicated runner.
 
 A real workflow-dispatch probe was executed on 2026-08-31 (run `33356427001`). The hosted smoke contract completed successfully, while the `dedicated-boundary` job remained queued without a matching self-hosted runner accepting it. The run was then cancelled and the one-time dispatch probe workflow removed. This confirms that repository-side automation is ready but no usable `velographx-benchmark` runner was available for the publication-capacity measurement at that time. A queued or cancelled run is not publication evidence.
 

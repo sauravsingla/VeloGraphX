@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/run_capacity_campaign.py'
       - 'scripts/prepare_publication_datasets.py'
+      - 'tools/run_resource_measurement.py'
       - 'benchmarks/public_dataset_benchmark.cpp'
       - '.github/workflows/dedicated-capacity-campaign.yml'
   workflow_dispatch:
