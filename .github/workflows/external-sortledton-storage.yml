@@ -81,7 +81,7 @@ jobs:
               ],
               'validated_block_size': 1024,
               'property_size': 8,
-              'read_transaction_lifecycle': 'adapter uses Sortledton reusable SnapshotTransaction overload without modifying TransactionManager',
+              'read_transaction_lifecycle': 'adapter uses an epoch-pinned quiescent SnapshotTransaction read view; TransactionManager is unmodified',
               'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all built with GCC/G++ 10',
               'compiler': gcc,
           }, indent=2, sort_keys=True) + '\n')
@@ -170,7 +170,7 @@ jobs:
               'build_compatibility_patch_sha256': hashlib.sha256(patch.read_bytes()).hexdigest(),
               'sortledton_block_size': 1024,
               'property_size': 8,
-              'read_transaction_lifecycle': 'adapter uses Sortledton reusable SnapshotTransaction overload',
+              'read_transaction_lifecycle': 'adapter uses an epoch-pinned quiescent SnapshotTransaction read view',
               'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all GCC/G++ 10',
               'compiler': subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
