@@ -31,7 +31,7 @@ class Graph {
   }
   Graph(const Graph&)=delete; Graph& operator=(const Graph&)=delete;
   [[nodiscard]] bool has_edge(VertexId u,VertexId v) const {auto* self=const_cast<Graph*>(this);SnapshotTransaction tx=self->tm_.getSnapshotTransaction(self->ds_.get(),false);double w=0.0;const bool found=tx.get_weight(edge_t{static_cast<dst_t>(u),static_cast<dst_t>(v)},reinterpret_cast<char*>(&w));self->tm_.transactionCompleted(tx);return found;}
-  template<class Fn> void for_each_neighbor(VertexId u,Fn&& fn) const {auto* self=const_cast<Graph*>(this);SnapshotTransaction tx=self->tm_.getSnapshotTransaction(self->ds_.get(),false);if(!tx.has_vertex(u)){self->tm_.transactionCompleted(tx);return;}const auto physical=tx.physical_id(u);vertexID e;double w;SORTLEDTON_ITERATE_WITH_PROPERTIES_NAMED(tx,physical,e,w,end_iteration,{fn(static_cast<VertexId>(tx.logical_id(e)));});self->tm_.transactionCompleted(tx);}
+  template<class Fn> void for_each_neighbor(VertexId u,Fn&& fn) const {auto* self=const_cast<Graph*>(this);SnapshotTransaction tx=self->tm_.getSnapshotTransaction(self->ds_.get(),false);if(!tx.has_vertex(u)){self->tm_.transactionCompleted(tx);return;}const auto physical=tx.physical_id(u);dst_t e;double w;SORTLEDTON_ITERATE_WITH_PROPERTIES_NAMED(tx,physical,e,w,end_iteration,{fn(static_cast<VertexId>(tx.logical_id(e)));});self->tm_.transactionCompleted(tx);}
   void apply(const UpdateBatch& batch){for(const auto& op:batch.updates){if(op.add)insert_undirected(op.src,op.dst);else remove_undirected(op.src,op.dst);}if(!batch.empty())++version_;}
   std::size_t vertices_{0}; std::uint64_t version_{0};
  private:
