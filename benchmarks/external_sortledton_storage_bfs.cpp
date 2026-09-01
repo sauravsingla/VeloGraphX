@@ -135,10 +135,9 @@ std::uint64_t vx_version(const Graph& graph) { return graph.version_; }
 
 template <class Fn>
 void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
-  SnapshotTransaction tx = [&]() {
-    try { return graph.manager_.getSnapshotTransaction(&graph.storage_, false); }
-    catch (...) { throw_stage("neighbors getSnapshotTransaction u=" + std::to_string(u)); }
-  }();
+  SnapshotTransaction tx(&graph.manager_, true, &graph.storage_);
+  try { graph.manager_.getSnapshotTransaction(&graph.storage_, false, tx); }
+  catch (...) { throw_stage("neighbors reusable getSnapshotTransaction u=" + std::to_string(u)); }
   bool completed = false;
   try {
     bool present = false;
@@ -220,10 +219,9 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
 }
 
 bool vx_has_edge(const Graph& graph, VertexId u, VertexId v) {
-  SnapshotTransaction tx = [&]() {
-    try { return graph.manager_.getSnapshotTransaction(&graph.storage_, false); }
-    catch (...) { throw_stage("has_edge getSnapshotTransaction " + std::to_string(u) + "->" + std::to_string(v)); }
-  }();
+  SnapshotTransaction tx(&graph.manager_, true, &graph.storage_);
+  try { graph.manager_.getSnapshotTransaction(&graph.storage_, false, tx); }
+  catch (...) { throw_stage("has_edge reusable getSnapshotTransaction " + std::to_string(u) + "->" + std::to_string(v)); }
   bool completed = false;
   try {
     bool result = false;
