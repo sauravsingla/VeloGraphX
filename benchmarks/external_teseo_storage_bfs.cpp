@@ -28,10 +28,7 @@ class Graph {
       : vertices_(vertices) {
     auto tx = database_.start_transaction();
     for (std::size_t v = 0; v < vertices_; ++v) tx.insert_vertex(v);
-    for (const auto& [u, v] : edges) {
-      tx.insert_edge(u, v, 1.0);
-      if (u != v) tx.insert_edge(v, u, 1.0);
-    }
+    for (const auto& [u, v] : edges) tx.insert_edge(u, v, 1.0);
     tx.commit();
   }
 
@@ -54,13 +51,8 @@ class Graph {
     close_snapshot();
     auto tx = database_.start_transaction();
     for (const auto& op : batch.updates) {
-      if (op.add) {
-        tx.insert_edge(op.src, op.dst, 1.0);
-        if (op.src != op.dst) tx.insert_edge(op.dst, op.src, 1.0);
-      } else {
-        tx.remove_edge(op.src, op.dst);
-        if (op.src != op.dst) tx.remove_edge(op.dst, op.src);
-      }
+      if (op.add) tx.insert_edge(op.src, op.dst, 1.0);
+      else tx.remove_edge(op.src, op.dst);
     }
     tx.commit();
     if (!batch.empty()) ++version_;
