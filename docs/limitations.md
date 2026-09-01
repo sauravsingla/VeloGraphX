@@ -36,19 +36,19 @@ Python bindings support NumPy, SciPy CSR and Apache Arrow ingestion when optiona
 
 ## Competitor evaluation
 
-The repository has same-semantics dynamic-BFS evidence against RisGraph and NetworKit 11.2.1 `DynBFS`. The NetworKit campaign is native C++, uses one OpenMP thread, runs five paired repetitions per dataset on the same hosted runner, and requires exact correctness plus nontrivial reachability before timing is accepted. See [`external-dynamic-baselines.md`](external-dynamic-baselines.md).
+The repository has same-semantics dynamic-BFS evidence against RisGraph and NetworKit 11.2.1 `DynBFS`. The canonical NetworKit campaign is native C++, uses one OpenMP thread, runs both systems on the same three fixed roots per dataset with five paired repetitions per root, and requires exact correctness plus nontrivial reachability before timing is accepted. See [`external-dynamic-baselines.md`](external-dynamic-baselines.md).
 
-The latest accepted canonical campaign is GitHub Actions `33301190847`, VeloGraphX head `3c1f7448897ffdca227a261c61bd49751e42fa5f`, source optimization commit `7a4083656cc2dfe67903efe7bdc7d822a337bd3e`, artifact `9729078197`. It measured **31.512 ms vs 41.293 ms NetworKit on web-Google (0.764x paired VX/NK)** and **0.1110 ms vs 0.0808 ms on ca-GrQc (1.374x paired VX/NK)**. All five repetitions on both datasets were exact.
+The latest accepted canonical campaign is GitHub Actions `33542995289`, VeloGraphX head `d042a993896e0b21be7dd6b9717895a0f4213430`, artifact `9814639042`, SHA-256 `acf743bcac2542660fa050d70105e5e1e5f79d9e22ef1ec7324cf1e147ae5f12`. The mean of root means was **27.182 ms vs 37.458 ms NetworKit on web-Google (0.730× mean paired VX/NK)** and **0.1115 ms vs 0.08274 ms on ca-GrQc (1.350× mean paired VX/NK)**. All 30 paired executions were exact.
 
 The focused ca-GrQc campaign removed repeated neighbor materialization from the BFS hot path through exact merged traversal, reused repair and update-key workspaces, and raised the minimum live-delta population required before percentage-triggered global maintenance to 16,384. A same-run A/B measured **272.045 µs → 115.771 µs** on ca-GrQc while web-Google slightly improved; all A/B executions were exact and the candidate passed all 27 tests. The final canonical ca-GrQc result is **111.035 µs**, about 71% below the earlier clean 388.4 µs baseline.
 
-A separate exact multi-root evidence run (`33301366020`, artifact `9729058306`) now covers three deterministic reachability-screened roots per dataset. ca-GrQc roots 4282/2465/1974 measured 103.546–108.345 µs and all reached 3,119 vertices. web-Google roots 481807/771121/391806 measured 22.691–30.986 ms and all passed the 100,000-vertex reachability gate. This addresses the earlier single-root-only limitation for VeloGraphX evidence on these two datasets, but it is not yet a multi-root external competitor campaign.
+The canonical comparison uses ca-GrQc roots 4282/2465/1974 and web-Google roots 481807/771121/391806 for both systems. VeloGraphX wins all three web-Google roots; NetworKit wins all three ca-GrQc roots. The earlier VeloGraphX-only multi-root run (`33301366020`, artifact `9729058306`) remains the provenance record for deterministic, timing-independent root selection.
 
 Important limits remain:
 
 - hosted CI is not dedicated performance hardware;
 - the canonical external campaign uses one thread and two public graph families;
-- multi-root coverage exists for VeloGraphX, but the NetworKit comparison remains one canonical root per dataset;
+- the multi-root NetworKit comparison remains hosted-CI, single-thread evidence on two graph families;
 - the RisGraph result is from a separate hosted runner and cannot be merged into an absolute three-system ranking;
 - another checksum-pinned medium graph family would improve generality; and
 - publication-grade evidence still requires dedicated same-machine runs, broader update regimes, multicore scaling, hardware-counter analysis and independent reproduction.

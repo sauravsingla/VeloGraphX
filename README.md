@@ -54,14 +54,14 @@ VeloGraphX wins BFS on this workload; **GAP remains substantially faster for SSS
 
 ### Dynamic BFS vs NetworKit 11.2.1
 
-Native C++, one OpenMP thread, same machine/update stream, five paired repetitions, exactness and nontrivial-reachability gates.
+Native C++, one OpenMP thread, same machine/update stream, three fixed roots per dataset, five paired repetitions per root, exactness and nontrivial-reachability gates. Values are the mean of the three root means.
 
 | Dataset | VeloGraphX | NetworKit `DynBFS` | VX / NK |
 | --- | ---: | ---: | ---: |
-| `web-Google` | **36.305 ms** | 45.845 ms | **0.788×** |
-| `ca-GrQc` | 0.1193 ms | **0.0892 ms** | **1.333×** |
+| `web-Google` | **27.182 ms** | 37.458 ms | **0.730×** |
+| `ca-GrQc` | 0.1115 ms | **0.08274 ms** | **1.350×** |
 
-VeloGraphX wins the larger `web-Google` case but **loses on `ca-GrQc`**. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33301190847`, artifact `9766977170`.
+VeloGraphX wins all three roots on the larger `web-Google` case but **loses all three roots on `ca-GrQc`**. All 30 paired executions passed exact full-BFS verification. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33542995289`, artifact `9814639042`.
 
 ### Same-algorithm storage swap: Teseo
 
@@ -136,7 +136,7 @@ Benchmark contracts and interpretation rules: [benchmark methodology](docs/bench
 
 ## Limitations / Roadmap
 
-**Current:** hosted CI establishes exactness/reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs, same-run native comparisons and a pinned same-algorithm Teseo storage swap. The refined adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, but this is not evidence of universal selector optimality. The Teseo experiment isolates one BFS/storage interface on small synthetic graphs and is not a general Teseo performance comparison. Compression saves space but currently slows BFS traversal.
+**Current:** hosted CI establishes exactness/reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs, same-run native comparisons and pinned same-algorithm storage swaps for Teseo and Sortledton. The refined adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, but this is not evidence of universal selector optimality. The external-storage experiments isolate one BFS/storage interface on small synthetic graphs and are not general Teseo or Sortledton performance comparisons. Compression saves space but currently slows BFS traversal.
 
 **Next:** execute the [unified canonical publication campaign](docs/canonical-publication-campaign.md) on the dedicated `velographx-benchmark` runner to cover checksum-pinned web/social/road graphs, the complete Kronecker/R-MAT series, the largest clean in-memory boundary, 1/2/4/8/16/32-thread scaling, NUMA placement and hardware counters. Broader same-machine dynamic-system comparisons, dedicated NVMe/`io_uring` throughput, weighted-dynamic evaluation and a frozen long-term Python API remain separate follow-ups. See [limitations](docs/limitations.md).
 

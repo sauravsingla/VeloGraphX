@@ -31,9 +31,9 @@ This remains a separate hosted-runner campaign and therefore must not be numeric
 
 NetworKit is pinned to **11.2.1**, Git commit `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`. The workflow builds the C++ core from source and runs VeloGraphX and `NetworKit::DynBFS` sequentially on the **same GitHub-hosted runner**.
 
-The timed envelope includes graph mutation plus restoration of the dynamic BFS answer. Fresh full-BFS verification is outside the timed region. `OMP_NUM_THREADS=1` and `OMP_PROC_BIND=true` are applied. Each dataset runs **five paired repetitions**; every repetition must match exact full BFS and pass a nontrivial final-reachability gate.
+The timed envelope includes graph mutation plus restoration of the dynamic BFS answer. Fresh full-BFS verification is outside the timed region. `OMP_NUM_THREADS=1` and `OMP_PROC_BIND=true` are applied. Each dataset uses the same three frozen, reachability-screened roots for both systems and runs **five paired repetitions per root**. Every repetition must match exact full BFS and pass a nontrivial final-reachability gate.
 
-Accepted evidence run: **GitHub Actions `33301190847`**, VeloGraphX head `3c1f7448897ffdca227a261c61bd49751e42fa5f`, source optimization commit `7a4083656cc2dfe67903efe7bdc7d822a337bd3e`, artifact **`9729078197`**, artifact SHA-256 `c031a2316a91c7958ce6a4e0a03e762808a777688fb05f0db3716f449875ef7c`.
+Accepted evidence run: **GitHub Actions `33542995289`**, VeloGraphX head `d042a993896e0b21be7dd6b9717895a0f4213430`, artifact **`9814639042`**, artifact SHA-256 `acf743bcac2542660fa050d70105e5e1e5f79d9e22ef1ec7324cf1e147ae5f12`.
 
 ### web-Google
 
@@ -42,15 +42,17 @@ Source SHA-256: `8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d
 - 875,713 vertices / 5,105,039 directed edges
 - 99% initial import = 5,053,988 edges
 - batch size 4,096 / 13 batches
-- deterministic root 481807
-- final reachable vertices 588,118; acceptance floor 100,000
+- fixed roots 481807, 771121 and 391806
+- final reachable vertices 588,118 / 588,118 / 588,283; acceptance floor 100,000
 
-| System | Mean batch | Median batch | Std. dev. |
-| --- | ---: | ---: | ---: |
-| VeloGraphX | **31.512 ms** | 31.436 ms | 0.827 ms |
-| NetworKit 11.2.1 `DynBFS` | **41.293 ms** | 41.143 ms | 1.355 ms |
+| Root | VeloGraphX mean | NetworKit mean | Mean paired VX / NK |
+| ---: | ---: | ---: | ---: |
+| 481807 | **29.560 ms** | 40.412 ms | **0.732×** |
+| 771121 | **30.064 ms** | 43.185 ms | **0.697×** |
+| 391806 | **21.923 ms** | 28.776 ms | **0.762×** |
+| Mean of root means | **27.182 ms** | 37.458 ms | **0.730×** |
 
-VeloGraphX samples were `31.311, 32.687, 31.436, 31.737, 30.389 ms`; NetworKit samples were `42.338, 39.819, 40.191, 41.143, 42.977 ms`. The mean paired VeloGraphX/NetworKit ratio is **0.7642x** and the median paired ratio is **0.7714x**. On this hosted runner, VeloGraphX therefore used about **23.6% less answer-ready batch time** than NetworKit for this workload.
+VeloGraphX is faster at every tested root. The mean of the three per-root paired ratios is **0.7301×**, corresponding to about **27.0% less answer-ready batch time** on this hosted runner and frozen workload.
 
 ### ca-GrQc
 
@@ -61,24 +63,25 @@ Source SHA-256: `513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d
 - 5,242 vertices / 28,968 derived directed edges
 - 75% initial import = 21,726 edges
 - batch size 256 / 29 batches
-- sliding-window-aware deterministic root 4282
-- root out-degree: 79 initially and 69 in the final window
-- final reachable vertices 3,119; acceptance floor 1,000
+- fixed roots 4282, 2465 and 1974
+- final reachable vertices 3,119 at every root; acceptance floor 1,000
 
-| System | Mean batch | Median batch | Std. dev. |
-| --- | ---: | ---: | ---: |
-| VeloGraphX | **0.1110 ms** | 0.1110 ms | 0.00091 ms |
-| NetworKit 11.2.1 `DynBFS` | **0.08080 ms** | 0.08051 ms | 0.00065 ms |
+| Root | VeloGraphX mean | NetworKit mean | Mean paired VX / NK |
+| ---: | ---: | ---: | ---: |
+| 4282 | 110.680 µs | **82.732 µs** | 1.340× |
+| 2465 | 111.434 µs | **79.109 µs** | 1.409× |
+| 1974 | 112.378 µs | **86.391 µs** | 1.301× |
+| Mean of root means | 111.497 µs | **82.744 µs** | 1.350× |
 
-VeloGraphX samples were `0.109765, 0.112258, 0.111030, 0.111380, 0.110741 ms`; NetworKit samples were `0.081171, 0.080466, 0.081741, 0.080513, 0.080115 ms`. The mean paired VeloGraphX/NetworKit ratio is **1.3743x** and the median paired ratio is **1.3823x**. NetworKit remains faster on this small workload, but the gap has narrowed from several-fold to about 37% on this campaign.
+NetworKit is faster at every tested root. The mean of the three per-root paired ratios is **1.3497×**. The result preserves the earlier conclusion on this small graph while showing it is not an artifact of one selected root.
 
 The focused ca-GrQc optimization campaign preserved BFS semantics while attacking fixed overhead. The effective-neighbor traversal is allocation-free and exactly merges compact CSR, row patches and live deltas; BFS workspaces reuse repair heap storage and flat generation-stamped update-key tables; packed-delta mutation avoids duplicate forward lookup; and percentage-triggered automatic global delta maintenance now requires at least **16,384 live delta entries**. A controlled same-run 4,096-vs-16,384 maintenance-floor A/B measured ca-GrQc at **272.045 µs vs 115.771 µs** (candidate/base `0.4256`) while web-Google slightly improved from **35.542 ms to 35.303 ms**. All A/B executions were exact and all 27 candidate tests passed. The accepted maintenance change is commit `7a4083656cc2dfe67903efe7bdc7d822a337bd3e`; A/B artifact `9728969220`, SHA-256 `ee50b010ef5c52e9402465968499d22d7bdaa77d6da3f6268ab928f7f2795b68`.
 
 Relative to the earlier clean ca-GrQc VeloGraphX mean of **0.3884 ms**, the final canonical mean of **0.1110 ms** is about **71% lower**. Relative to the immediately preceding `0.3134 ms` campaign, it is about **65% lower**. The frozen workload, roots, batch sizes, thread settings, competitor revision and exactness gates were unchanged.
 
-### Supplementary exact multi-root evidence
+### Superseded VeloGraphX-only multi-root evidence
 
-A separate workflow broadens root coverage without changing the canonical external comparison. Candidate roots are selected deterministically using graph support and final-graph reachability only; benchmark timing is not used for root selection. Each selected root is then run through the same exact VeloGraphX dynamic workload with independent full-BFS validation.
+The earlier workflow selected the same roots deterministically using graph support and final-graph reachability only; benchmark timing was not used for root selection. It ran VeloGraphX alone and established the frozen root set used by the canonical same-machine comparison above.
 
 Evidence run: GitHub Actions `33301366020`, artifact `9729058306`, artifact SHA-256 `cab9eec6489c8b9c65d57b2b781a5241a1954a5d5e99e94577c9ce0c737cccfa`.
 
@@ -91,13 +94,13 @@ Evidence run: GitHub Actions `33301366020`, artifact `9729058306`, artifact SHA-
 | `web-Google` / 771121 | 588,118 | **30.986 ms** |
 | `web-Google` / 391806 | 588,283 | **22.691 ms** |
 
-All six roots passed exact incremental-vs-full validation and the dataset-specific nontrivial reachability gate. The mean of the three ca-GrQc root means is **105.643 µs**; the mean of the three web-Google root means is **28.125 ms**. These numbers demonstrate root robustness of VeloGraphX only; they are not a multi-root NetworKit comparison.
+All six roots passed exact incremental-vs-full validation and the dataset-specific nontrivial reachability gate. This artifact remains useful root-selection provenance, but the new canonical campaign supersedes it for VeloGraphX/NetworKit comparison claims.
 
 ## Interpretation
 
-The final optimized campaign supersedes the previous native NetworKit campaign as the primary NetworKit evidence. It shows a strong same-run web-Google result and reduces ca-GrQc from the principal several-fold gap to a much smaller remaining gap while preserving exactness. The separate multi-root run also removes the earlier single-root-only limitation for VeloGraphX correctness/performance evidence on these two datasets.
+The multi-root campaign supersedes the previous single-root native NetworKit campaign as the primary NetworKit evidence. It preserves the same conclusion at all three roots of each dataset: VeloGraphX wins on web-Google and NetworKit wins on ca-GrQc. All 30 paired executions are exact.
 
-These are **hosted-CI engineering measurements**, not publication-grade universal conclusions. Pairwise same-run ratios are more informative than absolute comparisons across different hosted runners. Publication-level conclusions still require dedicated hardware, additional graph families/update regimes, multi-root same-machine competitor comparisons, multicore scaling, hardware counters, and independent reproduction.
+These are **hosted-CI engineering measurements**, not publication-grade universal conclusions. Pairwise same-run ratios are more informative than absolute comparisons across different hosted runners. Publication-level conclusions still require dedicated hardware, additional graph families/update regimes, multicore scaling, hardware counters, and independent reproduction.
 
 ## Serious systems screened but excluded from the same-semantics table
 
