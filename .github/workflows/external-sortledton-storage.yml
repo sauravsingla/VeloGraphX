@@ -9,7 +9,6 @@ on:
       - 'include/velographx/incremental/bfs.hpp'
       - 'include/velographx/incremental/weighted_sssp.hpp'
       - 'tests/test_graph_access_adl.cpp'
-      - 'datasets/manifest.public-small.json'
   pull_request:
     paths:
       - '.github/workflows/external-sortledton-storage.yml'
@@ -18,7 +17,6 @@ on:
       - 'include/velographx/incremental/bfs.hpp'
       - 'include/velographx/incremental/weighted_sssp.hpp'
       - 'tests/test_graph_access_adl.cpp'
-      - 'datasets/manifest.public-small.json'
   workflow_dispatch:
 
 jobs:
@@ -27,15 +25,13 @@ jobs:
     timeout-minutes: 75
     env:
       SORTLEDTON_SHA: 6eb638f3ad38f8a10a127e7e118528f4c8d07a6e
-      GRQC_URL: https://raw.githubusercontent.com/CheemaMeshal/AstroPhysics-Network-Analysis/a2c89c74098ff191caa2379778c9c1dc00c011ba/CA-GrQc.txt
-      GRQC_SHA256: 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build libtbb-dev libnuma-dev libboost-dev curl
+          sudo apt-get install -y cmake ninja-build libtbb-dev libnuma-dev libboost-dev
 
       - name: Build and test VeloGraphX abstraction contract
         run: |
@@ -90,20 +86,11 @@ jobs:
             -ltbb -lnuma -latomic -pthread \
             -o build/velographx_external_sortledton_storage_bfs
 
-      - name: Acquire checksum-pinned ca-GrQc
-        run: |
-          mkdir -p artifacts/sortledton/input
-          curl --fail --location --retry 6 --retry-all-errors --retry-delay 2 \
-            --connect-timeout 20 --max-time 180 \
-            "$GRQC_URL" -o artifacts/sortledton/input/ca-GrQc.txt
-          echo "$GRQC_SHA256  artifacts/sortledton/input/ca-GrQc.txt" | sha256sum -c -
-
       - name: Run exact storage-swap and mutation campaign
         run: |
+          mkdir -p artifacts/sortledton
           build/velographx_external_sortledton_storage_bfs 8192 | tee artifacts/sortledton/sortledton-8192.json
           build/velographx_external_sortledton_storage_bfs 32768 | tee artifacts/sortledton/sortledton-32768.json
-          build/velographx_external_sortledton_storage_bfs --edge-list artifacts/sortledton/input/ca-GrQc.txt \
-            | tee artifacts/sortledton/sortledton-ca-GrQc.json
 
       - name: Validate result contract
         run: |
@@ -112,11 +99,14 @@ jobs:
           from pathlib import Path
           rows = []
           for path in sorted(Path('artifacts/sortledton').glob('sortledton-*.json')):
-              row = json.loads(path.read_text())
+              text = path.read_text().strip()
+              assert text, f'empty result file: {path}'
+              row = json.loads(text)
               rows.append(row)
               assert row['schema_version'] == 2
               assert row['benchmark'] == 'same-algorithm-storage-bfs'
               assert row['algorithm'] == 'BasicIncrementalBFS'
+              assert row['dataset'] == 'synthetic'
               assert row['repetitions'] == 5
               assert row['update_count'] > 0
               assert row['recompute_exact'] is True
@@ -127,10 +117,8 @@ jobs:
               assert row['sortledton_median_us'] > 0
               assert row['dynamic_update_us'] > 0
               assert row['sortledton_update_us'] > 0
-          assert len(rows) == 3
-          real = next(row for row in rows if row['dataset'].endswith('ca-GrQc.txt'))
-          assert real['vertices'] >= 5000
-          assert real['edges'] >= 10000
+          assert len(rows) == 2
+          assert {row['vertices'] for row in rows} == {8192, 32768}
           PY
 
       - name: Record immutable experiment metadata
@@ -145,13 +133,16 @@ jobs:
               'same_algorithm': 'BasicIncrementalBFS recompute and apply',
               'sortledton_commit': os.environ['SORTLEDTON_SHA'],
               'sortledton_semantics': 'undirected simple graph; unit weights; dense vertex IDs',
-              'public_dataset': 'ca-GrQc',
-              'public_dataset_sha256': os.environ['GRQC_SHA256'],
+              'datasets': [
+                  {'kind': 'deterministic_synthetic', 'vertices': 8192},
+                  {'kind': 'deterministic_synthetic', 'vertices': 32768},
+              ],
+              'update_semantics': 'identical 64-edge insertion batch; exact full distance-vector equality checked after apply',
               'compiler': subprocess.check_output(['c++', '--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
               'runner': 'github-hosted ubuntu-22.04',
-              'timing_scope': 'five median recomputations plus one identical 64-operation incremental batch after construction; input/build time excluded',
-              'claim_gate': 'engineering same-algorithm storage-interface evidence only; not a general native Sortledton performance claim',
+              'timing_scope': 'five median recomputations plus one identical 64-operation incremental insertion batch after construction; input/build time excluded',
+              'claim_gate': 'engineering same-algorithm storage-interface evidence only; public-graph storage evidence is reported separately for Teseo; not a general native Sortledton performance claim',
           }
           Path('artifacts/sortledton/metadata.json').write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
           PY
