@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include "internal-driver/Configuration.h"
+#include "utils/utils.h"
 #include "data-structure/TransactionManager.h"
 #include "data-structure/VersionedBlockedEdgeIterator.h"
 #include "data-structure/VersioningBlockedSkipListAdjacencyList.h"
@@ -248,6 +250,11 @@ std::uint64_t digest(const std::vector<std::uint32_t>& distances) {
 }
 
 int run(std::size_t vertices) {
+  constexpr unsigned kSortledtonBlockSize = 1024;
+  const auto rounded = round_up_power_of_two(kSortledtonBlockSize);
+  if (rounded != kSortledtonBlockSize) {
+    throw std::runtime_error("Sortledton round_up_power_of_two probe mismatch: " + std::to_string(rounded));
+  }
   const VertexId source = 0;
   const auto edges = make_graph(vertices);
   DynamicGraph dynamic(vertices, false);
@@ -294,6 +301,9 @@ int main(int argc, char** argv) {
   try {
     const std::size_t vertices = argc > 1 ? static_cast<std::size_t>(std::stoull(argv[1])) : 8192;
     return run(vertices);
+  } catch (const ConfigurationError& e) {
+    std::cerr << "Sortledton configuration error: " << e.what() << '\n';
+    return 72;
   } catch (const std::exception& e) {
     std::cerr << "Sortledton adapter error: " << e.what() << '\n';
     return 70;
