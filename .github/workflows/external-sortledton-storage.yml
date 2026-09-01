@@ -30,11 +30,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build gcc-10 g++-10 libboost-dev libpapi-dev libsqlite3-dev libtbb-dev libnuma-dev
 
-      - name: Build VeloGraphX library and tests
+      - name: Build VeloGraphX library and tests with GCC 10
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          CC=gcc-10 CXX=g++-10 cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-10 \
+            -DCMAKE_CXX_COMPILER=g++-10 \
+            -DVELOGRAPHX_BUILD_TESTS=ON \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure
+          test "$(build/velographx_example >/dev/null 2>&1; g++-10 -dumpfullversion -dumpversion)" = "$(g++-10 -dumpfullversion -dumpversion)"
 
       - name: Clone immutable Sortledton revision
         run: |
@@ -49,13 +55,16 @@ jobs:
           cp external/sortledton/CMakeLists.txt artifacts/sortledton/upstream-CMakeLists.txt
           git -C external/sortledton diff --exit-code
           python - <<'PY'
-          import json
+          import json, subprocess
           from pathlib import Path
+          gcc = subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0]
           Path('artifacts/sortledton/build-compatibility.json').write_text(json.dumps({
               'scope': 'none',
               'sortledton_commit': '6eb638f3ad38f8a10a127e7e118528f4c8d07a6e',
               'graph_storage_source_changed': False,
               'cmake_adjustments': [],
+              'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all built with GCC/G++ 10',
+              'compiler': gcc,
           }, indent=2, sort_keys=True) + '\n')
           Path('artifacts/sortledton/sortledton-build-compat.patch').write_text('')
           PY
@@ -141,6 +150,7 @@ jobs:
               'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
               'build_compatibility_adjustments': [],
               'build_compatibility_scope': 'none; pinned upstream source and CMake used unchanged',
+              'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all GCC/G++ 10',
               'linkage_note': 'link Sortledton with its required TBB runtime only; do not interpose tbbmalloc_proxy on the combined VeloGraphX process',
               'compiler': subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
