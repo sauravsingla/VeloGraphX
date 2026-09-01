@@ -45,26 +45,46 @@ jobs:
 
       - name: Clone pinned Sortledton
         run: |
-          git clone https://gitlab.db.in.tum.de/per.fuchs/sortledton.git external/sortledton
+          git clone --recursive https://gitlab.db.in.tum.de/per.fuchs/sortledton.git external/sortledton
           git -C external/sortledton checkout "$SORTLEDTON_SHA"
+          git -C external/sortledton submodule update --init --recursive
           test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
+          echo 'Pinned Sortledton layout:'
+          find external/sortledton -maxdepth 2 -type f \( -name 'CMakeLists.txt' -o -name 'Makefile' -o -name 'TransactionManager.h' \) -print | sort
 
-      - name: Build Sortledton release configuration
+      - name: Discover and build Sortledton release configuration
         run: |
-          cmake -S external/sortledton/microbenchmark \
-            -B external/sortledton/microbenchmark/build \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build external/sortledton/microbenchmark/build --parallel 2
-          find external/sortledton/microbenchmark/build -type f \( -name 'libsortledton.a' -o -name 'libsortledton.so' \) -print | tee /tmp/sortledton-libs.txt
-          test -s /tmp/sortledton-libs.txt
+          set -euo pipefail
+          HEADER_FILE="$(find external/sortledton -type f -path '*/data-structure/TransactionManager.h' -print -quit)"
+          test -n "$HEADER_FILE"
+          HEADER_ROOT="${HEADER_FILE%/data-structure/TransactionManager.h}"
+          echo "SORTLEDTON_HEADER_ROOT=$HEADER_ROOT" >> "$GITHUB_ENV"
+
+          if test -f external/sortledton/CMakeLists.txt; then
+            CMAKE_SRC=external/sortledton
+          else
+            CMAKE_FILE="$(find external/sortledton -maxdepth 3 -type f -name CMakeLists.txt -print | sort | head -n1)"
+            test -n "$CMAKE_FILE"
+            CMAKE_SRC="$(dirname "$CMAKE_FILE")"
+          fi
+          echo "Using Sortledton CMake source: $CMAKE_SRC"
+          cmake -S "$CMAKE_SRC" -B external/sortledton-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build external/sortledton-build --parallel 2
+
+          find external/sortledton-build -type f \( -name 'libsortledton.a' -o -name 'libsortledton.so' -o -name '*.a' -o -name '*.so' \) -print | sort | tee /tmp/sortledton-libs.txt
+          SORTLEDTON_LIB="$(grep -E '/libsortledton\.(a|so)$' /tmp/sortledton-libs.txt | head -n1 || true)"
+          if test -z "$SORTLEDTON_LIB"; then
+            SORTLEDTON_LIB="$(grep -E '\.(a|so)$' /tmp/sortledton-libs.txt | head -n1 || true)"
+          fi
+          test -n "$SORTLEDTON_LIB"
+          echo "SORTLEDTON_LIB=$SORTLEDTON_LIB" >> "$GITHUB_ENV"
 
       - name: Compile same-algorithm storage benchmark
         run: |
-          SORTLEDTON_LIB="$(head -n1 /tmp/sortledton-libs.txt)"
           c++ -O3 -DNDEBUG -std=c++20 -fopenmp \
             -Iinclude \
+            -I"$SORTLEDTON_HEADER_ROOT" \
             -Iexternal/sortledton \
-            -Iexternal/sortledton/microbenchmark \
             benchmarks/external_sortledton_storage_bfs.cpp \
             build/libvelographx.a "$SORTLEDTON_LIB" \
             -ltbb -lnuma -latomic -pthread \
