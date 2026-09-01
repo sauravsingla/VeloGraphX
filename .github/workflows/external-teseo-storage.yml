@@ -48,7 +48,7 @@ jobs:
       - name: Build Teseo release configuration
         working-directory: external/teseo
         run: |
-          ./autoreconf -iv
+          autoreconf -iv
           mkdir build
           cd build
           ../configure --enable-optimize --disable-debug
