@@ -24,6 +24,7 @@ class Graph {
  public:
   Graph(std::size_t vertices, const std::vector<std::pair<VertexId, VertexId>>& edges)
       : vertices_(vertices), manager_(1), storage_(512, sizeof(double), manager_) {
+    manager_.register_thread(0);
     for (VertexId v = 0; v < vertices_; ++v) {
       auto tx = manager_.getSnapshotTransaction(&storage_, true);
       tx.insert_vertex(v);
@@ -32,6 +33,8 @@ class Graph {
     }
     for (const auto& [u, v] : edges) insert_edge(u, v);
   }
+
+  ~Graph() { manager_.deregister_thread(0); }
 
   Graph(const Graph&) = delete;
   Graph& operator=(const Graph&) = delete;
