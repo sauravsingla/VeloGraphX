@@ -29,7 +29,7 @@ def policy_regret(result, oracle_batch_us, path):
         observed, oracle = float(observed), float(oracle)
         if oracle < 0.0 or observed < 0.0:
             raise SystemExit(f"negative timing in {path}")
-        regret = 0.0 if oracle == 0.0 and observed == 0.0 else (math.inf if oracle == 0.0 else (observed-oracle)/oracle)
+        regret = 0.0 if oracle == 0.0 and observed == 0.0 else (math.inf if oracle == 0.0 else (observed - oracle) / oracle)
         if not math.isfinite(regret):
             raise SystemExit(f"non-finite oracle regret in {path}")
         regrets.append(max(0.0, regret))
@@ -46,10 +46,9 @@ def parse_result_name(path):
     parts = path.stem.split("__")
     if len(parts) == 3:
         dataset, batch, rep = parts
-        return dataset, int(batch), int(rep)
+        return dataset, None, int(batch), int(rep)
     if len(parts) == 4 and parts[1].startswith("r") and parts[2].startswith("b"):
-        dataset = f"{parts[0]}-{parts[1]}"
-        return dataset, int(parts[2][1:]), int(parts[3])
+        return parts[0], int(parts[1][1:]), int(parts[2][1:]), int(parts[3])
     raise ValueError(path)
 
 
@@ -68,12 +67,12 @@ def main():
         if not is_policy_record(d):
             continue
         try:
-            dataset, batch, rep = parse_result_name(path)
+            dataset, root, batch, rep = parse_result_name(path)
         except ValueError as exc:
             raise SystemExit(f"invalid policy result filename: {path}") from exc
         if not d.get("all_policies_exact") or not all(p.get("exact") for p in d.get("policies", [])):
             raise SystemExit(f"inexact policy result: {path}")
-        grouped[(dataset, batch)].append((rep, path, d))
+        grouped[(dataset, root, batch)].append((rep, path, d))
 
     if not grouped:
         raise SystemExit(f"no adaptive-policy result artifacts found in {args.input_dir} after inspecting {inspected} JSON file(s)")
@@ -88,10 +87,11 @@ def main():
     rows = []
     dataset_summary = defaultdict(list)
     expected_reps = list(range(1, repetitions + 1))
-    for (dataset, batch), reps in sorted(grouped.items()):
+    for (dataset, root, batch), reps in sorted(grouped.items(), key=lambda item: (item[0][0], -1 if item[0][1] is None else item[0][1], item[0][2])):
         rep_ids = sorted(rep for rep, _, _ in reps)
         if rep_ids != expected_reps:
-            raise SystemExit(f"expected repetitions {expected_reps} for {dataset}/{batch}, got {rep_ids}")
+            label = f"{dataset}/root={root}/batch={batch}"
+            raise SystemExit(f"expected repetitions {expected_reps} for {label}, got {rep_ids}")
         metrics = {p: {"means": [], "regrets": [], "full": []} for p in POLICIES}
         for _, path, d in reps:
             by_name = {p.get("name"): p for p in d["policies"]}
@@ -118,6 +118,7 @@ def main():
             mean_us = policy_means[policy]
             row = {
                 "dataset": dataset,
+                "root": "" if root is None else root,
                 "batch_size": batch,
                 "policy": policy,
                 "mean_batch_us": mean_us,
@@ -132,10 +133,11 @@ def main():
     csv_path = args.output_dir / "policy-regime-summary.csv"
     with csv_path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader(); writer.writerows(rows)
+        writer.writeheader()
+        writer.writerows(rows)
 
     summary = {
-        "schema_version": 3,
+        "schema_version": 4,
         "artifact_type": "velographx-adaptive-policy-crossover-summary",
         "input_schema_compatibility": ["historical-tagged", "schema-v6", "rooted-schema-v6"],
         "regret_definition": "mean per-batch max(0, (policy_us - oracle_us) / oracle_us)",
@@ -147,12 +149,21 @@ def main():
     for dataset, dsrows in dataset_summary.items():
         adaptive = [r for r in dsrows if r["policy"] == "adaptive"]
         wins = sum(r["fastest_policy_for_regime"] == "adaptive" for r in adaptive)
+        roots = sorted({r["root"] for r in adaptive if r["root"] != ""})
         summary["datasets"][dataset] = {
             "regimes": len(adaptive),
+            "roots": roots,
             "adaptive_regime_wins": wins,
             "adaptive_mean_regret": mean(r["mean_regret_vs_batch_oracle"] for r in adaptive),
             "adaptive_mean_relative_to_regime_best": mean(r["relative_to_regime_best"] for r in adaptive),
-            "crossover": [{"batch_size": r["batch_size"], "fastest_policy": r["fastest_policy_for_regime"]} for r in adaptive],
+            "crossover": [
+                {
+                    "root": r["root"],
+                    "batch_size": r["batch_size"],
+                    "fastest_policy": r["fastest_policy_for_regime"],
+                }
+                for r in adaptive
+            ],
         }
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, sort_keys=True))
