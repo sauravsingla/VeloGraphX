@@ -86,8 +86,17 @@ jobs:
 
       - name: Run portability and incremental correctness campaign
         run: |
-          build/velographx_external_sortledton_storage_bfs 2048 | tee artifacts/sortledton/sortledton-2048.json
-          build/velographx_external_sortledton_storage_bfs 8192 | tee artifacts/sortledton/sortledton-8192.json
+          set -o pipefail
+          build/velographx_external_sortledton_storage_bfs 2048 2>&1 | tee artifacts/sortledton/sortledton-2048.log
+          build/velographx_external_sortledton_storage_bfs 8192 2>&1 | tee artifacts/sortledton/sortledton-8192.log
+          python - <<'PY'
+          from pathlib import Path
+          for n in (2048, 8192):
+              lines = Path(f'artifacts/sortledton/sortledton-{n}.log').read_text().splitlines()
+              json_lines = [line for line in lines if line.startswith('{')]
+              assert len(json_lines) == 1, (n, lines[-20:])
+              Path(f'artifacts/sortledton/sortledton-{n}.json').write_text(json_lines[0] + '\n')
+          PY
 
       - name: Validate exactness and claim gates
         run: |
