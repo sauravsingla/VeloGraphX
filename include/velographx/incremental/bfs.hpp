@@ -31,13 +31,13 @@ class BasicIncrementalBFS {
     last_used_full_recompute_ = false;
     if (batch.empty()) return;
 
-    ensure_workspace(g_.vertex_count());
+    ensure_workspace(vertex_count(g_));
     prepare_batch_workspace(batch.updates.size());
 
     for (auto it = batch.updates.rbegin(); it != batch.updates.rend(); ++it) {
       auto u = it->src;
       auto v = it->dst;
-      if (!g_.directed() && v < u) std::swap(u, v);
+      if (!is_directed(g_) && v < u) std::swap(u, v);
       const auto key = edge_key(u, v);
       if (!seen_final_updates_.insert(key)) continue;
       if (it->add) {
@@ -48,13 +48,13 @@ class BasicIncrementalBFS {
       }
     }
 
-    deletion_candidates_.reserve(final_deletions_.size() * (g_.directed() ? 1 : 2));
+    deletion_candidates_.reserve(final_deletions_.size() * (is_directed(g_) ? 1 : 2));
     existing_deletions_.reserve(final_deletions_.size());
     for (const auto& [u, v] : final_deletions_) {
-      if (!g_.has_edge(u, v)) continue;
+      if (!has_edge(g_, u, v)) continue;
       existing_deletions_.emplace_back(u, v);
       if (is_shortest_parent(u, v)) deletion_candidates_.push_back(v);
-      if (!g_.directed() && is_shortest_parent(v, u)) deletion_candidates_.push_back(u);
+      if (!is_directed(g_) && is_shortest_parent(v, u)) deletion_candidates_.push_back(u);
     }
     std::sort(deletion_candidates_.begin(), deletion_candidates_.end());
     deletion_candidates_.erase(std::unique(deletion_candidates_.begin(), deletion_candidates_.end()),
@@ -62,15 +62,15 @@ class BasicIncrementalBFS {
     last_deletion_candidates_ = deletion_candidates_.size();
 
     affected_vertices_.reserve(std::min<std::size_t>(deletion_candidates_.size() * 2 + 8,
-                                                      g_.vertex_count()));
+                                                      vertex_count(g_)));
     bool fallback_needed = false;
     if (!deletion_candidates_.empty()) {
       fallback_needed = !compute_affected_prebatch(existing_deletions_, final_deletion_keys_);
     }
 
-    g_.apply(batch);
-    if (dist_.size() < g_.vertex_count()) dist_.resize(g_.vertex_count(), unreachable);
-    ensure_workspace(g_.vertex_count());
+    apply_updates(g_, batch);
+    if (dist_.size() < vertex_count(g_)) dist_.resize(vertex_count(g_), unreachable);
+    ensure_workspace(vertex_count(g_));
 
     if (fallback_needed) {
       clear_workspace();
@@ -90,24 +90,24 @@ class BasicIncrementalBFS {
     bfs_queue_.clear();
     for (const auto& [u, v] : final_additions_) {
       relax_edge(u, v, bfs_queue_);
-      if (!g_.directed()) relax_edge(v, u, bfs_queue_);
+      if (!is_directed(g_)) relax_edge(v, u, bfs_queue_);
     }
     propagate_decreases(bfs_queue_);
     clear_workspace();
   }
 
   void recompute() {
-    dist_.assign(g_.vertex_count(), unreachable);
-    ensure_workspace(g_.vertex_count());
-    if (source_ >= g_.vertex_count()) return;
+    dist_.assign(vertex_count(g_), unreachable);
+    ensure_workspace(vertex_count(g_));
+    if (source_ >= vertex_count(g_)) return;
     bfs_queue_.clear();
-    bfs_queue_.reserve(std::max(bfs_queue_.capacity(), g_.vertex_count()));
+    bfs_queue_.reserve(std::max(bfs_queue_.capacity(), vertex_count(g_)));
     dist_[source_] = 0;
     bfs_queue_.push_back(source_);
     std::size_t head = 0;
     while (head < bfs_queue_.size()) {
       const auto u = bfs_queue_[head++];
-      g_.for_each_neighbor(u, [&](VertexId v) {
+      for_each_neighbor(g_, u, [&](VertexId v) {
         if (dist_[v] == unreachable) {
           dist_[v] = dist_[u] + 1;
           bfs_queue_.push_back(v);
@@ -173,7 +173,7 @@ class BasicIncrementalBFS {
   };
 
   [[nodiscard]] std::uint64_t edge_key(VertexId u, VertexId v) const noexcept {
-    if (!g_.directed() && v < u) std::swap(u, v);
+    if (!is_directed(g_) && v < u) std::swap(u, v);
     return (static_cast<std::uint64_t>(u) << 32) | static_cast<std::uint64_t>(v);
   }
 
@@ -209,7 +209,7 @@ class BasicIncrementalBFS {
     if (v >= dist_.size() || v == source_ || dist_[v] == unreachable) return 0;
     if (shortest_parent_count_[v] != 0) return shortest_parent_count_[v];
     std::uint32_t count = 0;
-    g_.for_each_in_neighbor(v, [&](VertexId p) {
+    for_each_in_neighbor(g_, v, [&](VertexId p) {
       if (is_shortest_parent(p, v)) ++count;
     });
     shortest_parent_count_[v] = count;
@@ -220,8 +220,8 @@ class BasicIncrementalBFS {
       const std::vector<std::pair<VertexId, VertexId>>& existing_deletions,
       const ReusableKeySet& final_deletion_keys) {
     const auto fallback_limit = std::max<std::size_t>(
-        1, static_cast<std::size_t>(static_cast<double>(g_.vertex_count()) * deletion_fallback_fraction_));
-    invalidate_.reserve(std::min<std::size_t>(existing_deletions.size() * 2 + 8, g_.vertex_count()));
+        1, static_cast<std::size_t>(static_cast<double>(vertex_count(g_)) * deletion_fallback_fraction_));
+    invalidate_.reserve(std::min<std::size_t>(existing_deletions.size() * 2 + 8, vertex_count(g_)));
 
     auto record_parent_loss = [&](VertexId v) {
       if (v >= dist_.size() || v == source_ || dist_[v] == unreachable || affected_[v]) return;
@@ -238,7 +238,7 @@ class BasicIncrementalBFS {
 
     for (const auto& [u, v] : existing_deletions) {
       if (is_shortest_parent(u, v)) record_parent_loss(v);
-      if (!g_.directed() && is_shortest_parent(v, u)) record_parent_loss(u);
+      if (!is_directed(g_) && is_shortest_parent(v, u)) record_parent_loss(u);
     }
 
     std::size_t head = 0;
@@ -246,7 +246,7 @@ class BasicIncrementalBFS {
       if (last_affected_vertices_ > fallback_limit) return false;
       const auto u = invalidate_[head++];
       if (u >= dist_.size() || dist_[u] == unreachable) continue;
-      g_.for_each_neighbor(u, [&](VertexId v) {
+      for_each_neighbor(g_, u, [&](VertexId v) {
         if (v >= dist_.size() || dist_[v] != dist_[u] + 1) return;
         if (final_deletion_keys.contains(edge_key(u, v))) return;
         record_parent_loss(v);
@@ -257,7 +257,7 @@ class BasicIncrementalBFS {
 
   [[nodiscard]] std::uint32_t best_boundary_distance(VertexId v) const {
     std::uint32_t best = unreachable;
-    g_.for_each_in_neighbor(v, [&](VertexId p) {
+    for_each_in_neighbor(g_, v, [&](VertexId p) {
       if (p >= dist_.size() || p >= affected_.size() || affected_[p] || dist_[p] == unreachable) return;
       const auto candidate = dist_[p] + 1;
       if (candidate < best) best = candidate;
@@ -290,7 +290,7 @@ class BasicIncrementalBFS {
       const auto [du, u] = repair_heap_.back();
       repair_heap_.pop_back();
       if (u >= dist_.size() || du != dist_[u]) continue;
-      g_.for_each_neighbor(u, [&](VertexId v) {
+      for_each_neighbor(g_, u, [&](VertexId v) {
         if (v >= affected_.size() || !affected_[v]) return;
         const auto candidate = du + 1;
         if (candidate < dist_[v]) {
@@ -334,7 +334,7 @@ class BasicIncrementalBFS {
     while (head < q.size()) {
       const auto u = q[head++];
       if (dist_[u] == unreachable) continue;
-      g_.for_each_neighbor(u, [&](VertexId v) {
+      for_each_neighbor(g_, u, [&](VertexId v) {
         if (dist_[u] + 1 < dist_[v]) {
           dist_[v] = dist_[u] + 1;
           q.push_back(v);
