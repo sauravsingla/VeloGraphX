@@ -71,7 +71,9 @@ class Graph {
   }
 
   void insert_edge(VertexId u, VertexId v) {
-    write_transaction([&](auto& tx) {
+    auto tx = manager_.getSnapshotTransaction(&storage_, true);
+    bool completed = false;
+    try {
       const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
       VertexExistsPrecondition source_exists(edge.src);
       VertexExistsPrecondition destination_exists(edge.dst);
@@ -82,7 +84,16 @@ class Graph {
       double weight = 1.0;
       tx.insert_edge(edge, reinterpret_cast<char*>(&weight), sizeof(weight));
       tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<char*>(&weight), sizeof(weight));
-    }, "Sortledton edge insertion failed");
+      const bool ok = tx.execute();
+      manager_.transactionCompleted(tx);
+      completed = true;
+      if (!ok) throw std::runtime_error("Sortledton edge insertion failed");
+    } catch (...) {
+      if (!completed) {
+        try { manager_.transactionCompleted(tx); } catch (...) {}
+      }
+      throw;
+    }
   }
 
   void delete_edge(VertexId u, VertexId v) {
