@@ -5,6 +5,7 @@
 #include <iostream>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -24,17 +25,32 @@ class Graph {
  public:
   Graph(std::size_t vertices, const std::vector<std::pair<VertexId, VertexId>>& edges)
       : vertices_(vertices), manager_(1), storage_(512, sizeof(double), manager_) {
+    std::cerr << "[sortledton-adapter] register-thread\n";
     manager_.register_thread(0);
+    registered_ = true;
+    std::cerr << "[sortledton-adapter] load-vertices\n";
     for (VertexId v = 0; v < vertices_; ++v) {
       auto tx = manager_.getSnapshotTransaction(&storage_, true);
       tx.insert_vertex(v);
-      if (!tx.execute()) throw std::runtime_error("Sortledton vertex insertion failed");
+      if (!tx.execute()) throw std::runtime_error("Sortledton vertex insertion failed at vertex " + std::to_string(v));
       manager_.transactionCompleted(tx);
     }
+    std::cerr << "[sortledton-adapter] load-edges count=" << edges.size() << "\n";
     for (const auto& [u, v] : edges) insert_edge(u, v);
+    std::cerr << "[sortledton-adapter] ready\n";
   }
 
-  ~Graph() { manager_.deregister_thread(0); }
+  ~Graph() noexcept {
+    if (registered_) {
+      try {
+        manager_.deregister_thread(0);
+      } catch (const std::exception& e) {
+        std::cerr << "[sortledton-adapter] deregister failure: " << e.what() << '\n';
+      } catch (...) {
+        std::cerr << "[sortledton-adapter] deregister failure: unknown exception\n";
+      }
+    }
+  }
 
   Graph(const Graph&) = delete;
   Graph& operator=(const Graph&) = delete;
@@ -43,6 +59,7 @@ class Graph {
   mutable TransactionManager manager_;
   mutable VersioningBlockedSkipListAdjacencyList storage_;
   std::uint64_t version_{0};
+  bool registered_{false};
 
   void insert_edge(VertexId u, VertexId v) {
     auto tx = manager_.getSnapshotTransaction(&storage_, true);
@@ -178,29 +195,33 @@ std::uint64_t digest(const std::vector<std::uint32_t>& distances) {
   return h;
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
-  const std::size_t vertices = argc > 1 ? static_cast<std::size_t>(std::stoull(argv[1])) : 8192;
+int run_campaign(std::size_t vertices) {
   const VertexId source = 0;
   const auto edges = make_graph(vertices);
-
+  std::cerr << "[sortledton-adapter] construct-native\n";
   DynamicGraph dynamic(vertices, false);
   dynamic.bulk_load_edges(edges);
   CsrGraph csr(edges, false);
+  std::cerr << "[sortledton-adapter] construct-sortledton\n";
   sortledton_adapter::Graph sortledton_graph(vertices, edges);
 
   std::vector<std::uint32_t> dynamic_dist, csr_dist, sortledton_dist;
+  std::cerr << "[sortledton-adapter] recompute-dynamic\n";
   const auto dynamic_us = median_recompute_us(dynamic, source, dynamic_dist);
+  std::cerr << "[sortledton-adapter] recompute-csr\n";
   const auto csr_us = median_recompute_us(csr, source, csr_dist);
+  std::cerr << "[sortledton-adapter] recompute-sortledton\n";
   const auto sortledton_us = median_recompute_us(sortledton_graph, source, sortledton_dist);
   const bool recompute_exact = dynamic_dist == csr_dist && dynamic_dist == sortledton_dist;
 
+  std::cerr << "[sortledton-adapter] incremental-construct\n";
   BasicIncrementalBFS<DynamicGraph> dynamic_incremental(dynamic, source);
   BasicIncrementalBFS<sortledton_adapter::Graph> sortledton_incremental(sortledton_graph, source);
   std::vector<double> dynamic_apply_samples, sortledton_apply_samples;
   bool incremental_exact = true;
+  int batch_index = 0;
   for (const auto& batch : make_incremental_batches(vertices)) {
+    std::cerr << "[sortledton-adapter] batch=" << batch_index << "\n";
     auto begin = std::chrono::steady_clock::now();
     dynamic_incremental.apply(batch);
     auto end = std::chrono::steady_clock::now();
@@ -211,6 +232,7 @@ int main(int argc, char** argv) {
     end = std::chrono::steady_clock::now();
     sortledton_apply_samples.push_back(std::chrono::duration<double, std::micro>(end - begin).count());
     incremental_exact = incremental_exact && dynamic_incremental.distances() == sortledton_incremental.distances();
+    ++batch_index;
   }
   std::sort(dynamic_apply_samples.begin(), dynamic_apply_samples.end());
   std::sort(sortledton_apply_samples.begin(), sortledton_apply_samples.end());
@@ -239,6 +261,22 @@ int main(int argc, char** argv) {
             << "\"sortledton_median_us\":" << sortledton_us << ','
             << "\"dynamic_incremental_median_us\":" << dynamic_apply_us << ','
             << "\"sortledton_incremental_median_us\":" << sortledton_apply_us
-            << "}\n";
+            << "}\n" << std::flush;
+  std::cerr << "[sortledton-adapter] result-emitted exact=" << exact << "\n";
   return exact ? 0 : 2;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  try {
+    const std::size_t vertices = argc > 1 ? static_cast<std::size_t>(std::stoull(argv[1])) : 8192;
+    return run_campaign(vertices);
+  } catch (const std::exception& e) {
+    std::cerr << "[sortledton-adapter] fatal exception: " << e.what() << '\n';
+    return 70;
+  } catch (...) {
+    std::cerr << "[sortledton-adapter] fatal unknown exception\n";
+    return 71;
+  }
 }
