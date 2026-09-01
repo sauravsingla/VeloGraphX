@@ -28,7 +28,26 @@ The project focuses on the systems integration of mutable storage, exact dynamic
 
 ## Current validated results
 
-The results below are from fresh reruns performed on 31 August 2026. They are workload-specific measurements, not universal performance claims.
+The results below come from retained GitHub Actions artifacts produced on 31 August 2026. They are workload-specific engineering measurements, not universal or publication-grade performance claims.
+
+### Native BFS and SSSP vs GAP and LAGraph
+
+Following external methodology guidance from Prof. Timothy A. Davis, VeloGraphX is compared on the same hosted Linux runner with both the GAP Benchmark Suite and LAGraph/SuiteSparse:GraphBLAS. The campaign pins LAGraph `v1.3.x` to an immutable revision, uses SuiteSparse:GraphBLAS `v10.5.0`, builds GAP BFS and SSSP, applies `OMP_PLACES=cores` and `OMP_PROC_BIND=spread`, uses the same source vertex, and retains five repetitions per configuration.
+
+| Algorithm | Threads | VeloGraphX | GAP | LAGraph |
+| --- | ---: | ---: | ---: | ---: |
+| BFS | 1 | **0.425 ms** | 0.790 ms | 4.000 ms |
+| BFS | 2 | **0.420 ms** | 0.670 ms | 4.000 ms |
+| BFS | 4 | **0.406 ms** | 0.830 ms | 4.800 ms |
+| SSSP | 1 | 8.982 ms | **1.060 ms** | 23.500 ms |
+| SSSP | 2 | 8.587 ms | **1.190 ms** | 23.600 ms |
+| SSSP | 4 | 9.003 ms | **1.290 ms** | 27.100 ms |
+
+On this workload, VeloGraphX was fastest for BFS at every tested thread count, while GAP was substantially faster for SSSP. VeloGraphX was faster than LAGraph for both algorithms. GAP verification, LAGraph self-checks, and VeloGraphX exactness checks passed for every measured configuration.
+
+The same campaign also measured dynamic crossover using deterministic addition batches. For BFS, VeloGraphX incremental repair was faster than its own full recomputation at 0.1% and 1% update fractions, while full recomputation became faster at 5% updates. For weighted SSSP, VeloGraphX incremental repair remained faster than its own full recomputation across 0.1%, 1%, and 5% updates, although GAP full recomputation was faster on this workload.
+
+GitHub Actions run `33418520303`; retained artifact `9768499895`. See [Hosted native competitor methodology](docs/hosted-native-competitors.md).
 
 ### Dynamic BFS vs NetworKit 11.2.1
 
@@ -39,15 +58,15 @@ A native C++ comparison on `web-Google` uses one thread, identical update stream
 | **VeloGraphX** | **36.328 ms** |
 | NetworKit 11.2.1 | 45.740 ms |
 
-VeloGraphX delivered approximately **20.6% lower mean batch latency** in the fresh five-run comparison, with all repetitions exact.
+VeloGraphX delivered approximately **20.6% lower mean batch latency** in this five-run comparison, with all repetitions exact.
 
-GitHub Actions run `33301190847`; fresh retained artifact `9766977170`.
+GitHub Actions run `33301190847`; retained artifact `9766977170`.
 
 ### Adaptive BFS policy
 
 The current multi-root validation uses checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` datasets with **3 graph families × 3 roots × 3 update regimes × 5 repetitions**.
 
-| Metric | Fresh result |
+| Metric | Result |
 | --- | ---: |
 | Exactness | **100%** |
 | Adaptive regime wins | **19 / 27** |
@@ -56,20 +75,20 @@ The current multi-root validation uses checksum-pinned `ca-GrQc`, `soc-Epinions1
 
 Exactness is a hard workflow invariant. Timing thresholds on shared GitHub-hosted runners are retained as benchmark evidence rather than treated as deterministic correctness gates.
 
-Current-main run `33410705480`; retained artifact `9767029881`.
+GitHub Actions run `33410705480`; retained artifact `9767029881`.
 
 ### SNAP roadNet-CA
 
 The public benchmark contract verifies **1,965,206 source vertices** and **2,766,607 undirected roads** before measurement.
 
-| Operation | Fresh kernel time |
+| Operation | Kernel time |
 | --- | ---: |
 | BFS | **52.848 ms** |
 | Connected components | **50.538 ms** |
 | Triangle counting | **54.537 ms** |
 | PageRank | **2.043 s** |
 
-GitHub Actions run `33355564089`; fresh retained artifact `9766755354`.
+GitHub Actions run `33355564089`; retained artifact `9766755354`.
 
 ## Algorithms
 
@@ -102,23 +121,15 @@ See [Storage-independent graph algorithm contract](docs/graph-abstraction.md).
 
 ## Correctness and reproducibility
 
-CI covers:
+CI covers Ubuntu and macOS builds, Linux ASan/UBSan, graph mutation and storage consistency, incremental-vs-full differential testing, SIMD/scalar agreement, Python interoperability with NumPy/SciPy/Arrow, dataset provenance, benchmark contracts, and independent reference checks.
 
-- Ubuntu and macOS builds and tests
-- Linux ASan/UBSan
-- graph mutation and storage consistency
-- incremental-vs-full differential testing
-- SIMD/scalar agreement
-- Python interoperability with NumPy, SciPy, and Arrow
-- dataset provenance and checksum verification
-- benchmark contracts and independent reference checks
-
-Experiments use explicit thread settings, repeated measurements, exactness gates, environment capture, and retained GitHub Actions artifacts. Hosted-runner timing is treated as reproducible evidence within a recorded environment, not as a hardware-independent performance guarantee.
+Experiments use explicit thread settings, repeated measurements, exactness gates, environment capture, immutable external revisions where applicable, and retained GitHub Actions artifacts. Hosted-runner timing is treated as reproducible engineering evidence within a recorded environment, not as a hardware-independent performance guarantee. Dedicated controlled hardware remains required for publication-grade scalability, NUMA, and hardware-counter claims.
 
 ## Methodology and documentation
 
-- [Storage-independent graph algorithm contract](docs/graph-abstraction.md)
 - [Benchmark methodology](docs/benchmark-methodology.md)
+- [Hosted native GAP/LAGraph methodology](docs/hosted-native-competitors.md)
+- [Storage-independent graph algorithm contract](docs/graph-abstraction.md)
 - [External dynamic baselines](docs/external-dynamic-baselines.md)
 - [External baseline timing contract](docs/external-baseline-timing-contract.md)
 - [Ablation study](docs/ablation-study.md)
