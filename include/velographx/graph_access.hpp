@@ -21,6 +21,11 @@ template <class T>
   }
 }
 
+template <class T>
+[[nodiscard]] constexpr auto neighbor_weight(const T& value) noexcept {
+  return value.second;
+}
+
 template <class Graph>
 concept MemberVertexCount = requires(const Graph& graph) {
   { graph.vertex_count() } -> std::convertible_to<std::size_t>;
@@ -103,6 +108,19 @@ void for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
 }
 
 template <ReadableGraph Graph, class Fn>
+void for_each_weighted_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
+  if constexpr (requires { vx_for_each_weighted_neighbor(graph, u, std::forward<Fn>(fn)); }) {
+    vx_for_each_weighted_neighbor(graph, u, std::forward<Fn>(fn));
+  } else if constexpr (requires { graph.for_each_neighbor(u, std::forward<Fn>(fn)); }) {
+    graph.for_each_neighbor(u, std::forward<Fn>(fn));
+  } else {
+    for (const auto& neighbor : graph.neighbors(u)) {
+      fn(graph_access_detail::neighbor_target(neighbor), graph_access_detail::neighbor_weight(neighbor));
+    }
+  }
+}
+
+template <ReadableGraph Graph, class Fn>
 void for_each_in_neighbor(const Graph& graph, VertexId v, Fn&& fn) {
   if constexpr (requires { graph.for_each_in_neighbor(v, std::forward<Fn>(fn)); }) {
     graph.for_each_in_neighbor(v, std::forward<Fn>(fn));
@@ -144,6 +162,15 @@ template <ReadableGraph Graph>
     bool found = false;
     for_each_neighbor(graph, u, [&](VertexId dst) { found = found || dst == v; });
     return found;
+  }
+}
+
+template <ReadableGraph Graph>
+[[nodiscard]] auto edge_weight(const Graph& graph, VertexId u, VertexId v) {
+  if constexpr (requires { vx_edge_weight(graph, u, v); }) {
+    return vx_edge_weight(graph, u, v);
+  } else {
+    return graph.weight(u, v);
   }
 }
 
