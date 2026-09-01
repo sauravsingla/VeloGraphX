@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc-10 g++-10 libboost-all-dev libpapi-dev libsqlite3-dev libtbb-dev libnuma-dev
+          sudo apt-get install -y cmake ninja-build gcc-10 g++-10 libboost-dev libpapi-dev libsqlite3-dev libtbb-dev libnuma-dev
 
       - name: Build VeloGraphX library and tests
         run: |
