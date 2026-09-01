@@ -154,7 +154,7 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
     catch (...) { throw_stage("neighbors physical_id u=" + std::to_string(u)); }
     try {
       SORTLEDTON_ITERATE(tx, physical, {
-        fn(static_cast<VertexId>(tx.logical_id(e)));
+        fn(static_cast<VertexId>(tx.logical_id(make_unversioned(e))));
       });
     } catch (...) { throw_stage("neighbors iterate u=" + std::to_string(u)); }
     try { graph.manager_.transactionCompleted(tx); completed = true; }
