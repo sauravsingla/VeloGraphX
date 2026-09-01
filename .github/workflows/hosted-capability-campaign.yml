@@ -1,0 +1,173 @@
+name: Hosted Capability Campaign
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hosted-capability-campaign.yml'
+      - 'benchmarks/**'
+      - 'include/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  hosted-capabilities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build -j 2
+
+      - name: Capture environment and NUMA topology
+        run: |
+          mkdir -p capability-results
+          {
+            echo "git_sha=$(git rev-parse HEAD)"
+            echo "nproc=$(nproc)"
+            echo "hardware_concurrency=$(getconf _NPROCESSORS_ONLN || true)"
+            uname -a
+            echo '--- lscpu ---'
+            lscpu || true
+            echo '--- numactl ---'
+            numactl --hardware || true
+            echo '--- memory ---'
+            free -h || true
+            echo '--- filesystem ---'
+            df -h . || true
+          } | tee capability-results/environment.txt
+
+      - name: Generate deterministic scaling graph
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          n = 50000
+          fanout = 8
+          p = Path('capability-results/scaling.edgelist')
+          with p.open('w') as f:
+              for u in range(n):
+                  for k in range(1, fanout + 1):
+                      v = (u * 1103515245 + 12345 + k * 2654435761) % n
+                      if v != u:
+                          f.write(f"{u} {v}\n")
+          print(p, p.stat().st_size)
+          PY
+
+      - name: Multicore BFS scaling 1/2/4 threads
+        run: |
+          for r in 1 2 3 4 5; do
+            ./build/velographx_thread_scaling_bfs capability-results/scaling.edgelist 128 1,2,4 > capability-results/thread-scaling-${r}.csv
+          done
+          cat capability-results/thread-scaling-1.csv
+
+      - name: Compression campaign
+        run: |
+          for r in 1 2 3 4 5; do
+            ./build/velographx_compression_benchmark > capability-results/compression-${r}.csv
+          done
+          cat capability-results/compression-1.csv
+
+      - name: Out-of-core functional and cache campaign
+        run: |
+          {
+            echo 'test,status,elapsed_seconds,max_rss_kb'
+            for test in velographx_test_partition_cache velographx_test_partition_file velographx_test_async_partition_loader; do
+              for r in 1 2 3 4 5; do
+                /usr/bin/time -f "${test}-${r},success,%e,%M" -o capability-results/time.tmp ./build/${test}
+                cat capability-results/time.tmp
+              done
+            done
+          } | tee capability-results/out-of-core.csv
+          rm -f capability-results/time.tmp
+
+      - name: NUMA functional validation
+        run: |
+          for test in velographx_test_numa velographx_test_numa_policy velographx_test_numa_partitioner velographx_test_numa_scheduler velographx_test_work_stealing velographx_test_work_stealing_stress velographx_test_degree_frontier_scheduler velographx_test_execution_plan; do
+            echo "RUN $test" | tee -a capability-results/numa-functional.txt
+            ./build/$test
+            echo "PASS $test" | tee -a capability-results/numa-functional.txt
+          done
+
+      - name: Summarize campaign
+        run: |
+          python - <<'PY'
+          import csv, json, statistics
+          from pathlib import Path
+          out = Path('capability-results')
+          summary = {
+              'schema_version': 1,
+              'git_sha': None,
+              'research_claim': False,
+              'publication_grade': False,
+              'multicore': {},
+              'compression': {},
+              'out_of_core': {},
+              'numa': {'functional_tests_passed': True},
+          }
+          env = (out/'environment.txt').read_text()
+          for line in env.splitlines():
+              if line.startswith('git_sha='):
+                  summary['git_sha'] = line.split('=',1)[1]
+              if line.startswith('nproc='):
+                  summary['logical_cpus_visible'] = int(line.split('=',1)[1])
+          scaling = {}
+          for p in sorted(out.glob('thread-scaling-*.csv')):
+              with p.open() as f:
+                  for row in csv.DictReader(f):
+                      t = int(row['threads'])
+                      scaling.setdefault(t, []).append({k: row[k] for k in row})
+          for t, rows in scaling.items():
+              qps = [float(r['queries_per_second']) for r in rows]
+              speed = [float(r['speedup']) for r in rows]
+              eff = [float(r['parallel_efficiency']) for r in rows]
+              summary['multicore'][str(t)] = {
+                  'repetitions': len(rows),
+                  'median_qps': statistics.median(qps),
+                  'median_speedup': statistics.median(speed),
+                  'median_efficiency': statistics.median(eff),
+                  'digest_consistent': len({r['digest'] for r in rows}) == 1,
+              }
+          comp = {}
+          for p in sorted(out.glob('compression-*.csv')):
+              with p.open() as f:
+                  for row in csv.DictReader(f):
+                      key = f"{row['family']}:{row['codec']}"
+                      comp.setdefault(key, []).append(row)
+          for key, rows in comp.items():
+              summary['compression'][key] = {
+                  'repetitions': len(rows),
+                  'encoded_bytes': int(rows[0]['encoded_bytes']),
+                  'median_ratio': statistics.median(float(r['ratio']) for r in rows),
+                  'median_encode_us': statistics.median(float(r['encode_us']) for r in rows),
+                  'median_decode_us': statistics.median(float(r['decode_us']) for r in rows),
+              }
+          rows = []
+          with (out/'out-of-core.csv').open() as f:
+              for row in csv.DictReader(f):
+                  rows.append(row)
+          bytest = {}
+          for r in rows:
+              base = r['test'].rsplit('-',1)[0]
+              bytest.setdefault(base, []).append(r)
+          for test, rs in bytest.items():
+              summary['out_of_core'][test] = {
+                  'repetitions': len(rs),
+                  'all_passed': all(r['status'] == 'success' for r in rs),
+                  'median_elapsed_seconds': statistics.median(float(r['elapsed_seconds']) for r in rs),
+                  'median_max_rss_kb': statistics.median(float(r['max_rss_kb']) for r in rs),
+              }
+          (out/'summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True))
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload hosted capability evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-hosted-capability-campaign
+          path: capability-results/
+          retention-days: 14
