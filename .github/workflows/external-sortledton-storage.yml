@@ -81,7 +81,7 @@ jobs:
             benchmarks/external_sortledton_storage_bfs.cpp \
             build/libvelographx.a \
             "$SORTLEDTON_BUILD/libsortledton.a" \
-            -ltbb -ltbbmalloc -ltbbmalloc_proxy -lnuma -lsqlite3 -lpapi -lpthread \
+            -ltbb -lnuma -lsqlite3 -lpapi -lpthread \
             -o build/velographx_external_sortledton_storage_bfs 2>&1 | tee artifacts/sortledton/adapter-compile.log
 
       - name: Run portability and incremental correctness campaign
@@ -141,6 +141,7 @@ jobs:
               'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
               'build_compatibility_adjustments': [],
               'build_compatibility_scope': 'none; pinned upstream source and CMake used unchanged',
+              'linkage_note': 'link Sortledton with its required TBB runtime only; do not interpose tbbmalloc_proxy on the combined VeloGraphX process',
               'compiler': subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
               'runner': 'github-hosted ubuntu-22.04',
