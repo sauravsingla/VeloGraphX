@@ -24,12 +24,7 @@ on:
         type: choice
         required: true
         default: road
-        options:
-          - twitter
-          - web
-          - road
-          - kron
-          - urand
+        options: [twitter, web, road, kron, urand]
       roots:
         description: Comma-separated source vertices
         type: string
@@ -68,13 +63,31 @@ jobs:
           make -C external/gapbs -j2 bfs sssp converter
           test "$(git -C external/gapbs describe --tags --exact-match)" = "$GAPBS_TAG"
 
-      - name: Generate reduced contract graph
+      - name: Generate reduced non-canonical contract graph and provenance
         run: |
           mkdir -p artifacts/gap-contract
-          # This is deliberately NOT labelled canonical. It only tests the exact
-          # multiroot runner contract in hosted CI.
           external/gapbs/converter -g12 -k8 -e artifacts/gap-contract/kron.el
           external/gapbs/converter -g12 -k8 -e artifacts/gap-contract/kron.wel -w
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          d = Path('artifacts/gap-contract')
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          e, w = d/'kron.el', d/'kron.wel'
+          (d/'kron.metadata.json').write_text(json.dumps({
+              'schema_version': 2,
+              'dataset': 'kron',
+              'gap_revision': 'v1.5',
+              'recipe_source': 'CI contract only: GAP converter -g12 -k8; not canonical',
+              'canonical': False,
+              'directed': False,
+              'sssp_delta': 2,
+              'edge_list': 'kron.el',
+              'weighted_edge_list': 'kron.wel',
+              'checksums': {'edge_list_sha256': sha(e), 'weighted_edge_list_sha256': sha(w)},
+              'sizes_bytes': {'edge_list': e.stat().st_size, 'weighted_edge_list': w.stat().st_size},
+          }, indent=2, sort_keys=True) + '\n')
+          PY
 
       - name: Run multiroot correctness/timing contract
         run: |
@@ -83,31 +96,55 @@ jobs:
             --dataset-name kron \
             --edge-list artifacts/gap-contract/kron.el \
             --weighted-edge-list artifacts/gap-contract/kron.wel \
+            --dataset-metadata artifacts/gap-contract/kron.metadata.json \
             --velographx build/velographx_native_baseline_benchmark \
             --gap-bfs external/gapbs/bfs \
             --gap-sssp external/gapbs/sssp \
             --roots 0,1,7,31 \
             --threads 1,2 \
             --repeat 2 \
+            --sssp-delta 2 \
             --gap-revision "$GAPBS_TAG"
 
-      - name: Validate smoke is not canonical evidence
+      - name: Exercise fail-closed argument and semantics gates
+        run: |
+          set +e
+          python tools/run_gap_canonical_multiroot.py --output /tmp/x.json --dataset-name kron --edge-list artifacts/gap-contract/kron.el --weighted-edge-list artifacts/gap-contract/kron.wel --dataset-metadata artifacts/gap-contract/kron.metadata.json --velographx build/velographx_native_baseline_benchmark --gap-bfs external/gapbs/bfs --gap-sssp external/gapbs/sssp --roots 0,0 --threads 1 --repeat 1 --sssp-delta 2 --gap-revision v1.5 >/tmp/duplicate.log 2>&1
+          test $? -ne 0
+          python tools/run_gap_canonical_multiroot.py --output /tmp/y.json --dataset-name kron --edge-list artifacts/gap-contract/kron.el --weighted-edge-list artifacts/gap-contract/kron.wel --dataset-metadata artifacts/gap-contract/kron.metadata.json --velographx build/velographx_native_baseline_benchmark --gap-bfs external/gapbs/bfs --gap-sssp external/gapbs/sssp --roots 0,1 --threads 1 --repeat 1 --directed --sssp-delta 2 --gap-revision v1.5 >/tmp/directed.log 2>&1
+          test $? -ne 0
+          set -e
+          grep -q 'must not contain duplicates' /tmp/duplicate.log
+          grep -q 'directedness mismatch' /tmp/directed.log
+
+      - name: Validate smoke remains explicitly non-canonical
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
           row = json.loads(Path('artifacts/gap-contract/result.json').read_text())
+          assert row['schema_version'] == 2
           assert row['campaign'] == 'gap-canonical-multiroot'
-          assert len(row['roots']) == 4
-          assert len(row['threads']) == 2
+          assert row['canonical_dataset_result'] is False
+          assert row['dataset_metadata']['provided'] is True
+          assert row['dataset_metadata']['canonical'] is False
+          assert row['directed'] is False and row['sssp_delta'] == 2
+          assert len(row['roots']) == 4 and len(set(row['roots'])) == 4
+          assert len(row['threads']) == 2 and all(x > 0 for x in row['threads'])
           assert len(row['rows']) == 8
+          assert row['correctness_gate']['passed'] is True
+          assert row['correctness_gate']['velographx_repeat_digest_stable'] is True
           assert all(x['bfs']['gap']['verification_passed'] for x in row['rows'])
           assert all(x['sssp']['gap']['verification_passed'] for x in row['rows'])
+          assert len(row['checksums']['edge_list_sha256']) == 64
+          assert len(row['checksums']['weighted_edge_list_sha256']) == 64
+          assert row['input_sizes_bytes']['edge_list'] > 0
+          assert row['input_sizes_bytes']['weighted_edge_list'] > 0
           Path('artifacts/gap-contract/metadata.json').write_text(json.dumps({
-              'schema_version': 1,
+              'schema_version': 2,
               'artifact_type': 'gap-multiroot-contract-smoke',
               'canonical_dataset_result': False,
-              'purpose': 'CI validation of the runner only; generated with -g12 -k8, not GAP canonical -g27 -k16',
+              'purpose': 'CI validation of provenance, semantics, correctness and failure gates only; -g12 -k8 is not GAP canonical -g27 -k16',
           }, indent=2, sort_keys=True) + '\n')
           PY
 
@@ -140,11 +177,12 @@ jobs:
           make -C external/gapbs -j2 bfs sssp converter
           test "$(git -C external/gapbs describe --tags --exact-match)" = "$GAPBS_TAG"
 
-      - name: Materialise exact canonical dataset
+      - name: Materialise and verify exact canonical dataset
         run: |
           bash tools/materialize_gap_canonical.sh external/gapbs '${{ inputs.dataset }}' artifacts/gap-canonical
+          (cd artifacts/gap-canonical && sha256sum -c '${{ inputs.dataset }}.sha256')
 
-      - name: Resolve corpus semantics
+      - name: Resolve canonical corpus semantics
         id: semantics
         shell: bash
         run: |
@@ -164,6 +202,7 @@ jobs:
             --dataset-name '${{ inputs.dataset }}' \
             --edge-list 'artifacts/gap-canonical/${{ inputs.dataset }}.el' \
             --weighted-edge-list 'artifacts/gap-canonical/${{ inputs.dataset }}.wel' \
+            --dataset-metadata 'artifacts/gap-canonical/${{ inputs.dataset }}.metadata.json' \
             --velographx build/velographx_native_baseline_benchmark \
             --gap-bfs external/gapbs/bfs \
             --gap-sssp external/gapbs/sssp \
@@ -174,7 +213,7 @@ jobs:
             --gap-revision "$GAPBS_TAG" \
             ${{ steps.semantics.outputs.directed }}
 
-      - name: Mark exact canonical evidence
+      - name: Mark exact canonical evidence only after all gates pass
         run: |
           python - <<'PY'
           import json
@@ -182,17 +221,23 @@ jobs:
           dataset = '${{ inputs.dataset }}'
           result = json.loads(Path(f'artifacts/gap-canonical/{dataset}.result.json').read_text())
           source = json.loads(Path(f'artifacts/gap-canonical/{dataset}.metadata.json').read_text())
-          assert source['canonical'] is True
+          assert source['schema_version'] == 2 and source['canonical'] is True
           assert source['gap_revision'] == 'v1.5'
-          assert len(result['roots']) >= 2
+          assert result['schema_version'] == 2
+          assert result['canonical_dataset_result'] is True
+          assert result['correctness_gate']['passed'] is True
+          assert result['checksums'] == source['checksums']
+          assert len(result['roots']) >= 2 and len(set(result['roots'])) == len(result['roots'])
           Path(f'artifacts/gap-canonical/{dataset}.evidence.json').write_text(json.dumps({
-              'schema_version': 1,
+              'schema_version': 2,
               'artifact_type': 'gap-canonical-multiroot-evidence',
               'canonical_dataset_result': True,
               'dataset': dataset,
               'gap_revision': 'v1.5',
               'roots': result['roots'],
               'threads': result['threads'],
+              'repeat': result['repeat'],
+              'checksums': result['checksums'],
               'correctness_gate': result['correctness_gate'],
           }, indent=2, sort_keys=True) + '\n')
           PY

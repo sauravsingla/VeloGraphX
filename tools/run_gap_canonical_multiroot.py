@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Run a same-input, same-root VeloGraphX vs GAP BFS/SSSP campaign.
 
-This runner intentionally consumes plain GAP-compatible .el/.wel files. Dataset
-materialisation is kept outside timed regions and the caller records the exact
-GAP upstream recipe/revision used to create them.
+The runner validates dataset semantics and provenance before executing any timing.
+Canonical status is inherited only from a validated materializer metadata file;
+small CI graphs can exercise the same contract but can never become canonical by
+naming convention alone.
 """
 
 import argparse
@@ -15,6 +16,14 @@ import statistics
 import subprocess
 import time
 from pathlib import Path
+
+SEMANTICS = {
+    "twitter": {"directed": True, "sssp_delta": 2},
+    "web": {"directed": True, "sssp_delta": 2},
+    "road": {"directed": True, "sssp_delta": 50000},
+    "kron": {"directed": False, "sssp_delta": 2},
+    "urand": {"directed": False, "sssp_delta": 2},
+}
 
 
 def run(argv, *, env):
@@ -63,9 +72,15 @@ def measure_vx(exe, mode, dataset, source, repeat, threads):
     for _ in range(repeat):
         text, wall = run([str(exe), mode, str(dataset), str(source)], env=env_for_threads(threads))
         row = parse_vx(text)
-        samples.append(row["kernel_us"] / 1_000_000.0)
+        sample = row["kernel_us"] / 1_000_000.0
+        if sample < 0:
+            raise RuntimeError(f"negative VeloGraphX kernel time: {sample}")
+        samples.append(sample)
         digests.append(row["digest"])
         walls.append(wall)
+    stable = len(set(digests)) == 1
+    if not stable:
+        raise RuntimeError(f"VeloGraphX digest changed across repeats: {digests}")
     return {
         "repeat": repeat,
         "source": source,
@@ -74,7 +89,7 @@ def measure_vx(exe, mode, dataset, source, repeat, threads):
         "median_seconds": statistics.median(samples),
         "process_wall_seconds": walls,
         "exact": True,
-        "stable_digest": len(set(digests)) == 1,
+        "stable_digest": True,
         "digest": digests[0],
         "timing_scope": "kernel-only; input construction excluded",
     }
@@ -94,7 +109,10 @@ def measure_gap(exe, algorithm, dataset, source, repeat, threads, delta):
         checks = verification_re.findall(text)
         if len(values) != 1 or checks != ["PASS"]:
             raise RuntimeError(f"unexpected GAP {algorithm} verification output: {text[-4000:]}")
-        samples.append(float(values[0]))
+        sample = float(values[0])
+        if sample < 0:
+            raise RuntimeError(f"negative GAP {algorithm} trial time: {sample}")
+        samples.append(sample)
         walls.append(wall)
     return {
         "repeat": repeat,
@@ -108,16 +126,44 @@ def measure_gap(exe, algorithm, dataset, source, repeat, threads, delta):
     }
 
 
-def parse_int_list(value):
-    return tuple(int(part.strip()) for part in value.split(",") if part.strip())
+def parse_int_list(value, name):
+    try:
+        values = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+    except ValueError as exc:
+        raise SystemExit(f"{name} must be a comma-separated integer list") from exc
+    if not values:
+        raise SystemExit(f"{name} must not be empty")
+    if len(set(values)) != len(values):
+        raise SystemExit(f"{name} must not contain duplicates")
+    return values
+
+
+def validate_metadata(path, args, edge_sha, weighted_sha):
+    if path is None:
+        return {"provided": False, "canonical": False}
+    metadata = json.loads(path.read_text())
+    required = {"schema_version", "dataset", "gap_revision", "canonical", "edge_list", "weighted_edge_list", "checksums"}
+    missing = sorted(required - set(metadata))
+    if missing:
+        raise SystemExit(f"dataset metadata missing fields: {missing}")
+    if metadata["dataset"] != args.dataset_name:
+        raise SystemExit("dataset metadata name does not match --dataset-name")
+    if metadata["gap_revision"] != args.gap_revision:
+        raise SystemExit("dataset metadata GAP revision does not match --gap-revision")
+    if metadata["checksums"].get("edge_list_sha256") != edge_sha:
+        raise SystemExit("edge-list checksum does not match dataset metadata")
+    if metadata["checksums"].get("weighted_edge_list_sha256") != weighted_sha:
+        raise SystemExit("weighted edge-list checksum does not match dataset metadata")
+    return {"provided": True, "canonical": metadata["canonical"], "schema_version": metadata["schema_version"]}
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--dataset-name", choices=("twitter", "web", "road", "kron", "urand"), required=True)
+    parser.add_argument("--dataset-name", choices=tuple(SEMANTICS), required=True)
     parser.add_argument("--edge-list", type=Path, required=True)
     parser.add_argument("--weighted-edge-list", type=Path, required=True)
+    parser.add_argument("--dataset-metadata", type=Path)
     parser.add_argument("--velographx", type=Path, required=True)
     parser.add_argument("--gap-bfs", type=Path, required=True)
     parser.add_argument("--gap-sssp", type=Path, required=True)
@@ -129,15 +175,35 @@ def main():
     parser.add_argument("--gap-revision", default="v1.5")
     args = parser.parse_args()
 
-    roots = parse_int_list(args.roots)
-    threads = parse_int_list(args.threads)
+    roots = parse_int_list(args.roots, "--roots")
+    threads = parse_int_list(args.threads, "--threads")
     if len(roots) < 2:
         raise SystemExit("canonical multiroot campaign requires at least two roots")
+    if any(root < 0 for root in roots):
+        raise SystemExit("--roots must be non-negative")
+    if any(thread <= 0 for thread in threads):
+        raise SystemExit("--threads values must be positive")
     if args.repeat < 1:
         raise SystemExit("--repeat must be positive")
-    for path in (args.edge_list, args.weighted_edge_list, args.velographx, args.gap_bfs, args.gap_sssp):
+    if args.sssp_delta <= 0:
+        raise SystemExit("--sssp-delta must be positive")
+
+    expected = SEMANTICS[args.dataset_name]
+    if args.directed != expected["directed"]:
+        raise SystemExit(f"directedness mismatch for {args.dataset_name}: expected {expected['directed']}")
+    if args.sssp_delta != expected["sssp_delta"]:
+        raise SystemExit(f"SSSP delta mismatch for {args.dataset_name}: expected {expected['sssp_delta']}")
+
+    required_paths = [args.edge_list, args.weighted_edge_list, args.velographx, args.gap_bfs, args.gap_sssp]
+    if args.dataset_metadata is not None:
+        required_paths.append(args.dataset_metadata)
+    for path in required_paths:
         if not path.exists():
             raise SystemExit(f"missing required path: {path}")
+
+    edge_sha = sha256(args.edge_list)
+    weighted_sha = sha256(args.weighted_edge_list)
+    provenance = validate_metadata(args.dataset_metadata, args, edge_sha, weighted_sha)
 
     bfs_mode = "bfs-directed" if args.directed else "bfs"
     sssp_mode = "sssp-directed" if args.directed else "sssp"
@@ -164,21 +230,33 @@ def main():
             })
 
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "campaign": "gap-canonical-multiroot",
         "dataset": args.dataset_name,
         "gap_revision": args.gap_revision,
+        "canonical_dataset_result": bool(provenance["canonical"]),
+        "dataset_metadata": provenance,
         "directed": args.directed,
         "roots": roots,
         "threads": threads,
         "repeat": args.repeat,
         "sssp_delta": args.sssp_delta,
         "checksums": {
-            "edge_list_sha256": sha256(args.edge_list),
-            "weighted_edge_list_sha256": sha256(args.weighted_edge_list),
+            "edge_list_sha256": edge_sha,
+            "weighted_edge_list_sha256": weighted_sha,
+        },
+        "input_sizes_bytes": {
+            "edge_list": args.edge_list.stat().st_size,
+            "weighted_edge_list": args.weighted_edge_list.stat().st_size,
         },
         "openmp": {"OMP_PLACES": "cores", "OMP_PROC_BIND": "spread", "OMP_DYNAMIC": "FALSE"},
-        "correctness_gate": "VeloGraphX internal exact oracle and GAP Verification: PASS on every root/repeat",
+        "correctness_gate": {
+            "passed": True,
+            "velographx_internal_exact": True,
+            "velographx_repeat_digest_stable": True,
+            "gap_verification_passed_every_run": True,
+            "same_roots_and_threads": True,
+        },
         "timing_scope": "kernel timers only; dataset materialisation and loading are not mixed into kernel comparison",
         "rows": rows,
     }
@@ -187,6 +265,7 @@ def main():
     print(json.dumps({
         "campaign": payload["campaign"],
         "dataset": args.dataset_name,
+        "canonical_dataset_result": payload["canonical_dataset_result"],
         "roots": len(roots),
         "thread_counts": len(threads),
         "rows": len(rows),
