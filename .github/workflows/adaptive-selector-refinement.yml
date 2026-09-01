@@ -1,0 +1,112 @@
+name: Adaptive Selector Refinement
+
+on:
+  push:
+    paths:
+      - '.github/workflows/adaptive-selector-refinement.yml'
+      - 'tools/refine_adaptive_selector.py'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/summarize_adaptive_policy.py'
+  workflow_dispatch:
+
+jobs:
+  broader-validation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      SIMPLE_UPDATE_FRACTION: '0.01'
+      EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+          python -m pip install --disable-pip-version-check matplotlib
+      - name: Build refined adaptive harness
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          mkdir -p evidence/adaptive/datasets evidence/adaptive/runs evidence/adaptive/summary
+          python tools/refine_adaptive_selector.py --input benchmarks/adaptive_policy_bfs.cpp --output evidence/adaptive/adaptive_policy_bfs_v4.cpp
+          grep -q 'root-locality-affected-work-v4' evidence/adaptive/adaptive_policy_bfs_v4.cpp
+          grep -q 'guarded_root' evidence/adaptive/adaptive_policy_bfs_v4.cpp
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude evidence/adaptive/adaptive_policy_bfs_v4.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_v4
+      - name: Prepare pinned datasets
+        run: |
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir evidence/adaptive/datasets --dataset web-Google > evidence/adaptive/web-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir evidence/adaptive/datasets --dataset ca-GrQc > evidence/adaptive/ca-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir evidence/adaptive/datasets --dataset soc-Epinions1 > evidence/adaptive/epinions-source.json
+          python tools/prepare_pinned_edge_stream.py --input evidence/adaptive/datasets/web-Google.txt --output evidence/adaptive/web-Google.txt --report evidence/adaptive/web-normalization.json --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 --expected-vertices 875713 --expected-edges 5105039
+          python tools/prepare_symmetric_pinned_edge_stream.py --input evidence/adaptive/datasets/ca-GrQc.txt --output evidence/adaptive/ca-GrQc.txt --report evidence/adaptive/ca-normalization.json --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484
+          gzip -dc evidence/adaptive/datasets/soc-Epinions1.gz > evidence/adaptive/epinions-source.txt
+          test "$(sha256sum evidence/adaptive/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py --input evidence/adaptive/epinions-source.txt --output evidence/adaptive/soc-Epinions1.txt --report evidence/adaptive/epinions-normalization.json --expected-sha256 "$EPINIONS_TEXT_SHA256" --expected-vertices 75879 --expected-edges 508837
+      - name: Run 108 executions
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          configs = {
+              'ca-GrQc': ([0,42,1024,1974],0.75,[96,384,1536]),
+              'soc-Epinions1': ([0,1234,35000,71391],0.90,[384,1536,6144]),
+              'web-Google': ([0,100000,391806,800000],0.99,[1536,6144,24576]),
+          }
+          total=0
+          for dataset,(roots,rate,batches) in configs.items():
+              for root in roots:
+                  for batch in batches:
+                      for rep in range(1,4):
+                          out=Path(f'evidence/adaptive/runs/{dataset}__r{root}__b{batch}__{rep}.json')
+                          with out.open('w') as f:
+                              subprocess.run(['build/adaptive_policy_bfs_v4',f'evidence/adaptive/{dataset}.txt',str(root),str(rate),str(batch),os.environ['SIMPLE_UPDATE_FRACTION']],stdout=f,check=True)
+                          d=json.load(out.open())
+                          assert d['selector'] == 'root-locality-affected-work-v4'
+                          assert d['all_policies_exact'] and all(p['exact'] for p in d['policies'])
+                          total += 1
+          print('validated_runs=', total)
+          assert total == 108
+          PY
+      - name: Summarize and compare with previous campaign
+        run: |
+          python tools/summarize_adaptive_policy.py --input-dir evidence/adaptive/runs --output-dir evidence/adaptive/summary | tee evidence/adaptive/summary/stdout.json
+          python - <<'PY'
+          import json, statistics
+          d=json.load(open('evidence/adaptive/summary/summary.json'))
+          assert d['all_results_exact']
+          adaptive=[r for r in d['rows'] if r['policy']=='adaptive']
+          ratios=[r['relative_to_regime_best'] for r in adaptive]
+          by_dataset={}
+          for ds in sorted({r['dataset'] for r in adaptive}):
+              xs=[r['relative_to_regime_best'] for r in adaptive if r['dataset']==ds]
+              by_dataset[ds]={
+                  'rows':len(xs),
+                  'mean_relative_to_regime_best':sum(xs)/len(xs),
+                  'mean_overhead_pct':100*(sum(xs)/len(xs)-1),
+                  'worst_relative_to_regime_best':max(xs),
+              }
+          mean=sum(ratios)/len(ratios)
+          result={
+              'all_results_exact':True,
+              'adaptive_rows':len(adaptive),
+              'previous_mean_relative_to_regime_best':1.1085176209066703,
+              'previous_web_google_mean_relative_to_regime_best':1.258,
+              'mean_relative_to_regime_best':mean,
+              'mean_overhead_pct':100*(mean-1),
+              'worst_relative_to_regime_best':max(ratios),
+              'target_under_5_percent':mean < 1.05,
+              'by_dataset':by_dataset,
+          }
+          json.dump(result,open('evidence/adaptive/refinement-summary.json','w'),indent=2)
+          print(json.dumps(result,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-selector-refinement-108
+          path: evidence/adaptive
+          retention-days: 90
