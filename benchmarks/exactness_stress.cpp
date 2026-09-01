@@ -203,3 +203,5 @@ int main(int argc, char** argv) {
             << ",\"mismatches\":0}\n";
   return total == total_operations ? 0 : 5;
 }
+
+// Validation harness intentionally deterministic; comment change retriggers the campaign.
