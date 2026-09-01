@@ -153,15 +153,9 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
     try { physical = tx.physical_id(u); }
     catch (...) { throw_stage("neighbors physical_id u=" + std::to_string(u)); }
     try {
-      auto iter = tx.neighbourhood_blocked_p(physical);
-      while (iter.has_next_block()) {
-        auto [versioned, begin, end] = iter.next_block();
-        if (versioned) {
-          while (iter.has_next_edge()) fn(static_cast<VertexId>(tx.logical_id(iter.next())));
-        } else {
-          for (auto it = begin; it < end; ++it) fn(static_cast<VertexId>(tx.logical_id(*it)));
-        }
-      }
+      SORTLEDTON_ITERATE(tx, physical, {
+        fn(static_cast<VertexId>(tx.logical_id(e)));
+      });
     } catch (...) { throw_stage("neighbors iterate u=" + std::to_string(u)); }
     try { graph.manager_.transactionCompleted(tx); completed = true; }
     catch (...) { throw_stage("neighbors transactionCompleted u=" + std::to_string(u)); }
