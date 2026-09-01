@@ -48,7 +48,7 @@ jobs:
           test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
           test -f external/sortledton/CMakeLists.txt
 
-      - name: Record pinned source and add diagnostic-only constructor probe
+      - name: Record pinned source and apply validation-only compatibility guard
         run: |
           mkdir -p artifacts/sortledton
           cp external/sortledton/CMakeLists.txt artifacts/sortledton/upstream-CMakeLists.txt
@@ -59,17 +59,20 @@ jobs:
           from pathlib import Path
           p = Path('external/sortledton/data-structure/VersioningBlockedSkipListAdjacencyList.cpp')
           text = p.read_text()
-          needle = '  cout << "Sortledton.3" << endl;\n'
-          assert needle in text
-          probe = needle + '  cerr << "Sortledton constructor probe: block_size=" << block_size << " rounded=" << round_up_power_of_two(block_size) << " property_size=" << property_size << endl;\n'
-          p.write_text(text.replace(needle, probe, 1))
-          subprocess.run(['git','-C','external/sortledton','diff','--','data-structure/VersioningBlockedSkipListAdjacencyList.cpp'], check=True, stdout=open('artifacts/sortledton/diagnostic-only.patch','w'))
+          old = '  if (round_up_power_of_two(block_size) != block_size) {\n    throw ConfigurationError("Block size needs to be a power of two.");\n  }'
+          new = '  if (block_size == 0 || (block_size & (block_size - 1)) != 0) {\n    throw ConfigurationError("Block size needs to be a power of two.");\n  }'
+          assert old in text
+          p.write_text(text.replace(old, new, 1))
+          with open('artifacts/sortledton/build-compatibility.patch','w') as out:
+              subprocess.run(['git','-C','external/sortledton','diff','--','data-structure/VersioningBlockedSkipListAdjacencyList.cpp'], check=True, stdout=out)
           gcc = subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0]
           Path('artifacts/sortledton/build-compatibility.json').write_text(json.dumps({
-              'scope': 'diagnostic-output-only',
+              'scope': 'constructor-validation-only',
               'sortledton_commit': '6eb638f3ad38f8a10a127e7e118528f4c8d07a6e',
               'graph_storage_semantics_changed': False,
-              'diagnostic_adjustment': 'print constructor block_size, rounded value, and property_size before the existing validation',
+              'compatibility_adjustment': 'replace round_up_power_of_two equality guard with the equivalent direct nonzero power-of-two bit test',
+              'validated_block_size': 1024,
+              'property_size': 8,
               'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all built with GCC/G++ 10',
               'compiler': gcc,
           }, indent=2, sort_keys=True) + '\n')
@@ -142,8 +145,9 @@ jobs:
       - name: Record immutable provenance
         run: |
           python - <<'PY'
-          import json, platform, subprocess
+          import hashlib, json, platform, subprocess
           from pathlib import Path
+          patch = Path('artifacts/sortledton/build-compatibility.patch')
           payload = {
               'schema_version': 2,
               'artifact_type': 'velographx-sortledton-storage-adapter',
@@ -153,7 +157,10 @@ jobs:
               'backend': 'Sortledton',
               'sortledton_commit': subprocess.check_output(['git','-C','external/sortledton','rev-parse','HEAD'], text=True).strip(),
               'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
-              'diagnostic_source_adjustment': 'constructor values printed only; no storage semantics changed',
+              'build_compatibility_scope': 'constructor validation expression only; graph storage/update semantics unchanged',
+              'build_compatibility_patch_sha256': hashlib.sha256(patch.read_bytes()).hexdigest(),
+              'sortledton_block_size': 1024,
+              'property_size': 8,
               'toolchain_consistency': 'VeloGraphX, Sortledton and adapter all GCC/G++ 10',
               'compiler': subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
