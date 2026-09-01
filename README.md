@@ -13,7 +13,7 @@ VeloGraphX is a C++20 CPU engine for **exact analytics on changing graphs**. It 
 - Couples **compact mutable storage + exact localized repair + measured affected work + repair-vs-recompute selection** in one CPU-native system.
 - Makes the incremental/full crossover explicit: the selector owns the decision before excessive repair work is incurred.
 - Treats **exactness as a benchmark gate**: incremental outputs are checked against independent full recomputation/reference implementations.
-- Evaluates policy quality with pinned datasets, multiple roots/update regimes, repeated runs and retained artifacts; broader validation exposes regimes where the selector still loses.
+- Uses scale, root-locality, affected-work and observed-cost signals; policy quality is evaluated on pinned datasets, multiple roots/regimes and retained artifacts.
 
 See [related-work positioning](docs/related-work-positioning.md) and the [ablation study](docs/ablation-study.md).
 
@@ -23,17 +23,17 @@ GitHub-hosted results below are **engineering evidence, not publication-grade ha
 
 | Evidence | Result | Scope |
 | --- | ---: | --- |
-| Dynamic exactness stress | **2,000,000 updates, 0 BFS mismatches, 0 triangle mismatches** | 6 adversarial graph/update scenarios; check after every batch |
-| Adaptive BFS, original campaign | **19/27 regime wins; 2.74% mean overhead from regime-best; 100% exact** | `ca-GrQc`, `soc-Epinions1`, `web-Google` |
-| Adaptive BFS, broader campaign | **108/108 executions exact; 10.85% mean overhead** | 3 datasets × 4 roots × 3 regimes × 3 reps |
+| Dynamic exactness stress | **2,000,000 updates; 0 BFS / 0 triangle mismatches** | 6 adversarial scenarios; independent check after every batch |
+| Refined adaptive BFS | **108/108 exact; 1.66% mean overhead from regime-best** | 3 datasets × 4 roots × 3 regimes × 3 reps |
+| `web-Google` adaptive BFS | **1.17% mean overhead** | down from 25.8% in the pre-refinement campaign |
 | Multicore BFS workload | **2.74× at 4 threads (~69% efficiency)** | 50K vertices, degree 8, 32 independent tasks, median of 5 reps |
 | Connected-components workload | **2.50× at 4 threads (~62%)** | same workload contract |
 | Triangle-count workload | **2.24× at 4 threads (~56%)** | same workload contract |
-| Variable-byte adjacency compression | **3.25×–3.78× smaller** | 100K vertices, tested degrees 4/8/16 |
+| Variable-byte adjacency compression | **3.25×–3.78× smaller** | 100K vertices, degrees 4/8/16 |
 | Compressed BFS trade-off | **3.8×–5.7× slower than raw traversal** | same end-to-end compression campaign |
 | Public dynamic graph scale | **875,713 vertices / 5,105,039 edges** | pinned `web-Google` normalization |
 
-Evidence: Current Capacity Validation run `33467637208` (`9785416050`, `9785510370`, `9785516485`, `9785422293`) and adaptive run `33410705480` (`9767029881`).
+The refined selector uses root out/in locality, guarded affected-work fallback for low-degree roots on large graphs, update-fraction guards and the existing observed-cost model. Across the 36 root/regime configurations its dataset-level mean overhead was **2.70% (`ca-GrQc`)**, **1.10% (`soc-Epinions1`)**, and **1.17% (`web-Google`)**; worst observed regime overhead was **10.67%**. Run `33471125549`, artifact `9786648824`. Exactness stress/multicore/compression evidence: run `33467637208`.
 
 ## Comparisons
 
@@ -59,7 +59,7 @@ Native C++, one OpenMP thread, same machine/update stream, five paired repetitio
 | `web-Google` | **36.305 ms** | 45.845 ms | **0.788×** |
 | `ca-GrQc` | 0.1193 ms | **0.0892 ms** | **1.333×** |
 
-So VeloGraphX wins the larger `web-Google` case but **loses on `ca-GrQc`**. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33301190847`, artifact `9766977170`.
+VeloGraphX wins the larger `web-Google` case but **loses on `ca-GrQc`**. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33301190847`, artifact `9766977170`.
 
 RisGraph and other dynamic systems are relevant prior work, but results from different runners or incompatible semantics are intentionally **not merged into this table**.
 
@@ -70,7 +70,7 @@ update batch
    ↓
 mutable graph: base CSR + deltas/row patches + consolidation
    ↓
-affected-work / cost signals
+affected-work / cost + root-locality signals
    ↓
 localized exact repair  ← selector →  full recomputation
    ↓
@@ -106,15 +106,14 @@ c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/exactness_stress.cpp build/libv
 ./build/exactness_stress 2000000 256
 ```
 
-The broader pinned-dataset and competitor campaigns are encoded as GitHub Actions workflows so versions, exactness gates and artifacts stay with the run.
+The refined 108-execution selector campaign and native competitor campaign are encoded as workflows so dataset/version pins, correctness gates and artifacts stay with the run.
 
 ```bash
 # Requires an authenticated GitHub CLI.
-gh workflow run current-capacity-validation.yml --ref main
+gh workflow run adaptive-selector-refinement.yml --ref main
 gh workflow run hosted-native-competitors.yml --ref main
 
-# Watch the latest dispatches.
-gh run list --workflow current-capacity-validation.yml --limit 1
+gh run list --workflow adaptive-selector-refinement.yml --limit 1
 gh run list --workflow hosted-native-competitors.yml --limit 1
 ```
 
@@ -122,9 +121,9 @@ Benchmark contracts and interpretation rules: [benchmark methodology](docs/bench
 
 ## Limitations / Roadmap
 
-**Current:** hosted CI establishes correctness, reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs and same-run native comparisons. The broader adaptive study is exact but reaches **25.8% mean overhead on `web-Google`**, showing root/workload sensitivity. Compression saves space but currently slows BFS traversal.
+**Current:** hosted CI establishes exactness/reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs and same-run native comparisons. The refined adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, but this is not evidence of universal selector optimality. Compression saves space but currently slows BFS traversal.
 
-**Next:** dedicated 8/16/32+ core experiments; true multi-socket NUMA measurements; same-machine dynamic comparison with more external systems; dedicated NVMe/`io_uring` throughput; hardware counters; broader weighted-dynamic evaluation; selector features for reachability/component/work-density; a frozen long-term Python API. See [limitations](docs/limitations.md).
+**Next:** held-out graph families and roots for selector generalization; dedicated 8/16/32+ core experiments; true multi-socket NUMA measurements; broader same-machine dynamic-system comparisons; dedicated NVMe/`io_uring` throughput; hardware counters; broader weighted-dynamic evaluation; a frozen long-term Python API. See [limitations](docs/limitations.md).
 
 ## License / Contributing
 
