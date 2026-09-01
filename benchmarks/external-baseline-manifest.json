@@ -22,13 +22,29 @@
       "timing_contract": "native C++ graph mutation plus DynBFS.updateBatch; independent full BFS verification excluded from timing",
       "status": "measured-native-repeated-multidataset-multiroot",
       "canonical_campaign": {
-        "run_id": 33301190847,
-        "head_sha": "3c1f7448897ffdca227a261c61bd49751e42fa5f",
+        "run_id": 33542995289,
+        "head_sha": "d042a993896e0b21be7dd6b9717895a0f4213430",
         "source_optimization_sha": "7a4083656cc2dfe67903efe7bdc7d822a337bd3e",
-        "artifact_id": 9729078197,
-        "artifact_sha256": "c031a2316a91c7958ce6a4e0a03e762808a777688fb05f0db3716f449875ef7c",
-        "repetitions_per_dataset": 5,
-        "datasets": ["web-Google", "ca-GrQc"]
+        "artifact_id": 9814639042,
+        "artifact_sha256": "acf743bcac2542660fa050d70105e5e1e5f79d9e22ef1ec7324cf1e147ae5f12",
+        "roots_per_dataset": 3,
+        "repetitions_per_root": 5,
+        "paired_executions": 30,
+        "all_paired_executions_exact": true,
+        "datasets": {
+          "web-Google": {
+            "roots": [481807, 771121, 391806],
+            "velographx_mean_of_root_means_us": 27182.32,
+            "networkit_mean_of_root_means_us": 37457.53333333333,
+            "mean_of_paired_root_ratios": 0.7301438363862334
+          },
+          "ca-GrQc": {
+            "roots": [4282, 2465, 1974],
+            "velographx_mean_of_root_means_us": 111.49726666666666,
+            "networkit_mean_of_root_means_us": 82.74404,
+            "mean_of_paired_root_ratios": 1.349713820663379
+          }
+        }
       },
       "supplementary_multiroot": {
         "run_id": 33301366020,
@@ -36,7 +52,7 @@
         "artifact_sha256": "cab9eec6489c8b9c65d57b2b781a5241a1954a5d5e99e94577c9ce0c737cccfa",
         "roots_per_dataset": 3,
         "datasets": ["web-Google", "ca-GrQc"],
-        "notes": "Deterministic reachability-screened VeloGraphX roots; robustness evidence only, not an external comparison."
+        "notes": "Superseded VeloGraphX-only run retained as timing-independent root-selection provenance for the canonical same-machine external comparison."
       },
       "supplementary_medium_multiroot_same_machine": {
         "dataset": "soc-Epinions1",

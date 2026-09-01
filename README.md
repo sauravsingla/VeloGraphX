@@ -54,14 +54,14 @@ VeloGraphX wins BFS on this workload; **GAP remains substantially faster for SSS
 
 ### Dynamic BFS vs NetworKit 11.2.1
 
-Native C++, one OpenMP thread, same machine/update stream, five paired repetitions, exactness and nontrivial-reachability gates.
+Native C++, one OpenMP thread, same machine/update stream, three fixed roots per dataset, five paired repetitions per root, exactness and nontrivial-reachability gates. Values are the mean of the three root means.
 
 | Dataset | VeloGraphX | NetworKit `DynBFS` | VX / NK |
 | --- | ---: | ---: | ---: |
-| `web-Google` | **36.305 ms** | 45.845 ms | **0.788×** |
-| `ca-GrQc` | 0.1193 ms | **0.0892 ms** | **1.333×** |
+| `web-Google` | **27.182 ms** | 37.458 ms | **0.730×** |
+| `ca-GrQc` | 0.1115 ms | **0.08274 ms** | **1.350×** |
 
-VeloGraphX wins the larger `web-Google` case but **loses on `ca-GrQc`**. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33301190847`, artifact `9766977170`.
+VeloGraphX wins all three roots on the larger `web-Google` case but **loses all three roots on `ca-GrQc`**. All 30 paired executions passed exact full-BFS verification. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33542995289`, artifact `9814639042`.
 
 ### Same-algorithm storage swap: Teseo
 
