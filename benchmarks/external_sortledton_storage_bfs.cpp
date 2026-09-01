@@ -5,7 +5,6 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
-#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -26,7 +25,7 @@ namespace sortledton_adapter {
 using velographx::UpdateBatch; using velographx::VertexId;
 class Graph {
  public:
-  Graph(std::size_t vertices,const std::vector<std::pair<VertexId,VertexId>>& edges):tm_(1),ds_(std::make_unique<VersioningBlockedSkipListAdjacencyList>(256,sizeof(double),tm_)),vertices_(vertices){
+  Graph(std::size_t vertices,const std::vector<std::pair<VertexId,VertexId>>& edges):tm_(1),ds_(make_ds(tm_)),vertices_(vertices){
     for(VertexId v=0;v<vertices_;++v){SnapshotTransaction tx=tm_.getSnapshotTransaction(ds_.get(),true);tx.insert_vertex(v);tx.execute();tm_.transactionCompleted(tx);} for(const auto& [u,v]:edges) insert_undirected_unchecked(u,v);
   }
   Graph(const Graph&)=delete; Graph& operator=(const Graph&)=delete;
@@ -35,11 +34,10 @@ class Graph {
   void apply(const UpdateBatch& batch){for(const auto& op:batch.updates){if(op.add)insert_undirected(op.src,op.dst);else remove_undirected(op.src,op.dst);}if(!batch.empty())++version_;}
   std::size_t vertices_{0}; std::uint64_t version_{0};
  private:
-  void insert_directed_unchecked(VertexId u,VertexId v){SnapshotTransaction tx=tm_.getSnapshotTransaction(ds_.get(),true);const double weight=1.0;tx.insert_edge(edge_t{static_cast<dst_t>(u),static_cast<dst_t>(v)},const_cast<char*>(reinterpret_cast<const char*>(&weight)),sizeof(weight));tx.execute();tm_.transactionCompleted(tx);}
-  void remove_directed_unchecked(VertexId u,VertexId v){SnapshotTransaction tx=tm_.getSnapshotTransaction(ds_.get(),true);tx.delete_edge(edge_t{static_cast<dst_t>(u),static_cast<dst_t>(v)});tx.execute();tm_.transactionCompleted(tx);}
-  void insert_undirected_unchecked(VertexId u,VertexId v){insert_directed_unchecked(u,v);if(u!=v)insert_directed_unchecked(v,u);}
-  void insert_undirected(VertexId u,VertexId v){if(!has_edge(u,v))insert_directed_unchecked(u,v);if(u!=v&&!has_edge(v,u))insert_directed_unchecked(v,u);}
-  void remove_undirected(VertexId u,VertexId v){if(has_edge(u,v))remove_directed_unchecked(u,v);if(u!=v&&has_edge(v,u))remove_directed_unchecked(v,u);}
+  static std::unique_ptr<VersioningBlockedSkipListAdjacencyList> make_ds(TransactionManager& tm){auto* old=std::cout.rdbuf(std::cerr.rdbuf());auto ds=std::make_unique<VersioningBlockedSkipListAdjacencyList>(256,sizeof(double),tm);std::cout.rdbuf(old);return ds;}
+  void insert_undirected_unchecked(VertexId u,VertexId v){SnapshotTransaction tx=tm_.getSnapshotTransaction(ds_.get(),true);const double weight=1.0;tx.insert_edge(edge_t{static_cast<dst_t>(u),static_cast<dst_t>(v)},const_cast<char*>(reinterpret_cast<const char*>(&weight)),sizeof(weight));if(u!=v)tx.insert_edge(edge_t{static_cast<dst_t>(v),static_cast<dst_t>(u)},const_cast<char*>(reinterpret_cast<const char*>(&weight)),sizeof(weight));tx.execute();tm_.transactionCompleted(tx);}
+  void insert_undirected(VertexId u,VertexId v){const bool forward=has_edge(u,v);const bool reverse=u==v?forward:has_edge(v,u);if(forward&&reverse)return;SnapshotTransaction tx=tm_.getSnapshotTransaction(ds_.get(),true);const double weight=1.0;if(!forward)tx.insert_edge(edge_t{static_cast<dst_t>(u),static_cast<dst_t>(v)},const_cast<char*>(reinterpret_cast<const char*>(&weight)),sizeof(weight));if(u!=v&&!reverse)tx.insert_edge(edge_t{static_cast<dst_t>(v),static_cast<dst_t>(u)},const_cast<char*>(reinterpret_cast<const char*>(&weight)),sizeof(weight));tx.execute();tm_.transactionCompleted(tx);}
+  void remove_undirected(VertexId u,VertexId v){const bool forward=has_edge(u,v);const bool reverse=u==v?forward:has_edge(v,u);if(!forward&&!reverse)return;SnapshotTransaction tx=tm_.getSnapshotTransaction(ds_.get(),true);if(forward)tx.delete_edge(edge_t{static_cast<dst_t>(u),static_cast<dst_t>(v)});if(u!=v&&reverse)tx.delete_edge(edge_t{static_cast<dst_t>(v),static_cast<dst_t>(u)});tx.execute();tm_.transactionCompleted(tx);}
   mutable TransactionManager tm_; std::unique_ptr<VersioningBlockedSkipListAdjacencyList> ds_;
 };
 std::size_t vx_vertex_count(const Graph& g){return g.vertices_;} bool vx_is_directed(const Graph&){return false;} std::uint64_t vx_version(const Graph& g){return g.version_;}
