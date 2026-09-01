@@ -6,11 +6,9 @@
 
 **VeloGraphX is a CPU-native C++20 research engine for exact analytics on changing graphs.** It combines mutable graph storage, localized exact repair, and workload-aware incremental-vs-full recomputation.
 
-## Research focus
+## Why VeloGraphX?
 
-VeloGraphX does not claim novelty for BFS, SSSP, connected components, triangle counting, k-core, PageRank, or incremental graph processing individually. Its research focus is the **system-level coupling of mutable storage, exact localized repair, affected-work/cost signals, and adaptive repair-vs-recompute selection**.
-
-The runtime can choose recomputation before excessive repair work is incurred, avoiding a repair-then-recompute penalty when an update batch crosses the incremental crossover region.
+The individual graph algorithms are established. VeloGraphX focuses on their **system-level integration for dynamic graphs**: compact mutable storage, exact localized repair, affected-work and cost signals, and adaptive selection between incremental repair and full recomputation.
 
 ```text
 updates → mutable graph → work/cost estimation
@@ -18,11 +16,13 @@ updates → mutable graph → work/cost estimation
         → exact maintained result
 ```
 
-## Validated results
+The runtime can choose recomputation before excessive repair work is incurred when an update batch crosses the incremental crossover region.
 
-Results below are retained GitHub Actions measurements from 31 August–1 September 2026. They are workload-specific engineering evidence, not publication-grade hardware claims.
+## Key results
 
-### GAP + LAGraph comparison
+Retained GitHub Actions measurements from 31 August–1 September 2026. Results are workload-specific hosted engineering evidence, not publication-grade hardware claims.
+
+### Static BFS / SSSP vs GAP and LAGraph
 
 | Algorithm | Threads | VeloGraphX | GAP | LAGraph |
 | --- | ---: | ---: | ---: | ---: |
@@ -33,49 +33,51 @@ Results below are retained GitHub Actions measurements from 31 August–1 Septem
 | SSSP | 2 | 8.587 ms | **1.190 ms** | 23.600 ms |
 | SSSP | 4 | 9.003 ms | **1.290 ms** | 27.100 ms |
 
-Five repetitions, same hosted runner and source, exactness checks enabled. Dynamic BFS crossed from incremental repair winning at **0.1% and 1%** updates to full recomputation winning at **5%**. Run `33418520303`, artifact `9768499895`.
+Five repetitions per configuration on the same hosted runner with exactness checks. VeloGraphX led BFS on this workload; GAP led SSSP. Dynamic BFS showed the intended crossover: incremental repair won at **0.1% and 1%** updates, while full recomputation won at **5%**. Run `33418520303`, artifact `9768499895`.
 
-### Adaptive BFS policy
+### Adaptive dynamic BFS
 
-Across checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` (3 roots × 3 update regimes × 5 repetitions), exactness was **100%**, the adaptive policy won **19/27** regimes, and mean overhead from the measured regime-best path was **~2.74%**. Run `33410705480`, artifact `9767029881`.
+On checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google` across 27 root/update-regime combinations:
 
-### Hosted architecture campaign
+| Metric | Result |
+| --- | ---: |
+| Exactness | **100%** |
+| Adaptive regime wins | **19 / 27** |
+| Mean overhead from regime-best | **~2.74%** |
 
-A 1 September 2026 campaign exercised multicore scaling, compression, bounded-cache/partition-file loading, and NUMA-aware runtime paths on a 4-logical-CPU hosted Linux runner.
+Run `33410705480`, artifact `9767029881`.
 
-| Capability | Result |
+### Architecture campaign
+
+| Capability | Hosted result |
 | --- | --- |
-| BFS multicore scaling | **2.85× speedup at 4 threads**, ~71% efficiency; 2 threads reached ~2.04× |
-| Compression | Variable-byte reached **up to 4× space reduction** on tested adjacency distributions |
-| Decode throughput | SIMD-friendly fixed-width decoding was roughly **3–4× faster** than compact variable-byte decoding on representative tested distributions |
-| Out-of-core paths | Partition cache, partition file, and async loader passed **5/5 runs each** |
-| NUMA/runtime | Detection, policy, partitioner, scheduler, work stealing, frontier scheduling, and execution-plan tests all passed |
+| Multicore BFS | **2.85×** speedup at 4 threads; ~71% efficiency |
+| Compression | Variable-byte encoding reached **up to 4×** space reduction |
+| SIMD decode | Fixed-width vectorized decoding was roughly **3–4× faster** than variable-byte decoding on representative tested distributions |
+| Out-of-core paths | Partition cache, partition file, and async loader passed **5/5** runs each |
+| NUMA/runtime | Detection, placement, partitioning, scheduling, work stealing, and execution-plan tests passed |
 
-Thread-count results produced identical digests. The runner exposed one NUMA node, so NUMA results are functional validation rather than cross-socket performance evidence. Run `33464276799`, artifact `9784295720`.
+All thread-count runs produced identical result digests. The hosted runner exposed one NUMA node, so NUMA evidence is functional rather than cross-socket performance evidence. Run `33464276799`, artifact `9784295720`.
 
 ### Dynamic BFS vs NetworKit 11.2.1
 
-On `web-Google`, one thread, identical updates and five paired repetitions, VeloGraphX measured **36.328 ms** versus **45.740 ms** for NetworKit, with independent full-BFS verification. Run `33301190847`, artifact `9766977170`.
+On `web-Google`, one thread and identical update streams, five paired repetitions measured **36.328 ms for VeloGraphX vs 45.740 ms for NetworKit**, with independent full-BFS verification. Run `33301190847`, artifact `9766977170`.
 
-## Capabilities
+## Architecture and capabilities
 
-- Exact BFS / unweighted SSSP, weighted SSSP, connected components, triangle counting, k-core, and PageRank
-- Segmented CSR, packed deltas, sparse row patches, reverse adjacency, and validated consolidation
-- Storage-independent `BasicIncremental*<Graph>` algorithm implementations
-- Adaptive exact execution using update density, affected-work signals, graph scale, online cost estimates, and uncertainty-aware selection
-- SIMD intersections, multicore scheduling, push/pull frontiers, work stealing, and NUMA-aware policies
-- Compression, bounded partition caching, partition-file access, and asynchronous loading
-- C++20, pybind11, NumPy, SciPy CSR, and Apache Arrow interoperability
+- **Exact analytics:** BFS / unweighted SSSP, weighted SSSP, connected components, triangle counting, k-core, PageRank
+- **Dynamic execution:** localized exact repair with adaptive repair-vs-recompute selection
+- **Mutable storage:** segmented CSR, packed deltas, sparse row patches, reverse adjacency, consolidation
+- **Storage independence:** templated `BasicIncremental*<Graph>` implementations
+- **Parallel execution:** SIMD intersections, push/pull frontiers, multicore scheduling, work stealing, NUMA-aware policies
+- **Large-graph infrastructure:** compression, bounded partition cache, partition-file access, asynchronous loading
+- **Interoperability:** C++20, pybind11, NumPy, SciPy CSR, Apache Arrow
 
 ## Correctness and reproducibility
 
-CI covers Ubuntu/macOS builds, Linux ASan/UBSan, storage consistency, incremental-vs-full differential testing, SIMD/scalar agreement, Python interoperability, dataset provenance, benchmark contracts, and independent reference checks.
+CI covers Ubuntu and macOS builds, Linux ASan/UBSan, storage consistency, incremental-vs-full differential tests, SIMD/scalar agreement, Python interoperability, dataset provenance, benchmark contracts, and independent reference checks.
 
-Experiments use pinned datasets or baseline revisions, repeated measurements, exactness gates, environment capture, and retained artifacts. Hosted CI is engineering evidence; dedicated controlled hardware is still required for publication-grade many-core scaling, cross-NUMA performance, storage-device throughput, and hardware-counter claims.
-
-## Documentation
-
-[Benchmark methodology](docs/benchmark-methodology.md) · [Hosted baselines](docs/hosted-native-competitors.md) · [Graph abstraction](docs/graph-abstraction.md) · [Ablation study](docs/ablation-study.md) · [Related work](docs/related-work-positioning.md) · [Limitations](docs/limitations.md)
+Experiments use pinned datasets or baseline revisions, repeated measurements, exactness gates, environment capture, and retained artifacts. Dedicated controlled hardware is still required for publication-grade many-core scaling, cross-NUMA performance, storage-device throughput, and hardware-counter claims.
 
 ## Quick start
 
@@ -86,6 +88,10 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+## Documentation
+
+[Benchmark methodology](docs/benchmark-methodology.md) · [Hosted baselines](docs/hosted-native-competitors.md) · [Graph abstraction](docs/graph-abstraction.md) · [Ablation study](docs/ablation-study.md) · [Related work](docs/related-work-positioning.md) · [Limitations](docs/limitations.md)
 
 ## License
 
