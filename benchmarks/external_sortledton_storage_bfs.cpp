@@ -149,14 +149,55 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
       catch (...) { throw_stage("neighbors transactionCompleted absent u=" + std::to_string(u)); }
       return;
     }
+
     vertex_id_t physical = 0;
     try { physical = tx.physical_id(u); }
     catch (...) { throw_stage("neighbors physical_id u=" + std::to_string(u)); }
+
+    std::size_t degree = 0;
+    try { degree = tx.neighbourhood_size_p(physical); }
+    catch (...) { throw_stage("neighbors degree u=" + std::to_string(u) + " p=" + std::to_string(physical)); }
+
+    const auto read_version = tx.get_version();
+    int set_type = -1;
+    try { set_type = static_cast<int>(graph.storage_.get_set_type(physical, read_version)); }
+    catch (...) {
+      throw_stage("neighbors set_type u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                  " degree=" + std::to_string(degree) + " version=" + std::to_string(read_version));
+    }
+
+    auto iter = [&]() {
+      try { return tx.neighbourhood_blocked_p(physical); }
+      catch (...) {
+        throw_stage("neighbors iterator-create u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                    " degree=" + std::to_string(degree) + " type=" + std::to_string(set_type) +
+                    " version=" + std::to_string(read_version));
+      }
+    }();
+
     try {
-      SORTLEDTON_ITERATE(tx, physical, {
-        fn(static_cast<VertexId>(tx.logical_id(make_unversioned(e))));
-      });
-    } catch (...) { throw_stage("neighbors iterate u=" + std::to_string(u)); }
+      while (iter.has_next_block()) {
+        auto [begin, end] = iter.next_block();
+        for (auto it = begin; it < end; ++it) {
+          if (isDeleted(*it)) continue;
+          const auto raw = *it;
+          const auto unversioned = make_unversioned(raw);
+          VertexId logical = 0;
+          try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
+          catch (...) {
+            throw_stage("neighbors logical_id u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                        " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
+          }
+          fn(logical);
+        }
+      }
+    } catch (const std::runtime_error&) {
+      throw;
+    } catch (...) {
+      throw_stage("neighbors iterator-walk u=" + std::to_string(u) + " p=" + std::to_string(physical) +
+                  " degree=" + std::to_string(degree) + " type=" + std::to_string(set_type));
+    }
+
     try { graph.manager_.transactionCompleted(tx); completed = true; }
     catch (...) { throw_stage("neighbors transactionCompleted u=" + std::to_string(u)); }
   } catch (...) {
