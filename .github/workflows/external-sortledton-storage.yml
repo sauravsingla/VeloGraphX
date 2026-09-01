@@ -21,14 +21,14 @@ jobs:
     timeout-minutes: 45
     env:
       SORTLEDTON_SHA: 6eb638f3ad38f8a10a127e7e118528f4c8d07a6e
-      SORTLEDTON_BUILD: external/sortledton/microbenchmark/build
+      SORTLEDTON_BUILD: external/sortledton/build
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build libtbb-dev libnuma-dev
+          sudo apt-get install -y cmake ninja-build gcc-10 g++-10 libtbb-dev libnuma-dev
 
       - name: Build VeloGraphX library and tests
         run: |
@@ -41,27 +41,28 @@ jobs:
           git clone https://gitlab.db.in.tum.de/per.fuchs/sortledton.git external/sortledton
           git -C external/sortledton checkout "$SORTLEDTON_SHA"
           test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
-          test -f external/sortledton/microbenchmark/CMakeLists.txt
+          test -f external/sortledton/CMakeLists.txt
 
       - name: Build Sortledton
         run: |
-          cmake -S external/sortledton/microbenchmark -B "$SORTLEDTON_BUILD" -DCMAKE_BUILD_TYPE=Release
+          CC=gcc-10 CXX=g++-10 cmake -S external/sortledton -B "$SORTLEDTON_BUILD" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-10 \
+            -DCMAKE_CXX_COMPILER=g++-10
           cmake --build "$SORTLEDTON_BUILD" --parallel 2
           test -f "$SORTLEDTON_BUILD/libsortledton.a"
 
       - name: Compile same-algorithm Sortledton storage benchmark
         run: |
-          c++ -O3 -DNDEBUG -std=c++20 -fopenmp \
+          g++-10 -O3 -DNDEBUG -std=c++20 -fopenmp \
             -Iinclude \
-            -Iexternal/sortledton/microbenchmark \
-            -Iexternal/sortledton/microbenchmark/include \
-            -Iexternal/sortledton/microbenchmark/data-structure \
-            -Iexternal/sortledton/microbenchmark/data-structure/versioning \
-            -Iexternal/sortledton/microbenchmark/data-structures \
+            -Iexternal/sortledton \
+            -Iexternal/sortledton/data-structure \
+            -Iexternal/sortledton/data-structures \
             benchmarks/external_sortledton_storage_bfs.cpp \
             build/libvelographx.a \
             "$SORTLEDTON_BUILD/libsortledton.a" \
-            -ltbb -lnuma -lpthread \
+            -ltbb -ltbbmalloc -ltbbmalloc_proxy -lnuma -lpthread \
             -o build/velographx_external_sortledton_storage_bfs
 
       - name: Run portability and incremental correctness campaign
@@ -109,7 +110,7 @@ jobs:
               'backend': 'Sortledton',
               'sortledton_commit': subprocess.check_output(['git','-C','external/sortledton','rev-parse','HEAD'], text=True).strip(),
               'pin_source': 'GFE Driver SIGMOD 2025 README paper-evaluated Sortledton revision',
-              'compiler': subprocess.check_output(['c++','--version'], text=True).splitlines()[0],
+              'compiler': subprocess.check_output(['g++-10','--version'], text=True).splitlines()[0],
               'platform': platform.platform(),
               'runner': 'github-hosted ubuntu-22.04',
               'correctness_gate': 'full BFS distance-vector equality after recompute and every deterministic mixed insertion/deletion batch',
