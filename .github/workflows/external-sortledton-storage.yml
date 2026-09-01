@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 45
     env:
       SORTLEDTON_SHA: 6eb638f3ad38f8a10a127e7e118528f4c8d07a6e
+      SORTLEDTON_BUILD: external/sortledton/microbenchmark/build
     steps:
       - uses: actions/checkout@v4
 
@@ -40,22 +41,26 @@ jobs:
           git clone https://gitlab.db.in.tum.de/per.fuchs/sortledton.git external/sortledton
           git -C external/sortledton checkout "$SORTLEDTON_SHA"
           test "$(git -C external/sortledton rev-parse HEAD)" = "$SORTLEDTON_SHA"
+          test -f external/sortledton/microbenchmark/CMakeLists.txt
 
       - name: Build Sortledton
         run: |
-          cmake -S external/sortledton -B external/sortledton/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build external/sortledton/build --parallel 2
-          test -f external/sortledton/build/libsortledton.a
+          cmake -S external/sortledton/microbenchmark -B "$SORTLEDTON_BUILD" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$SORTLEDTON_BUILD" --parallel 2
+          test -f "$SORTLEDTON_BUILD/libsortledton.a"
 
       - name: Compile same-algorithm Sortledton storage benchmark
         run: |
           c++ -O3 -DNDEBUG -std=c++20 -fopenmp \
             -Iinclude \
-            -Iexternal/sortledton/include \
-            -Iexternal/sortledton \
+            -Iexternal/sortledton/microbenchmark \
+            -Iexternal/sortledton/microbenchmark/include \
+            -Iexternal/sortledton/microbenchmark/data-structure \
+            -Iexternal/sortledton/microbenchmark/data-structure/versioning \
+            -Iexternal/sortledton/microbenchmark/data-structures \
             benchmarks/external_sortledton_storage_bfs.cpp \
             build/libvelographx.a \
-            external/sortledton/build/libsortledton.a \
+            "$SORTLEDTON_BUILD/libsortledton.a" \
             -ltbb -lnuma -lpthread \
             -o build/velographx_external_sortledton_storage_bfs
 
