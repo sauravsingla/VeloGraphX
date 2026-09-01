@@ -14,8 +14,9 @@ VeloGraphX is a C++20 CPU engine for **exact analytics on changing graphs**. It 
 - Makes the incremental/full crossover explicit: the selector owns the decision before excessive repair work is incurred.
 - Treats **exactness as a benchmark gate**: incremental outputs are checked against independent full recomputation/reference implementations.
 - Uses scale, root-locality, affected-work and observed-cost signals; policy quality is evaluated on pinned datasets, multiple roots/regimes and retained artifacts.
+- Separates algorithms from graph representation through a **non-intrusive C++20 graph-access contract**, so the same algorithm can be exercised over mutable storage, read-optimised CSR and foreign graph representations.
 
-See [related-work positioning](docs/related-work-positioning.md) and the [ablation study](docs/ablation-study.md).
+See [related-work positioning](docs/related-work-positioning.md), the [graph abstraction](docs/graph-abstraction.md), and the [ablation study](docs/ablation-study.md).
 
 ## Results
 
@@ -26,6 +27,7 @@ GitHub-hosted results below are **engineering evidence, not publication-grade ha
 | Dynamic exactness stress | **2,000,000 updates; 0 BFS / 0 triangle mismatches** | 6 adversarial scenarios; independent check after every batch |
 | Refined adaptive BFS | **108/108 exact; 1.66% mean overhead from regime-best** | 3 datasets × 4 roots × 3 regimes × 3 reps |
 | `web-Google` adaptive BFS | **1.17% mean overhead** | down from 25.8% in the pre-refinement campaign |
+| External storage swap | **exact across DynamicGraph / CSR / Teseo** | identical `BasicIncrementalBFS::recompute`, 5 reps |
 | Multicore BFS workload | **2.74× at 4 threads (~69% efficiency)** | 50K vertices, degree 8, 32 independent tasks, median of 5 reps |
 | Connected-components workload | **2.50× at 4 threads (~62%)** | same workload contract |
 | Triangle-count workload | **2.24× at 4 threads (~56%)** | same workload contract |
@@ -61,7 +63,18 @@ Native C++, one OpenMP thread, same machine/update stream, five paired repetitio
 
 VeloGraphX wins the larger `web-Google` case but **loses on `ca-GrQc`**. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33301190847`, artifact `9766977170`.
 
-RisGraph and other dynamic systems are relevant prior work, but results from different runners or incompatible semantics are intentionally **not merged into this table**.
+### Same-algorithm storage swap: Teseo
+
+This experiment keeps `BasicIncrementalBFS::recompute()` fixed and changes only the graph representation. Graph construction is outside the timer; five recomputations are run and the median is reported. Full distance vectors must match.
+
+| Vertices / edges | `DynamicGraph` | `CsrGraph` | Teseo adapter | Exact |
+| --- | ---: | ---: | ---: | :---: |
+| 8,192 / 32,768 | 120.434 µs | **57.988 µs** | 4,341.401 µs | yes |
+| 32,768 / 131,072 | 500.383 µs | **234.284 µs** | 21,854.866 µs | yes |
+
+Read-optimised CSR is about **2.08×–2.14× faster** than the mutable VeloGraphX representation for full recomputation on these cases. Using the same VeloGraphX BFS implementation, `DynamicGraph` traversal is about **36×–44× faster than the Teseo iterator adapter**. This is deliberately a **storage-interface experiment, not a system-level claim against Teseo's own algorithms or capabilities**. Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; run `33475389747`, artifact `9787994251`. See [Teseo storage evidence](docs/teseo-storage-evidence.md).
+
+RisGraph and other dynamic systems remain relevant prior work; results from different runners or incompatible semantics are intentionally **not merged into same-semantics tables**.
 
 ## How it works
 
@@ -77,7 +90,7 @@ localized exact repair  ← selector →  full recomputation
 exact maintained result
 ```
 
-Implemented analytics include BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank-related paths. Runtime/storage code also includes SIMD intersections, work stealing, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
+Implemented analytics include BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank-related paths. Generic unweighted algorithms use the C++20 graph-access layer rather than a concrete storage type; the weighted SSSP path currently retains a specialised weighted-graph contract while sharing the common Dijkstra engine. Runtime/storage code also includes SIMD intersections, work stealing, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
 
 ## Quick Start
 
@@ -93,7 +106,7 @@ ctest --test-dir build --output-on-failure
 ./build/velographx_dynamic_example
 ```
 
-The default build includes **28 CTest targets** plus benchmark executables.
+The default build includes **29 CTest targets** plus benchmark executables. One test uses an ADL-only foreign graph type to prevent accidental coupling of generic algorithms back to VeloGraphX storage members.
 
 ## Reproduce
 
@@ -106,24 +119,26 @@ c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/exactness_stress.cpp build/libv
 ./build/exactness_stress 2000000 256
 ```
 
-The refined 108-execution selector campaign and native competitor campaign are encoded as workflows so dataset/version pins, correctness gates and artifacts stay with the run.
+The refined selector, native competitor and Teseo storage-swap campaigns are encoded as workflows so version pins, correctness gates and artifacts stay with the run.
 
 ```bash
 # Requires an authenticated GitHub CLI.
 gh workflow run adaptive-selector-refinement.yml --ref main
 gh workflow run hosted-native-competitors.yml --ref main
+gh workflow run external-teseo-storage.yml --ref main
 
 gh run list --workflow adaptive-selector-refinement.yml --limit 1
 gh run list --workflow hosted-native-competitors.yml --limit 1
+gh run list --workflow external-teseo-storage.yml --limit 1
 ```
 
-Benchmark contracts and interpretation rules: [benchmark methodology](docs/benchmark-methodology.md), [native competitors](docs/hosted-native-competitors.md), [limitations](docs/limitations.md).
+Benchmark contracts and interpretation rules: [benchmark methodology](docs/benchmark-methodology.md), [graph abstraction](docs/graph-abstraction.md), [native competitors](docs/hosted-native-competitors.md), [limitations](docs/limitations.md).
 
 ## Limitations / Roadmap
 
-**Current:** hosted CI establishes exactness/reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs and same-run native comparisons. The refined adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, but this is not evidence of universal selector optimality. Compression saves space but currently slows BFS traversal.
+**Current:** hosted CI establishes exactness/reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs, same-run native comparisons and a pinned same-algorithm Teseo storage swap. The refined adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, but this is not evidence of universal selector optimality. The Teseo experiment isolates one BFS/storage interface on small synthetic graphs and is not a general Teseo performance comparison. Compression saves space but currently slows BFS traversal.
 
-**Next:** held-out graph families and roots for selector generalization; dedicated 8/16/32+ core experiments; true multi-socket NUMA measurements; broader same-machine dynamic-system comparisons; dedicated NVMe/`io_uring` throughput; hardware counters; broader weighted-dynamic evaluation; a frozen long-term Python API. See [limitations](docs/limitations.md).
+**Next:** held-out graph families and roots for selector generalization; dedicated 8/16/32+ core experiments; true multi-socket NUMA measurements; broader same-machine dynamic-system comparisons; a second external storage adapter such as Sortledton; dedicated NVMe/`io_uring` throughput; hardware counters; broader weighted-dynamic evaluation; a frozen long-term Python API. See [limitations](docs/limitations.md).
 
 ## License / Contributing
 

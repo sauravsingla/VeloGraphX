@@ -1,0 +1,120 @@
+name: External Teseo Storage Evidence
+
+on:
+  push:
+    paths:
+      - '.github/workflows/external-teseo-storage.yml'
+      - 'benchmarks/external_teseo_storage_bfs.cpp'
+      - 'include/velographx/graph_access.hpp'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'tests/test_graph_access_adl.cpp'
+      - 'CMakeLists.txt'
+  pull_request:
+    paths:
+      - '.github/workflows/external-teseo-storage.yml'
+      - 'benchmarks/external_teseo_storage_bfs.cpp'
+      - 'include/velographx/graph_access.hpp'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'tests/test_graph_access_adl.cpp'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  teseo-storage-swap:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      TESEO_SHA: 2c37c2831c4d2acaaa838a86e1318363ce68c45b
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool pkg-config libnuma-dev libevent-dev
+
+      - name: Build and test VeloGraphX abstraction contract
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+
+      - name: Clone pinned Teseo
+        run: |
+          git clone https://github.com/cwida/teseo.git external/teseo
+          git -C external/teseo checkout "$TESEO_SHA"
+          test "$(git -C external/teseo rev-parse HEAD)" = "$TESEO_SHA"
+
+      - name: Build Teseo release configuration
+        working-directory: external/teseo
+        run: |
+          autoreconf -iv
+          mkdir build
+          cd build
+          ../configure --enable-optimize --disable-debug
+          make -j2
+          test -f libteseo.a
+
+      - name: Compile same-algorithm storage benchmark
+        run: |
+          c++ -O3 -DNDEBUG -std=c++20 \
+            -Iinclude \
+            -Iexternal/teseo/include \
+            -Iexternal/teseo/build/include \
+            benchmarks/external_teseo_storage_bfs.cpp \
+            build/libvelographx.a \
+            external/teseo/build/libteseo.a \
+            -lnuma -levent_pthreads -levent_core -pthread \
+            -o build/velographx_external_teseo_storage_bfs
+
+      - name: Run exact storage-swap campaign
+        run: |
+          mkdir -p artifacts/teseo
+          build/velographx_external_teseo_storage_bfs 8192 | tee artifacts/teseo/teseo-8192.json
+          build/velographx_external_teseo_storage_bfs 32768 | tee artifacts/teseo/teseo-32768.json
+
+      - name: Validate result contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path('artifacts/teseo').glob('teseo-*.json')):
+              row = json.loads(path.read_text())
+              assert row['schema_version'] == 1
+              assert row['benchmark'] == 'same-algorithm-storage-bfs'
+              assert row['algorithm'] == 'BasicIncrementalBFS::recompute'
+              assert row['repetitions'] == 5
+              assert row['exact'] is True
+              assert row['dynamic_graph_median_us'] > 0
+              assert row['csr_graph_median_us'] > 0
+              assert row['teseo_median_us'] > 0
+          PY
+
+      - name: Record immutable experiment metadata
+        run: |
+          python - <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+          payload = {
+              'schema_version': 1,
+              'artifact_type': 'velographx-teseo-storage-swap',
+              'publication_grade': False,
+              'same_algorithm': 'BasicIncrementalBFS::recompute',
+              'teseo_commit': os.environ['TESEO_SHA'],
+              'teseo_semantics': 'undirected simple weighted graph; unit weights; dense vertex IDs',
+              'compiler': subprocess.check_output(['c++', '--version'], text=True).splitlines()[0],
+              'platform': platform.platform(),
+              'runner': 'github-hosted ubuntu-22.04',
+              'timing_scope': 'five median recomputations after graph construction; input/build time excluded',
+              'claim_gate': 'engineering storage-swap evidence only; not publication-grade hardware evidence',
+          }
+          Path('artifacts/teseo/metadata.json').write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
+          PY
+
+      - name: Upload evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: velographx-teseo-storage-swap
+          path: artifacts/teseo
+          retention-days: 30
