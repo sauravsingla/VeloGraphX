@@ -97,7 +97,16 @@ The default build includes **28 CTest targets** plus benchmark executables.
 
 ## Reproduce
 
-The headline campaigns are encoded as GitHub Actions workflows so dataset pins, versions, exactness gates and artifacts stay with the run.
+The 2M-update exactness headline can be reproduced locally without dataset downloads:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+cmake --build build --target velographx -j 2
+c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/exactness_stress.cpp build/libvelographx.a -pthread -o build/exactness_stress
+./build/exactness_stress 2000000 256
+```
+
+The broader pinned-dataset and competitor campaigns are encoded as GitHub Actions workflows so versions, exactness gates and artifacts stay with the run.
 
 ```bash
 # Requires an authenticated GitHub CLI.
@@ -107,14 +116,6 @@ gh workflow run hosted-native-competitors.yml --ref main
 # Watch the latest dispatches.
 gh run list --workflow current-capacity-validation.yml --limit 1
 gh run list --workflow hosted-native-competitors.yml --limit 1
-```
-
-For a local correctness run:
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-ctest --test-dir build --output-on-failure
 ```
 
 Benchmark contracts and interpretation rules: [benchmark methodology](docs/benchmark-methodology.md), [native competitors](docs/hosted-native-competitors.md), [limitations](docs/limitations.md).
