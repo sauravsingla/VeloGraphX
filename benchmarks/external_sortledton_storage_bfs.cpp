@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -29,7 +30,6 @@ using velographx::VertexId;
 class PinnedReadTransaction : public SnapshotTransaction {
  public:
   using SnapshotTransaction::SnapshotTransaction;
-
   void pin(version_t version) {
     clear(false);
     read_version = version;
@@ -39,15 +39,30 @@ class PinnedReadTransaction : public SnapshotTransaction {
 class Graph {
  public:
   Graph(std::size_t vertices, const std::vector<std::pair<VertexId, VertexId>>& edges)
-      : vertices_(vertices), manager_(1), storage_(1024, sizeof(double), manager_) {
-    try { manager_.register_thread(0); }
-    catch (...) { throw_stage("register_thread(0)"); }
-    registered_ = true;
+      : vertices_(vertices), manager_(1) {
+    try {
+      manager_.register_thread(0);
+      registered_ = true;
+    } catch (...) {
+      throw_stage("register_thread(0)");
+    }
+
+    try {
+      storage_ = std::make_unique<VersioningBlockedSkipListAdjacencyList>(1024, sizeof(double), manager_);
+    } catch (...) {
+      if (registered_) {
+        try { manager_.deregister_thread(0); } catch (...) {}
+        registered_ = false;
+      }
+      throw_stage("construct storage after thread registration");
+    }
+
     for (VertexId v = 0; v < vertices_; ++v) insert_vertex(v);
     for (const auto& [u, v] : edges) insert_edge(u, v);
   }
 
   ~Graph() noexcept {
+    storage_.reset();
     if (!registered_) return;
     try { manager_.deregister_thread(0); } catch (...) {}
   }
@@ -57,14 +72,19 @@ class Graph {
 
   std::size_t vertices_{0};
   mutable TransactionManager manager_;
-  mutable VersioningBlockedSkipListAdjacencyList storage_;
+  mutable std::unique_ptr<VersioningBlockedSkipListAdjacencyList> storage_;
   std::uint64_t version_{0};
   version_t storage_read_version_{NO_TRANSACTION};
   bool registered_{false};
 
+  VersioningBlockedSkipListAdjacencyList* storage() const {
+    if (!storage_) throw_stage("storage unavailable");
+    return storage_.get();
+  }
+
   void insert_vertex(VertexId v) {
     SnapshotTransaction tx = [&]() {
-      try { return manager_.getSnapshotTransaction(&storage_, true); }
+      try { return manager_.getSnapshotTransaction(storage(), true); }
       catch (...) { throw_stage("insert_vertex getSnapshotTransaction v=" + std::to_string(v)); }
     }();
     bool completed = false;
@@ -86,7 +106,7 @@ class Graph {
 
   void insert_edge(VertexId u, VertexId v) {
     SnapshotTransaction tx = [&]() {
-      try { return manager_.getSnapshotTransaction(&storage_, true); }
+      try { return manager_.getSnapshotTransaction(storage(), true); }
       catch (...) { throw_stage("insert_edge getSnapshotTransaction " + std::to_string(u) + "->" + std::to_string(v)); }
     }();
     bool completed = false;
@@ -94,6 +114,7 @@ class Graph {
       const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
       try {
         tx.use_vertex_does_not_exists_semantics();
+        tx.use_edge_does_not_exists_semantics();
         tx.insert_vertex(edge.src);
         tx.insert_vertex(edge.dst);
         double weight = 1.0;
@@ -117,13 +138,14 @@ class Graph {
 
   void delete_edge(VertexId u, VertexId v) {
     SnapshotTransaction tx = [&]() {
-      try { return manager_.getSnapshotTransaction(&storage_, true); }
+      try { return manager_.getSnapshotTransaction(storage(), true); }
       catch (...) { throw_stage("delete_edge getSnapshotTransaction " + std::to_string(u) + "->" + std::to_string(v)); }
     }();
     bool completed = false;
     try {
       const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
       try {
+        tx.use_edge_does_not_exists_semantics();
         tx.delete_edge(edge);
         tx.delete_edge({edge.dst, edge.src});
       } catch (...) {
@@ -149,10 +171,8 @@ std::uint64_t vx_version(const Graph& graph) { return graph.version_; }
 
 template <class Fn>
 void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
-  if (graph.storage_read_version_ == NO_TRANSACTION) {
-    throw_stage("neighbors missing committed read version");
-  }
-  PinnedReadTransaction tx(&graph.manager_, true, &graph.storage_);
+  if (graph.storage_read_version_ == NO_TRANSACTION) throw_stage("neighbors missing committed read version");
+  PinnedReadTransaction tx(&graph.manager_, true, graph.storage());
   tx.pin(graph.storage_read_version_);
 
   bool present = false;
@@ -164,25 +184,9 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
   try { physical = tx.physical_id(u); }
   catch (...) { throw_stage("neighbors physical_id u=" + std::to_string(u)); }
 
-  std::size_t degree = 0;
-  try { degree = tx.neighbourhood_size_p(physical); }
-  catch (...) { throw_stage("neighbors degree u=" + std::to_string(u) + " p=" + std::to_string(physical)); }
-
-  const auto read_version = tx.get_version();
-  int set_type = -1;
-  try { set_type = static_cast<int>(graph.storage_.get_set_type(physical, read_version)); }
-  catch (...) {
-    throw_stage("neighbors set_type u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                " degree=" + std::to_string(degree) + " version=" + std::to_string(read_version));
-  }
-
   auto iter = [&]() {
     try { return tx.neighbourhood_blocked_p(physical); }
-    catch (...) {
-      throw_stage("neighbors iterator-create u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                  " degree=" + std::to_string(degree) + " type=" + std::to_string(set_type) +
-                  " version=" + std::to_string(read_version));
-    }
+    catch (...) { throw_stage("neighbors iterator-create u=" + std::to_string(u)); }
   }();
 
   try {
@@ -190,43 +194,26 @@ void vx_for_each_neighbor(const Graph& graph, VertexId u, Fn&& fn) {
       auto [versioned, begin, end] = iter.next_block();
       if (versioned) {
         while (iter.has_next_edge()) {
-          const auto raw = iter.next();
-          const auto unversioned = make_unversioned(raw);
-          VertexId logical = 0;
-          try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
-          catch (...) {
-            throw_stage("neighbors logical_id versioned u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                        " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
-          }
-          fn(logical);
+          const auto raw = make_unversioned(iter.next());
+          fn(static_cast<VertexId>(tx.logical_id(raw)));
         }
       } else {
         for (auto it = begin; it < end; ++it) {
-          const auto raw = *it;
-          const auto unversioned = make_unversioned(raw);
-          VertexId logical = 0;
-          try { logical = static_cast<VertexId>(tx.logical_id(unversioned)); }
-          catch (...) {
-            throw_stage("neighbors logical_id plain u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                        " raw=" + std::to_string(raw) + " unversioned=" + std::to_string(unversioned));
-          }
-          fn(logical);
+          const auto raw = make_unversioned(*it);
+          fn(static_cast<VertexId>(tx.logical_id(raw)));
         }
       }
     }
   } catch (const std::runtime_error&) {
     throw;
   } catch (...) {
-    throw_stage("neighbors iterator-walk u=" + std::to_string(u) + " p=" + std::to_string(physical) +
-                " degree=" + std::to_string(degree) + " type=" + std::to_string(set_type));
+    throw_stage("neighbors iterator-walk u=" + std::to_string(u));
   }
 }
 
 bool vx_has_edge(const Graph& graph, VertexId u, VertexId v) {
-  if (graph.storage_read_version_ == NO_TRANSACTION) {
-    throw_stage("has_edge missing committed read version");
-  }
-  PinnedReadTransaction tx(&graph.manager_, true, &graph.storage_);
+  if (graph.storage_read_version_ == NO_TRANSACTION) throw_stage("has_edge missing committed read version");
+  PinnedReadTransaction tx(&graph.manager_, true, graph.storage());
   tx.pin(graph.storage_read_version_);
   try {
     if (!tx.has_vertex(u) || !tx.has_vertex(v)) return false;
@@ -318,12 +305,13 @@ int run(std::size_t vertices) {
   if (rounded != kSortledtonBlockSize) {
     throw std::runtime_error("Sortledton round_up_power_of_two probe mismatch: " + std::to_string(rounded));
   }
+
   const VertexId source = 0;
   const auto edges = make_graph(vertices);
-
   DynamicGraph dynamic(vertices, false);
   dynamic.bulk_load_edges(edges);
   CsrGraph csr(edges, false);
+
   std::vector<std::uint32_t> dynamic_dist, csr_dist;
   const auto dynamic_us = median_recompute_us(dynamic, source, dynamic_dist);
   const auto csr_us = median_recompute_us(csr, source, csr_dist);
@@ -350,6 +338,7 @@ int run(std::size_t vertices) {
     sortledton_samples.push_back(std::chrono::duration<double, std::micro>(end - begin).count());
     incremental_exact = incremental_exact && dynamic_inc.distances() == sortledton_inc.distances();
   }
+
   std::sort(dynamic_samples.begin(), dynamic_samples.end());
   std::sort(sortledton_samples.begin(), sortledton_samples.end());
   const bool exact = recompute_exact && incremental_exact;
@@ -374,9 +363,6 @@ int main(int argc, char** argv) {
   try {
     const std::size_t vertices = argc > 1 ? static_cast<std::size_t>(std::stoull(argv[1])) : 8192;
     return run(vertices);
-  } catch (const ConfigurationError& e) {
-    std::cerr << "Sortledton configuration error: " << e.what() << '\n';
-    return 72;
   } catch (const std::exception& e) {
     std::cerr << "Sortledton adapter error: " << e.what() << '\n';
     return 70;
