@@ -7,6 +7,7 @@ on:
       - 'benchmarks/exactness_stress.cpp'
       - 'benchmarks/compression_end_to_end.cpp'
       - 'benchmarks/thread_scaling_workloads.cpp'
+      - 'tools/summarize_adaptive_policy.py'
   workflow_dispatch:
 
 jobs:
@@ -88,6 +89,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build
+          python -m pip install --disable-pip-version-check matplotlib
       - name: Build adaptive harness
         run: |
           cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
