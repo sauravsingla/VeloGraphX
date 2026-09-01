@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <iostream>
 #include <set>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -43,9 +44,9 @@ class Graph {
   void insert_edge(VertexId u, VertexId v) {
     auto tx = manager_.getSnapshotTransaction(&storage_, true);
     const edge_t edge{static_cast<dst_t>(u), static_cast<dst_t>(v)};
-    const double weight = 1.0;
-    tx.insert_edge(edge, reinterpret_cast<const char*>(&weight), sizeof(weight));
-    tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<const char*>(&weight), sizeof(weight));
+    double weight = 1.0;
+    tx.insert_edge(edge, reinterpret_cast<char*>(&weight), sizeof(weight));
+    tx.insert_edge({edge.dst, edge.src}, reinterpret_cast<char*>(&weight), sizeof(weight));
     if (!tx.execute()) throw std::runtime_error("Sortledton edge insertion failed");
     manager_.transactionCompleted(tx);
   }
