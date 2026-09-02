@@ -23,10 +23,14 @@ This document maps the repository against the original VeloGraphX implementation
 - Checksum-verified dataset preparation tooling with local fixture coverage and explicit SHA-256 mismatch validation.
 - Competitor benchmark adapters for builtin reference, NetworkX, igraph, NetworKit and rustworkx, plus a normalized external/native command contract.
 - Concrete native adapter shims and reproducibility recipes for locally installed SuiteSparse:GraphBLAS/LAGraph and GAP BFS runners, with deterministic contract fixtures and explicit failure when native binaries are unavailable.
+- Successful pinned hosted-native BFS/SSSP execution against SuiteSparse:GraphBLAS `v10.5.0`, LAGraph commit `d01064de77b606473744b99f63b1487963556194` and GAP `v1.5`, with five repetitions, exactness gates and separately labelled kernel/process-wall timing.
+- Pinned same-algorithm storage-portability workflows for Teseo, Boost.Graph and Sortledton, including recomputation and deterministic mixed-update correctness gates.
+- Native NetworKit 11.2.1 dynamic-BFS comparison across the same three fixed roots on both `web-Google` and `ca-GrQc`, five paired repetitions per root and exact full-BFS verification for all 30 pairs.
 - Reproducible machine-readable experiment orchestration and campaign definitions for update-fraction crossover, thread scaling, NUMA placement, hardware counters and ablations.
 - Codec throughput/compression-ratio benchmark tooling across dense, medium and sparse graph-neighbor families, including scalar versus vectorized fixed-width decode measurements.
 - Codec-policy calibration tooling that derives machine-readable thresholds from supplied benchmark CSV while explicitly separating synthetic/self-test data from research claims.
 - CI on Ubuntu/macOS, ASan/UBSan, observability structures, ablation suite, paper scaffold and benchmark tooling.
+- Hosted 10M/100M storage A/B evidence plus 100M+-class `com-Orkut` steady-state/canonicalization evidence, with explicit engineering-only claim gates.
 
 ## Partial — implementation exists but original prompt requires deeper capability or validation
 
@@ -35,15 +39,15 @@ This document maps the repository against the original VeloGraphX implementation
 - Python interoperability covers the major dynamic/incremental algorithms implemented by the engine; additional convenience APIs and future algorithms can still be exposed as they are added.
 - Out-of-core storage supports mmap, async loading, bounded caching, readahead and optional io_uring prefetch; research-scale NVMe evaluation remains environment-dependent.
 - Adaptive execution planning is implemented, but crossover thresholds still require large benchmark campaigns on public datasets.
-- Native LAGraph/GraphBLAS and GAP wrapper contracts are implemented, but full competitor execution still requires those projects to be built and version-pinned on the target benchmark machine.
+- Native LAGraph/GraphBLAS and GAP builds have executed successfully in hosted CI; publication-grade reruns still require the same immutable systems on the dedicated target machine and official canonical datasets.
 
 ## Not measured / environment-dependent
 
 - True multi-socket NUMA locality/remote-traffic measurements.
 - Large-scale 1/2/4/8/16/32+ thread scaling on dedicated hardware.
-- 100M+ edge research prototype measurements.
+- Repeated controlled-hardware measurements on irregular public 100M+-edge graphs across machines/seeds; current 100M-class results are hosted engineering evidence.
 - Full update-fraction crossover campaign at 0.0001%, 0.001%, 0.01%, 0.1%, 1%, 5% and 10% on public research-scale datasets.
-- Full competitor campaign against NetworkX, igraph, NetworKit, rustworkx, SuiteSparse:GraphBLAS/LAGraph and GAP on equivalent datasets/hardware.
+- Full same-dataset, same-hardware publication campaign across the relevant dynamic and static competitors; hosted NetworKit, GAP and LAGraph evidence does not open this gate.
 - Publication-grade ablation and hardware-counter measurements on dedicated hardware.
 - Research-scale codec throughput/compression-ratio campaign across public graph families.
 - Research-scale NVMe/io_uring throughput and overlap measurements.
@@ -51,8 +55,8 @@ This document maps the repository against the original VeloGraphX implementation
 ## Future / genuinely remaining engineering milestones
 
 - Execute representative public-dataset codec campaigns and feed measured CSV into the calibration tool to select production codec thresholds.
-- Build/version-pin SuiteSparse:GraphBLAS/LAGraph and GAP on the target benchmark environment and execute the normalized competitor campaign.
+- Rebuild the recorded SuiteSparse:GraphBLAS/LAGraph and GAP pins on the dedicated target environment and execute the normalized canonical-dataset campaign.
 - Execute the full update-size crossover, scaling, NUMA, perf-counter and ablation campaigns on dedicated hardware.
-- Research-scale evaluation at 100M+ edges and publication-quality machine-readable result artifacts.
+- Repeat the existing 100M-class engineering campaigns on controlled hardware and public irregular graphs, producing publication-quality machine-readable artifacts.
 
 No unmeasured item is represented as completed, and no benchmark or novelty result is invented.

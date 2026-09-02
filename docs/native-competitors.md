@@ -1,6 +1,8 @@
 # Native competitor adapters
 
-VeloGraphX keeps heavyweight native competitors behind the normalized external benchmark contract so results can be gathered on dedicated machines without making GitHub-hosted CI depend on system-specific GraphBLAS/LAGraph or GAP installations.
+VeloGraphX keeps heavyweight native competitors behind a normalized external benchmark contract for dedicated-machine execution. A separate hosted evidence workflow also builds immutable GraphBLAS/LAGraph and GAP revisions from source, runs their native BFS/SSSP programs and retains correctness-gated engineering artifacts. Hosted measurements do not replace the normalized dedicated-hardware contract below.
+
+See [`hosted-native-competitors.md`](hosted-native-competitors.md) for the completed hosted campaign and [`gap-canonical-multiroot.md`](gap-canonical-multiroot.md) for the official GAP-dataset path.
 
 ## Contract
 
