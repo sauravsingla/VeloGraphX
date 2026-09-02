@@ -1,6 +1,6 @@
 # Native competitor benchmark recipes
 
-VeloGraphX normalizes native competitors through `tools/competitor_benchmark.py --framework external`. The repository includes shims for SuiteSparse:GraphBLAS/LAGraph and the GAP Benchmark Suite, but it deliberately does not vendor or pretend to install those native projects. Their versions, compiler flags, threading configuration, and ABI details are part of the benchmark environment and must be recorded with the final results.
+VeloGraphX normalizes native competitors through `tools/competitor_benchmark.py --framework external`. The repository includes shims for SuiteSparse:GraphBLAS/LAGraph and the GAP Benchmark Suite and does not vendor those projects. For hosted engineering evidence, `.github/workflows/hosted-native-competitors.yml` clones immutable revisions, builds them from source and records versions, compiler flags and threading configuration with the artifact. Dedicated environments must still provide and record their own installations through the normalized contract.
 
 ## Common runner contract
 

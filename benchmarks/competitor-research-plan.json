@@ -30,9 +30,19 @@
       "version_or_commit": "2c37c2831c4d2acaaa838a86e1318363ce68c45b",
       "source": "https://github.com/cwida/teseo",
       "license": "GPL-3.0",
-      "install_or_build_recipe": null,
-      "comparison_scope": "Structural dynamic-graph update/scan behavior only; do not compare Teseo storage operations with VeloGraphX incremental algorithm repair as if they were the same operation.",
-      "ready": false
+      "install_or_build_recipe": ".github/workflows/external-teseo-storage.yml",
+      "comparison_scope": "Correctness-gated same-algorithm storage swap using BasicIncrementalBFS recomputation and mixed insertion/deletion batches; not a comparison with Teseo native algorithms or a system-level performance claim.",
+      "ready": true
+    },
+    {
+      "name": "Sortledton",
+      "kind": "native-dynamic-graph-storage-system",
+      "version_or_commit": "6eb638f3ad38f8a10a127e7e118528f4c8d07a6e",
+      "source": "https://gitlab.db.in.tum.de/per.fuchs/sortledton",
+      "license": "upstream repository terms",
+      "install_or_build_recipe": ".github/workflows/external-sortledton-storage.yml",
+      "comparison_scope": "Correctness-gated same-algorithm storage portability using BasicIncrementalBFS recomputation and deterministic mixed insertion/deletion batches; hosted timings are diagnostic only.",
+      "ready": true
     },
     {
       "name": "NetworkX",
@@ -55,11 +65,11 @@
     {
       "name": "NetworKit",
       "kind": "python-package-native-core",
-      "version_or_commit": null,
+      "version_or_commit": "359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c",
       "source": "https://github.com/networkit/networkit",
-      "install_or_build_recipe": null,
-      "comparison_scope": "Algorithm-specific; require matched update and correctness semantics.",
-      "ready": false
+      "install_or_build_recipe": ".github/workflows/external-networkit-native-multidataset.yml",
+      "comparison_scope": "Native NetworKit::DynBFS versus VeloGraphX exact directed dynamic BFS on identical streams, batches and three fixed roots per dataset, with full-BFS verification after every batch.",
+      "ready": true
     },
     {
       "name": "rustworkx",
@@ -73,20 +83,21 @@
     {
       "name": "SuiteSparse:GraphBLAS/LAGraph",
       "kind": "native",
-      "version_or_commit": null,
+      "version_or_commit": "d01064de77b606473744b99f63b1487963556194",
       "source": "https://github.com/DrTimothyAldenDavis/GraphBLAS + https://github.com/GraphBLAS/LAGraph",
-      "install_or_build_recipe": "docs/native-competitors.md",
-      "comparison_scope": "Static/full graph analytics unless a matched dynamic algorithm is available.",
-      "ready": false
+      "graphblas_version": "v10.5.0",
+      "install_or_build_recipe": ".github/workflows/hosted-native-competitors.yml",
+      "comparison_scope": "Correctness-gated hosted BFS/SSSP engineering comparison using pinned GraphBLAS/LAGraph builds; dedicated-hardware publication execution remains outstanding.",
+      "ready": true
     },
     {
       "name": "GAP Benchmark Suite",
       "kind": "native",
-      "version_or_commit": null,
+      "version_or_commit": "v1.5",
       "source": "https://github.com/sbeamer/gapbs",
-      "install_or_build_recipe": "docs/native-competitors.md",
-      "comparison_scope": "Static/full graph analytics only.",
-      "ready": false
+      "install_or_build_recipe": ".github/workflows/hosted-native-competitors.yml",
+      "comparison_scope": "Correctness-gated hosted BFS/SSSP engineering comparison using GAP verification; official canonical GAP datasets and dedicated-hardware publication execution remain separate gates.",
+      "ready": true
     }
   ],
   "rules": [
@@ -98,5 +109,5 @@
     "Do not remove deletions, validation, or other difficult workload features merely because they disadvantage VeloGraphX.",
     "Hosted CI results are engineering evidence and must not be described as universal or publication-grade performance claims."
   ],
-  "notes": "RisGraph is the first pinned same-semantics dynamic-system baseline. Teseo is pinned as a screened storage candidate but remains ineligible for a promoted comparison until a separate matched storage harness is established."
+  "notes": "Ready means the immutable identity, build recipe and stated comparison contract are executable; it does not imply publication-grade evidence. RisGraph and NetworKit are accepted same-semantics dynamic-BFS baselines. Teseo and Sortledton are ready only for explicitly labelled same-algorithm storage portability/correctness experiments. GAP and LAGraph have successful hosted engineering campaigns, while dedicated-hardware publication execution remains outstanding."
 }

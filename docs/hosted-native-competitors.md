@@ -10,6 +10,8 @@ This workflow implements the native BFS/SSSP methodology recommended by Prof. Ti
 
 Exact resolved commits are retained with every artifact. Hosted evidence remains `research_claim: false` and `publication_grade: false`.
 
+Accepted hosted evidence: GitHub Actions run `33418520303`, artifact `9768499895`. The retained campaign passed the cross-engine correctness gates for BFS, SSSP and dynamic snapshots and is summarized in the README. It is the current hosted engineering result, not a dedicated-hardware publication result.
+
 ## Davis methodology applied
 
 The campaign follows these rules:

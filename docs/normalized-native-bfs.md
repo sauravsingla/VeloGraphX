@@ -28,8 +28,8 @@ The existing shims are:
 - `tools/native_competitors/lagraph_wrapper.py`
 - `tools/native_competitors/gap_wrapper.py`
 
-## Remaining implementation
+## Current execution status
 
-The hosted workflow still needs native runner binaries that expose full BFS distance vectors from the pinned LAGraph/GraphBLAS and GAP implementations. Once those runners are wired in, the normalization validator becomes the mandatory correctness gate before any cross-engine timing summary is emitted.
+The repository now has two complementary native paths. The normalized external-command validator remains the mandatory portable contract for dedicated environments that provide full distance-vector runners. Separately, `.github/workflows/hosted-native-competitors.yml` builds pinned GraphBLAS/LAGraph and GAP sources and executes their native benchmark programs with independent self-checks and matched VeloGraphX verification. The hosted path records native pins, raw repetitions and timing scopes, but remains engineering evidence rather than publication-grade execution.
 
 Publication-grade competitor claims remain blocked until the same normalized contract is executed on the dedicated hardware campaign required by Issue #10.

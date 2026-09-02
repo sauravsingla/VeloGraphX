@@ -40,9 +40,9 @@ jobs:
           from pathlib import Path
           report = json.loads(Path('build/competitor-plan.json').read_text())
           assert report['valid'] is True
-          assert report['competitor_count'] == 8
-          assert report['ready_count'] == 1
-          assert report['unresolved_count'] == 7
+          assert report['competitor_count'] == 9
+          assert report['ready_count'] == 6
+          assert report['unresolved_count'] == 3
           assert report['publication_ready'] is False
           PY
       - name: Reject floating competitor version pins

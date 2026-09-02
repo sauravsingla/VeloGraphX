@@ -69,6 +69,6 @@ The result digest is intended for correctness comparison across implementations.
 
 ## Measurement discipline
 
-The builtin adapter and mock external adapter are test references, not performance competitors. NetworkX, igraph, NetworKit and rustworkx results should be produced in a pinned benchmark environment and their package versions retained in every report. GAP and SuiteSparse:GraphBLAS/LAGraph can now be integrated through the external contract, but actual native wrapper implementations, pinned native builds and measured results remain future benchmark-environment work.
+The builtin adapter and mock external adapter are test references, not performance competitors. NetworkX, igraph, NetworKit and rustworkx results should be produced in a pinned benchmark environment and their package versions retained in every report. The generic external contract remains available for locally installed systems. In addition, `.github/workflows/hosted-native-competitors.yml` now builds pinned SuiteSparse:GraphBLAS/LAGraph and GAP sources and executes correctness-gated BFS/SSSP measurements; `.github/workflows/external-networkit-native-multidataset.yml` performs the matched native dynamic-BFS campaign. These hosted results are engineering evidence, not substitutes for the dedicated canonical-dataset campaign.
 
 Large-scale benchmark claims remain unmeasured until the documented campaign is run on dedicated hardware.
