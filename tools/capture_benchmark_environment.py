@@ -23,6 +23,61 @@ NATIVE_ENV = {
 }
 
 
+def read_text(path: str):
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
+def command_output(args: list[str]):
+    try:
+        return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def linux_cpu_topology():
+    """Return publication-relevant topology without requiring privileged tools."""
+    output = command_output(["lscpu", "--json"])
+    lscpu = None
+    if output:
+        try:
+            lscpu = json.loads(output)
+        except json.JSONDecodeError:
+            pass
+    physical = set()
+    online = command_output(["lscpu", "-p=CPU,CORE,SOCKET,ONLINE"])
+    if online:
+        for row in online.splitlines():
+            if row.startswith("#"):
+                continue
+            fields = row.split(",")
+            if len(fields) == 4 and fields[3].strip().upper() == "Y":
+                physical.add((fields[2], fields[1]))
+    affinity = None
+    if hasattr(os, "sched_getaffinity"):
+        affinity = sorted(os.sched_getaffinity(0))
+    nodes = {}
+    node_root = Path("/sys/devices/system/node")
+    for path in sorted(node_root.glob("node[0-9]*")):
+        nodes[path.name] = read_text(str(path / "cpulist"))
+    return {
+        "lscpu": lscpu,
+        "online_physical_core_count": len(physical) or None,
+        "process_allowed_cpu_list": affinity,
+        "numa_node_cpu_lists": nodes,
+        "smt_control": read_text("/sys/devices/system/cpu/smt/control"),
+        "smt_active": read_text("/sys/devices/system/cpu/smt/active"),
+        "transparent_hugepage_enabled": read_text(
+            "/sys/kernel/mm/transparent_hugepage/enabled"
+        ),
+        "transparent_hugepage_defrag": read_text(
+            "/sys/kernel/mm/transparent_hugepage/defrag"
+        ),
+    }
+
+
 def command_version(command: str | None):
     if not command:
         return None
@@ -93,6 +148,7 @@ def main() -> int:
             "machine": platform.machine(),
             "processor": platform.processor(),
             "cpu_count": os.cpu_count(),
+            "linux_topology": linux_cpu_topology() if platform.system() == "Linux" else None,
         },
         "operating_system": {
             "system": platform.system(),
@@ -104,6 +160,17 @@ def main() -> int:
         "compilers": compilers,
         "python_competitors": {name: package_version(name) for name in PYTHON_PACKAGES},
         "native_competitors": native,
+        "openmp_environment": {
+            name: os.environ.get(name)
+            for name in (
+                "OMP_NUM_THREADS",
+                "OMP_DYNAMIC",
+                "OMP_PLACES",
+                "OMP_PROC_BIND",
+                "GOMP_CPU_AFFINITY",
+            )
+        },
+        "numa_policy": command_output(["numactl", "--show"]),
     }
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

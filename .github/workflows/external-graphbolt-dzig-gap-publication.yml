@@ -1,0 +1,59 @@
+name: GraphBolt DZiG GAP Publication Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/external-graphbolt-dzig-gap-publication.yml'
+      - 'tools/prepare_graphbolt_workload.py'
+      - 'tools/configure_publication_cpu.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'tools/validate_publication_measurements.py'
+      - 'docs/graphbolt-dzig-gap-benchmark-contract.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/external-graphbolt-dzig-gap-publication.yml'
+      - 'tools/prepare_graphbolt_workload.py'
+      - 'tools/configure_publication_cpu.py'
+      - 'tools/capture_benchmark_environment.py'
+      - 'tools/validate_publication_measurements.py'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify deterministic neutral workload
+        run: |
+          python tools/prepare_graphbolt_workload.py --input datasets/example-local-edge-list.txt --output-dir build/work-a --seed 41 --chunk-rows 1
+          python tools/prepare_graphbolt_workload.py --input datasets/example-local-edge-list.txt --output-dir build/work-b --seed 41 --chunk-rows 2
+          diff -ru build/work-a build/work-b
+      - name: Verify physical-core plan and environment evidence
+        run: |
+          python tools/configure_publication_cpu.py --threads 1 --output build/cpu-plan.json --shell-output build/cpu-env.sh
+          . build/cpu-env.sh
+          python tools/capture_benchmark_environment.py --label graphbolt-gap-contract --output build/environment.json
+          python - <<'PY'
+          import json
+          plan=json.load(open('build/cpu-plan.json'))
+          env=json.load(open('build/environment.json'))
+          assert plan['requested_threads'] == 1 and len(plan['selected_cpu_list']) == 1
+          assert env['hardware']['linux_topology']['process_allowed_cpu_list']
+          assert env['openmp_environment']['GOMP_CPU_AFFINITY'] == plan['gomp_cpu_affinity']
+          PY
+      - name: Verify raw-sample quality gate
+        run: |
+          mkdir -p build
+          printf '{"1":[2000,2100,2050,2075,2025],"2":[1100,1200,1150,1175,1125]}\n' > build/samples.json
+          python tools/validate_publication_measurements.py --input build/samples.json --output build/quality.json --require-scaling
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: graphbolt-dzig-gap-contract
+          path: build/
+          retention-days: 90
