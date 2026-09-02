@@ -160,11 +160,13 @@ jobs:
           python tools/capture_benchmark_environment.py --label orkut-hosted-scale --output build/orkut/environment.json
       - name: Run repeated exact Orkut campaign
         run: |
-          build/cmake/velographx_large_scale_triangle_benchmark build/orkut/com-orkut.ungraph.txt 627584181 5 '0.0001,0.001,0.01' > build/orkut/results.csv
+          # Five repetitions exceeded the hosted runner's 180-minute budget.
+          # Three retains a median for this non-publication-grade evidence run.
+          build/cmake/velographx_large_scale_triangle_benchmark build/orkut/com-orkut.ungraph.txt 627584181 3 '0.0001,0.001,0.01' > build/orkut/results.csv
           python - <<'PY'
           import csv, json, statistics
-          rows=list(csv.DictReader(open('build/orkut/results.csv'))); assert len(rows)==15 and all(r['correct']=='1' for r in rows)
-          summary={'research_claim':False,'publication_grade':False,'dataset':'com-Orkut','repeats':5,'fractions':{}}
+          rows=list(csv.DictReader(open('build/orkut/results.csv'))); assert len(rows)==9 and all(r['correct']=='1' for r in rows)
+          summary={'research_claim':False,'publication_grade':False,'dataset':'com-Orkut','repeats':3,'fractions':{}}
           for f in ('0.0001','0.001','0.01'):
               g=[r for r in rows if r['fraction']==f]
               inc=statistics.median(int(r['incremental_ns']) for r in g); full=statistics.median(int(r['full_recompute_ns']) for r in g); requested=int(g[0]['requested_edges'])
