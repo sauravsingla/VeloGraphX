@@ -12,7 +12,7 @@ The remaining limitation is evaluation coverage across dedicated x86/ARM systems
 
 Localized or incremental update paths are implemented for BFS / unweighted SSSP, weighted SSSP, triangle counting, connected components, k-core, and PageRank-related workflows. The engine can fall back to full recomputation when localized repair is unsafe or unlikely to be worthwhile.
 
-The project therefore does not claim that every update is always repaired incrementally. The incremental/full crossover still needs broader characterization across graph families and update patterns.
+The project therefore does not claim that every update is always repaired incrementally. An executable same-machine campaign now sweeps seven update fractions from 0.0001% through 10% across web, social, road, R-MAT and larger-social graphs, but the crossover remains uncharacterized until its retained artifacts pass audit; see [`three-system-dynamic-bfs-campaign.md`](three-system-dynamic-bfs-campaign.md).
 
 ## Weighted dynamic graphs
 
@@ -50,6 +50,7 @@ Important limits remain:
 - the canonical external campaign uses one thread and two public graph families;
 - the multi-root NetworKit comparison remains hosted-CI, single-thread evidence on two graph families;
 - the RisGraph result is from a separate hosted runner and cannot be merged into an absolute three-system ranking;
+- the unified same-machine three-system workflow is an executable evidence campaign, not accepted numerical evidence until all matrix artifacts pass exactness and provenance audit;
 - another checksum-pinned medium graph family would improve generality; and
 - publication-grade evidence still requires dedicated same-machine runs, broader update regimes, multicore scaling, hardware-counter analysis and independent reproduction.
 
@@ -59,7 +60,7 @@ Teseo/GFE, Aspen, Terrace, LiveGraph, GraphOne, STINGER and LLAMA have been scre
 
 Current engineering evidence includes exact 100M-edge-class triangle validation, 10M/100M storage measurements, repeated steady-state maintenance, a 100M+-class canonicalization-policy A/B, the repeated native two-dataset dynamic-BFS campaign, and exact three-root evidence on both current BFS datasets.
 
-The project does not yet establish broad publication-grade results across many graph families, many-core scaling, controlled multi-socket NUMA, same-machine VeloGraphX/RisGraph/NetworKit comparison, comprehensive hardware counters, research-scale compression calibration or dedicated NVMe evaluation.
+The project does not yet establish broad publication-grade results across many graph families, many-core scaling, controlled multi-socket NUMA, comprehensive hardware counters, research-scale compression calibration or dedicated NVMe evaluation. The same-machine VeloGraphX/RisGraph/NetworKit contract is now automated, but hosted executions remain engineering evidence and must be rerun unchanged on dedicated hardware for publication claims.
 
 ## Benchmark interpretation
 

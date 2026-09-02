@@ -1,0 +1,208 @@
+name: Same-machine Three-system Dynamic BFS Campaign
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/three-system-dynamic-bfs-campaign.yml'
+      - 'benchmarks/external_networkit_native_bfs.cpp'
+      - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'tools/prepare_dynamic_bfs_stream.py'
+      - 'tools/select_dynamic_bfs_roots.py'
+      - 'tools/run_three_system_dynamic_bfs.py'
+      - 'tools/prepare_risgraph_compat.py'
+      - 'scripts/prepare_publication_datasets.py'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'include/velographx/storage/**'
+      - 'CMakeLists.txt'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/three-system-dynamic-bfs-campaign.yml'
+      - 'benchmarks/external_networkit_native_bfs.cpp'
+      - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'tools/prepare_dynamic_bfs_stream.py'
+      - 'tools/select_dynamic_bfs_roots.py'
+      - 'tools/run_three_system_dynamic_bfs.py'
+      - 'include/velographx/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  campaign:
+    name: ${{ matrix.dataset }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: [web-Google, soc-Epinions1, roadNet-CA, rmat-scale17, com-LiveJournal]
+    env:
+      NETWORKIT_SHA: 359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c
+      NETWORKIT_VERSION: 11.2.1
+      RISGRAPH_SHA: 4e77f774d4aa7cd0bf3011e713496573b70c91ab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libomp-dev libaio-dev libboost-fiber-dev libtbb-dev pkg-config
+
+      - name: Build VeloGraphX harness
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+
+      - name: Build pinned native NetworKit harness
+        run: |
+          git clone --filter=blob:none https://github.com/networkit/networkit.git build/networkit
+          git -C build/networkit checkout --detach "$NETWORKIT_SHA"
+          test "$(git -C build/networkit rev-parse HEAD)" = "$NETWORKIT_SHA"
+          git -C build/networkit submodule update --init --recursive
+          git -C build/networkit submodule status --recursive > build/networkit-submodules.txt
+          cmake -S build/networkit -B build/networkit-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/build/networkit-install" -DNETWORKIT_BUILD_TESTS=OFF
+          cmake --build build/networkit-build -j 2
+          cmake --install build/networkit-build
+          LIB=$(find build/networkit-install -type f \( -name 'libnetworkit.so' -o -name 'libnetworkit.a' \) | head -1)
+          test -n "$LIB"
+          c++ -O3 -DNDEBUG -std=c++20 -fopenmp -Ibuild/networkit-install/include \
+            benchmarks/external_networkit_native_bfs.cpp -L"$(dirname "$LIB")" \
+            -Wl,-rpath,"$(dirname "$LIB")" -lnetworkit -o build/networkit_native_bfs
+
+      - name: Build pinned official RisGraph harness
+        run: |
+          git clone --filter=blob:none https://github.com/thu-pacman/RisGraph.git build/risgraph
+          git -C build/risgraph checkout --detach "$RISGRAPH_SHA"
+          git -C build/risgraph submodule update --init --recursive
+          test "$(git -C build/risgraph rev-parse HEAD)" = "$RISGRAPH_SHA"
+          mkdir -p build/campaign
+          python tools/prepare_risgraph_compat.py --risgraph build/risgraph --output-dir build/campaign/risgraph-compat
+          cmake -S build/risgraph -B build/risgraph-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/risgraph-build --target bfs_inc_batch convert_to_binary -j 2
+
+      - name: Prepare checksum-pinned or deterministic dataset
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: |
+          mkdir -p build/campaign/source build/campaign/prepared
+          case "$DATASET" in
+            web-Google)
+              python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+                --output-dir build/campaign/source --dataset web-Google > build/campaign/source-acquisition.json
+              python tools/prepare_dynamic_bfs_stream.py --dataset web-Google \
+                --input build/campaign/source/web-Google.txt --output build/campaign/prepared/edges.txt \
+                --report build/campaign/normalization.json \
+                --expected-source-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1
+              ;;
+            soc-Epinions1)
+              python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+                --output-dir build/campaign/source --dataset soc-Epinions1 > build/campaign/source-acquisition.json
+              gzip -dc build/campaign/source/soc-Epinions1.gz > build/campaign/source/soc-Epinions1.txt
+              python tools/prepare_dynamic_bfs_stream.py --dataset soc-Epinions1 \
+                --input build/campaign/source/soc-Epinions1.txt --output build/campaign/prepared/edges.txt \
+                --report build/campaign/normalization.json \
+                --expected-source-sha256 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+              ;;
+            roadNet-CA)
+              curl --fail --location --retry 3 https://snap.stanford.edu/data/roadNet-CA.txt.gz -o build/campaign/source/roadNet-CA.txt.gz
+              echo '383f7b14424530a9e25c392969a9c19dace32ebcfd141f0967a1433498c2acdd  build/campaign/source/roadNet-CA.txt.gz' | sha256sum -c -
+              gzip -dc build/campaign/source/roadNet-CA.txt.gz > build/campaign/source/roadNet-CA.txt
+              python tools/prepare_dynamic_bfs_stream.py --dataset roadNet-CA --drop-self-loops \
+                --input build/campaign/source/roadNet-CA.txt --output build/campaign/prepared/edges.txt \
+                --report build/campaign/normalization.json
+              ;;
+            rmat-scale17)
+              python scripts/prepare_publication_datasets.py kronecker --output-dir build/campaign/source \
+                --scale 17 --edgefactor 16 --seed 1 > build/campaign/source-acquisition.json
+              awk '$1 != $2 && !seen[$1 SUBSEP $2]++ { print $1, $2 }' \
+                build/campaign/source/kron-scale17-ef16-seed1.edges > build/campaign/source/rmat-simple.txt
+              python tools/prepare_dynamic_bfs_stream.py --dataset rmat-scale17 \
+                --input build/campaign/source/rmat-simple.txt --output build/campaign/prepared/edges.txt \
+                --report build/campaign/normalization.json
+              ;;
+            com-LiveJournal)
+              curl --fail --location --retry 3 https://snap.stanford.edu/data/bigdata/communities/com-lj.ungraph.txt.gz -o build/campaign/source/com-lj.txt.gz
+              echo 'e0e8996341b963ecbe0a572c71446c03fd6e93a6c521578eaae7566c68ff608e  build/campaign/source/com-lj.txt.gz' | sha256sum -c -
+              gzip -dc build/campaign/source/com-lj.txt.gz > build/campaign/source/com-lj.txt
+              python tools/prepare_dynamic_bfs_stream.py --dataset com-LiveJournal --symmetrize --drop-self-loops \
+                --input build/campaign/source/com-lj.txt --output build/campaign/prepared/edges.txt \
+                --report build/campaign/normalization.json
+              ;;
+          esac
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('build/campaign/normalization.json')
+          report=json.load(p.open())
+          assert report['output_directed_edge_rows'] > 0
+          Path('build/campaign/edge-count.txt').write_text(str(report['output_directed_edge_rows'])+'\n')
+          PY
+
+      - name: Select fixed roots and capture environment
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: |
+          EDGES=$(cat build/campaign/edge-count.txt)
+          ALIGNMENT=1
+          ROOTS=3
+          REPEATS=3
+          MINIMUM=1000
+          if [ "$DATASET" = roadNet-CA ] || [ "$DATASET" = com-LiveJournal ]; then ALIGNMENT=2; fi
+          if [ "$DATASET" = com-LiveJournal ]; then ROOTS=1; REPEATS=1; MINIMUM=1000000; fi
+          python tools/select_dynamic_bfs_roots.py --input build/campaign/prepared/edges.txt \
+            --edge-count "$EDGES" --alignment "$ALIGNMENT" --count "$ROOTS" \
+            --output build/campaign/roots.json
+          python tools/capture_benchmark_environment.py --label "three-system-$DATASET" \
+            --output build/campaign/environment.json
+          lscpu > build/campaign/lscpu.txt
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "networkit_sha=$NETWORKIT_SHA"
+            echo "networkit_version=$NETWORKIT_VERSION"
+            echo "risgraph_sha=$RISGRAPH_SHA"
+            echo "dataset=$DATASET"
+            echo "alignment=$ALIGNMENT"
+            echo "repetitions=$REPEATS"
+            echo "minimum_visited=$MINIMUM"
+          } > build/campaign/pins.txt
+          echo "ALIGNMENT=$ALIGNMENT" >> "$GITHUB_ENV"
+          echo "REPEATS=$REPEATS" >> "$GITHUB_ENV"
+          echo "MINIMUM=$MINIMUM" >> "$GITHUB_ENV"
+
+      - name: Run full one-batch crossover on all three systems
+        env:
+          DATASET: ${{ matrix.dataset }}
+          OMP_NUM_THREADS: '1'
+          OMP_DYNAMIC: 'false'
+          OMP_PROC_BIND: 'true'
+        run: |
+          EDGES=$(cat build/campaign/edge-count.txt)
+          ROOTS=$(python -c "import json; print(' '.join(map(str,json.load(open('build/campaign/roots.json'))['roots'])))")
+          python tools/run_three_system_dynamic_bfs.py --dataset "$DATASET" \
+            --input build/campaign/prepared/edges.txt --edge-count "$EDGES" --roots $ROOTS \
+            --fractions 0.000001 0.00001 0.0001 0.001 0.01 0.05 0.10 \
+            --repetitions "$REPEATS" --alignment "$ALIGNMENT" --minimum-visited "$MINIMUM" \
+            --velographx build/vx/velographx_external_risgraph_bfs \
+            --networkit build/networkit_native_bfs \
+            --risgraph build/risgraph-build/bfs_inc_batch \
+            --risgraph-converter build/risgraph-build/convert_to_binary \
+            --output-dir build/campaign/results
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: three-system-dynamic-bfs-${{ matrix.dataset }}
+          path: |
+            build/campaign/environment.json
+            build/campaign/lscpu.txt
+            build/campaign/pins.txt
+            build/campaign/normalization.json
+            build/campaign/roots.json
+            build/campaign/risgraph-compat/
+            build/campaign/results/
+            build/networkit-submodules.txt
+          retention-days: 90

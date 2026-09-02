@@ -74,7 +74,7 @@ This experiment keeps `BasicIncrementalBFS::recompute()` fixed and changes only 
 
 Read-optimised CSR is about **2.08×–2.14× faster** than the mutable VeloGraphX representation for full recomputation on these cases. Using the same VeloGraphX BFS implementation, `DynamicGraph` traversal is about **36×–44× faster than the Teseo iterator adapter**. This is deliberately a **storage-interface experiment, not a system-level claim against Teseo's own algorithms or capabilities**. Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; run `33475389747`, artifact `9787994251`. See [Teseo storage evidence](docs/teseo-storage-evidence.md).
 
-RisGraph and other dynamic systems remain relevant prior work; results from different runners or incompatible semantics are intentionally **not merged into same-semantics tables**.
+RisGraph and other dynamic systems remain relevant prior work; results from different runners or incompatible semantics are intentionally **not merged into same-semantics tables**. A new [three-system campaign](docs/three-system-dynamic-bfs-campaign.md) runs VeloGraphX, NetworKit and RisGraph on the same machine, roots and streams across web/social/road/R-MAT/large-social graphs and the full 0.0001%-10% update sweep; its numbers are published only after the complete artifact set passes audit.
 
 ## How it works
 
@@ -138,7 +138,7 @@ Benchmark contracts and interpretation rules: [benchmark methodology](docs/bench
 
 **Current:** hosted CI establishes exactness/reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs, same-run native comparisons and pinned same-algorithm storage swaps for Teseo and Sortledton. The refined adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, but this is not evidence of universal selector optimality. The external-storage experiments isolate one BFS/storage interface on small synthetic graphs and are not general Teseo or Sortledton performance comparisons. Compression saves space but currently slows BFS traversal.
 
-**Next:** execute the [unified canonical publication campaign](docs/canonical-publication-campaign.md) on the dedicated `velographx-benchmark` runner to cover checksum-pinned web/social/road graphs, the complete Kronecker/R-MAT series, the largest clean in-memory boundary, 1/2/4/8/16/32-thread scaling, NUMA placement and hardware counters. Broader same-machine dynamic-system comparisons, dedicated NVMe/`io_uring` throughput, weighted-dynamic evaluation and a frozen long-term Python API remain separate follow-ups. See [limitations](docs/limitations.md).
+**Next:** execute the [unified canonical publication campaign](docs/canonical-publication-campaign.md) on the dedicated `velographx-benchmark` runner to cover checksum-pinned web/social/road graphs, the complete Kronecker/R-MAT series, the largest clean in-memory boundary, 1/2/4/8/16/32-thread scaling, NUMA placement and hardware counters. Audit and then rerun the new same-machine three-system dynamic-BFS campaign on that controlled runner. Dedicated NVMe/`io_uring` throughput, weighted-dynamic evaluation and a frozen long-term Python API remain separate follow-ups. See [limitations](docs/limitations.md).
 
 ## License / Contributing
 

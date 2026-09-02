@@ -11,6 +11,20 @@ The machine-readable eligibility record is [`benchmarks/external-baseline-manife
 
 The accepted same-semantics systems are **RisGraph** and **NetworKit DynBFS**.
 
+## Unified three-system campaign
+
+The executable [same-machine three-system campaign](three-system-dynamic-bfs-campaign.md)
+now puts VeloGraphX, pinned NetworKit `DynBFS`, and pinned official RisGraph
+`bfs_inc_batch` on one runner with the same roots, streams, one-thread setting,
+and answer-ready timing envelope. It covers web, directed social, road,
+controlled R-MAT, and larger social graphs at all seven update fractions from
+0.0001% through 10%. Results are not copied into this document until every
+per-sample exactness gate passes and the retained artifacts have been audited.
+
+The historical pairwise sections below remain the accepted numeric evidence
+until that audit is complete. In particular, their absolute RisGraph and
+NetworKit times still must not be combined.
+
 ## RisGraph
 
 The native RisGraph comparison pins commit `4e77f774d4aa7cd0bf3011e713496573b70c91ab` and uses checksum-pinned directed `web-Google` with the source-order sliding-window workload: 99% initial import, 4,096-edge batches, deterministic root `481807`, and 13 update batches. The final exact BFS reaches `588,118` vertices.
@@ -25,7 +39,7 @@ Evidence run: GitHub Actions `33286241439`, VeloGraphX head `e3f6c21133a43a2c682
 
 VeloGraphX deletion-aware repair is **1.98x faster than its former full-recompute deletion policy**, with 0/13 safety fallbacks, but **RisGraph remains about 1.90x faster than VeloGraphX** on this run. Exact final BFS layer histograms agree across the systems and independent full-BFS checks.
 
-This remains a separate hosted-runner campaign and therefore must not be numerically merged with the NetworKit campaign into a three-system league table.
+This remains a separate hosted-runner campaign and therefore must not be numerically merged with the historical NetworKit campaign into a three-system league table.
 
 ## Native C++ NetworKit repeated campaign
 

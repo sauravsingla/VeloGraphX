@@ -1,6 +1,19 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "purpose": "Record immutable external-system identities and comparison eligibility for dynamic BFS evidence.",
+  "unified_three_system_campaign": {
+    "workflow": ".github/workflows/three-system-dynamic-bfs-campaign.yml",
+    "methodology": "docs/three-system-dynamic-bfs-campaign.md",
+    "status": "executable-campaign-awaiting-accepted-artifacts",
+    "systems": ["VeloGraphX", "NetworKit DynBFS 11.2.1", "RisGraph bfs_inc_batch"],
+    "datasets": ["web-Google", "soc-Epinions1", "roadNet-CA", "rmat-scale17", "com-LiveJournal"],
+    "update_fraction_percent": [0.0001, 0.001, 0.01, 0.1, 1.0, 5.0, 10.0],
+    "base_graph_fraction": 0.8,
+    "thread_count_per_system": 1,
+    "same_machine_same_roots_same_update_stream": true,
+    "result_publication_rule": "Populate accepted run and artifact identities only after every exactness gate passes; preserve competitor wins.",
+    "research_claim": false
+  },
   "accepted_same_semantics": [
     {
       "system": "RisGraph",
