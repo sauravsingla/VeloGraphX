@@ -15,6 +15,11 @@ source and output checksums, seed, algorithm, row counts and validity contract.
 The external merge bounds memory use; changing `--chunk-rows` must not change
 the output.
 
+The generator also emits `graphbolt.stream` in the artifact's native alternating
+`a source target` / `d source target` format. Metadata records that GraphBolt
+must run with `-fixedBatchSize`, `-enforceEdgeValidity`, and `-simple`;
+`-nEdges` counts operations rather than add/delete pairs.
+
 Adapters for VeloGraphX and GraphBolt/DZiG must consume these exact files. An
 adapter may convert them, but must retain conversion commands, checksums and the
 pinned source revision. Invalid, duplicate or differently interpreted updates
@@ -43,11 +48,26 @@ median, mean, standard deviation, range and flags medians below the configured
 noise floor. Publication jobs require multiple effective thread counts and must
 not hide configurations in which GAPBS or GraphBolt/DZiG wins.
 
+`tools/parse_graphbolt_dzig_output.py` parses the artifact's actual stdout and
+rejects incomplete batches, unexpected valid-operation counts, or missing
+`EDGEWORK` evidence. Input-reading time remains separate; mutation time is
+addition plus deletion time, and answer-ready time is mutation plus `Finished
+batch`. Parsed output is explicitly non-publishable until an independent fresh
+recomputation adapter verifies algorithm output.
+
+For `apps/BFS.C`, `tools/verify_graphbolt_bfs_output.py` independently applies
+the frozen stream and recomputes directed reachability from scratch. It compares
+every GraphBolt 0/1 vertex value exactly and rejects invalid operations or a
+different vertex domain. This is intentionally described as reachability rather
+than shortest-path distance, matching the artifact's actual BFS semantics.
+
 ## Intentionally blocked acceptance items
 
-Native GraphBolt/DZiG checkout/build commands and output parsing must be added
-only against a verified public artifact revision and its actual license/CLI;
-the repository must not invent an adapter contract. Near-memory-capacity data
+The official `eurosys21-artifact` branch is pinned at
+`2d56f39cb17c85d624bee6a63f8fc34a8f149a36`. Hosted CI verifies that exact
+revision and its documented flags and output contract. Its engine requires GCC
+Cilk Plus (removed from modern GCC) and mimalloc 1.6, so hosted CI does not port
+it and then claim directly comparable performance. Near-memory-capacity data
 and first-touch/NUMA performance claims require the dedicated runner. The
 workflow therefore marks these inputs as required for a native run and never
 substitutes hosted-CI measurements.

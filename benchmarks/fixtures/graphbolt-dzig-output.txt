@@ -1,0 +1,9 @@
+Current_batch: 1
+Batch Size: 1000
+Reading Time : 0.007327
+Edge deletion time : 0.000898
+Edge addition time : 0.000205
+Edge Additions in batch: 500
+Edge Deletions in batch: 500
+Finished batch : 0.003281
+Edges Processed : 357552
