@@ -46,7 +46,11 @@ Every sample is rejected unless:
 The artifact records means, standard deviations, raw samples, repair/full
 recompute ratios, competitor ratios, dataset normalization, immutable system
 revisions, environment details, and the RisGraph build-only compatibility
-patch. Competitor wins remain in the output.
+patch. It also runs the frozen `scale-conditioned-selector-owned-v3` policy at
+every dataset/root/fraction, retaining the choice and reason, selector setup
+and decision cost, all-policy exactness, always-incremental and always-full
+times, and oracle-relative regret. Competitor wins and selector losses remain
+in the output.
 
 ## Evidence boundary
 

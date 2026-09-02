@@ -69,6 +69,8 @@ def main() -> None:
     parser.add_argument("--alignment", type=int, default=1)
     parser.add_argument("--minimum-visited", type=int, default=1000)
     parser.add_argument("--velographx", type=Path, required=True)
+    parser.add_argument("--adaptive-policy", type=Path, required=True)
+    parser.add_argument("--simple-update-threshold", type=float, default=0.05)
     parser.add_argument("--networkit", type=Path, required=True)
     parser.add_argument("--risgraph", type=Path, required=True)
     parser.add_argument("--risgraph-converter", type=Path, required=True)
@@ -114,6 +116,44 @@ def main() -> None:
             subprocess.run([str(args.risgraph_converter)], stdin=source, stdout=target, check=True, env=env)
 
         for root in args.roots:
+            adaptive_process = run(
+                [
+                    str(args.adaptive_policy),
+                    str(stream_path),
+                    str(root),
+                    imported_text,
+                    str(batch_edges),
+                    str(args.simple_update_threshold),
+                ],
+                env,
+            )
+            adaptive = json.loads(adaptive_process.stdout)
+            policies = {row["name"]: row for row in adaptive["policies"]}
+            if not adaptive["all_policies_exact"] or adaptive["batches"] != 1:
+                raise RuntimeError("adaptive-selector policy or exactness contract failed")
+            if set(policies) != {"always_incremental", "always_full", "simple_threshold", "adaptive"}:
+                raise RuntimeError("adaptive-selector policy set differs from the frozen contract")
+            adaptive_policy = policies["adaptive"]
+            adaptive_trace = adaptive_policy["trace"][0]
+            adaptive_us = float(adaptive_policy["batch_us"][0])
+            oracle_us = float(adaptive["oracle_batch_us"][0])
+            adaptive_summary = {
+                "selector": adaptive["selector"],
+                "all_policies_exact": True,
+                "chose_full": adaptive_trace["chose_full"],
+                "reason": adaptive_trace["reason"],
+                "selector_setup_us": adaptive_policy["selector_setup_us"],
+                "decision_us": adaptive_policy["mean_decision_us"],
+                "adaptive_us": adaptive_us,
+                "oracle_us": oracle_us,
+                "oracle_relative_regret": adaptive_us / oracle_us - 1.0,
+                "always_incremental_us": policies["always_incremental"]["batch_us"][0],
+                "always_full_us": policies["always_full"]["batch_us"][0],
+                "feature_cost_included": adaptive["selector_feature_cost_included_in_adaptive_timing"],
+            }
+            (raw_dir / f"f{fraction:.9g}-r{root}-adaptive.json").write_text(
+                json.dumps(adaptive, indent=2, sort_keys=True) + "\n"
+            )
             repetitions: list[dict[str, object]] = []
             for repetition in range(1, args.repetitions + 1):
                 common = [str(stream_path), str(root), imported_text, str(batch_edges)]
@@ -171,9 +211,10 @@ def main() -> None:
                 "networkit": mean_stdev(nk_times),
                 "risgraph": mean_stdev(rg_times),
                 "velographx_full_recompute": mean_stdev(full_times),
-                "velographx_repair_over_full_ratio": statistics.mean(vx_times) / statistics.mean(full_times),
+                "velographx_current_policy_over_full_ratio": statistics.mean(vx_times) / statistics.mean(full_times),
                 "velographx_over_networkit_ratio": statistics.mean(vx_times) / statistics.mean(nk_times),
                 "velographx_over_risgraph_ratio": statistics.mean(vx_times) / statistics.mean(rg_times),
+                "adaptive_selector": adaptive_summary,
                 "all_exact": True,
             }
             results.append(summary)

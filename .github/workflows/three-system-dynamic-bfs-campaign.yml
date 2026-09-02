@@ -6,6 +6,7 @@ on:
       - '.github/workflows/three-system-dynamic-bfs-campaign.yml'
       - 'benchmarks/external_networkit_native_bfs.cpp'
       - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/prepare_dynamic_bfs_stream.py'
       - 'tools/select_dynamic_bfs_roots.py'
       - 'tools/run_three_system_dynamic_bfs.py'
@@ -20,6 +21,7 @@ on:
       - '.github/workflows/three-system-dynamic-bfs-campaign.yml'
       - 'benchmarks/external_networkit_native_bfs.cpp'
       - 'benchmarks/external_risgraph_bfs.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/prepare_dynamic_bfs_stream.py'
       - 'tools/select_dynamic_bfs_roots.py'
       - 'tools/run_three_system_dynamic_bfs.py'
@@ -54,7 +56,7 @@ jobs:
       - name: Build VeloGraphX harness
         run: |
           cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
-          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          cmake --build build/vx --target velographx_external_risgraph_bfs velographx_adaptive_policy_bfs -j 2
 
       - name: Build pinned native NetworKit harness
         run: |
@@ -187,6 +189,7 @@ jobs:
             --fractions 0.000001 0.00001 0.0001 0.001 0.01 0.05 0.10 \
             --repetitions "$REPEATS" --alignment "$ALIGNMENT" --minimum-visited "$MINIMUM" \
             --velographx build/vx/velographx_external_risgraph_bfs \
+            --adaptive-policy build/vx/velographx_adaptive_policy_bfs \
             --networkit build/networkit_native_bfs \
             --risgraph build/risgraph-build/bfs_inc_batch \
             --risgraph-converter build/risgraph-build/convert_to_binary \
