@@ -19,6 +19,8 @@ Engineering quality: **29 CTest targets · Linux/macOS CI · ASan/UBSan · Pytho
 
 **Quick links:** [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
 
+> **Want to try it?** Build and run the dynamic example in under a minute → [30-second start](#30-second-start)
+
 ![VeloGraphX dynamic analytics flow](docs/assets/velographx-flow.svg)
 
 ## When should I use VeloGraphX?
