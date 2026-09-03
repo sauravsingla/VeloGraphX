@@ -19,6 +19,8 @@ Engineering quality: **29 CTest targets · Linux/macOS CI · ASan/UBSan · Pytho
 
 **Quick links:** [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
 
+![VeloGraphX dynamic analytics flow](docs/assets/velographx-flow.svg)
+
 ## When should I use VeloGraphX?
 
 VeloGraphX is designed for workloads where a graph changes over time and analytics must be maintained across updates without assuming that incremental repair is always the fastest choice. Relevant use cases include evolving network analysis, relationship and fraud graphs, changing knowledge graphs, infrastructure/dependency graphs, and graph-systems research.
