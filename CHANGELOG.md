@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.0 - 2026-09-03
+
 - Replaced the dynamic graph's `vector<vector<VertexId>>` compact base with fixed-size segmented CSR storage and contiguous zero-copy rows.
 - Replaced per-vertex `unordered_set` insertion/deletion overlays with sorted slices in shared packed delta arenas, including overlay cancellation and fragmentation repacking.
 - Added explicit reverse adjacency with matching reverse deltas and `in_neighbors()` / `compact_in_neighbors()` APIs.
