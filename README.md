@@ -80,15 +80,15 @@ CSR is about **2.08×–2.14× faster** than VeloGraphX mutable storage for full
 
 This is a **storage-interface experiment, not a claim against Teseo's own algorithms**. Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; run `33475389747`, artifact `9787994251`. See [Teseo evidence](docs/teseo-storage-evidence.md).
 
-## Next comparison campaigns
+## Comparison Campaigns Awaiting Final Results
 
-The repository contains broader benchmark contracts whose final comparative numbers are intentionally withheld until their full artifacts pass audit.
+The broader comparison infrastructure below is implemented and auditable, but **final comparative performance numbers are not yet publication-ready**. Results will be promoted here only after the complete controlled-run artifacts pass the repository's correctness, provenance, workload-equivalence and audit gates.
 
-**VeloGraphX vs NetworKit vs RisGraph.** The [three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md) uses the same machine, roots, streams and timed envelope across `web-Google`, `soc-Epinions1`, `roadNet-CA`, R-MAT and `com-LiveJournal`, sweeping update fractions from **0.0001% to 10%**. Competitor wins and selector losses are retained rather than filtered.
+**VeloGraphX vs NetworKit vs RisGraph.** The [three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md) is implemented around the same machine, roots, update streams and timed envelope across `web-Google`, `soc-Epinions1`, `roadNet-CA`, R-MAT and `com-LiveJournal`, sweeping update fractions from **0.0001% to 10%**. Competitor wins and selector losses are retained rather than filtered. Hosted/engineering executions may validate the campaign machinery, but the final three-system comparison table remains pending the complete audited run on the controlled benchmark environment.
 
-**VeloGraphX vs GraphBolt/DZiG + GAPBS.** The [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) pins the official GraphBolt artifact revision, generates a deterministic native update stream, parses native timing/work counters, and independently verifies GraphBolt BFS reachability. Hosted CI validates the contract; comparative performance numbers require the controlled dedicated runner.
+**VeloGraphX vs GraphBolt/DZiG + GAPBS.** The [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) pins the official GraphBolt artifact revision, generates a deterministic native update stream, parses native timing/work counters, and independently verifies GraphBolt BFS reachability. The contract and verification path are implemented; hosted CI validates that machinery. **No final VeloGraphX-vs-GraphBolt/DZiG performance claim is made from hosted CI.** Comparative performance numbers require the controlled dedicated runner and must pass the full audit gates before publication.
 
-The [canonical publication campaign](docs/canonical-publication-campaign.md) is the path for controlled 1/2/4/8/16/32-thread scaling, NUMA placement, hardware counters, checksum-pinned datasets and larger R-MAT/real-world workloads.
+The [canonical publication campaign](docs/canonical-publication-campaign.md) is the path for controlled **1/2/4/8/16/32-thread scaling**, NUMA placement, hardware counters, checksum-pinned datasets and larger R-MAT/real-world workloads. Until those runs complete and pass audit, the published comparison evidence remains the validated NetworKit, GAP/LAGraph and Teseo results above.
 
 ## Architecture
 
