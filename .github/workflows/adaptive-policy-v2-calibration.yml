@@ -1,6 +1,7 @@
 name: Adaptive BFS Selector-Owned Large-Scale Fallback Development Calibration
 on:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/adaptive-policy-v2-calibration.yml'
       - 'benchmarks/adaptive_policy_bfs.cpp'
