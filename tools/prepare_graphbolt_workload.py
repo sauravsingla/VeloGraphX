@@ -59,16 +59,35 @@ def read_chunk(path: Path):
             yield key, int(line_number), row
 
 
+def initial_count_for(total: int, initial_fraction: float | None, operation_fraction: float | None) -> int:
+    if operation_fraction is not None:
+        # Stream alternates one valid insertion and one valid deletion. If m
+        # insertion rows are held out, operation_fraction = 2m / (total-m).
+        held_out = max(1, round(operation_fraction * total / (2.0 + operation_fraction)))
+        return max(1, min(total - 1, total - held_out))
+    assert initial_fraction is not None
+    return max(1, min(total - 1, int(total * initial_fraction)))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=20260902)
-    parser.add_argument("--initial-fraction", type=float, default=0.8)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--initial-fraction", type=float)
+    group.add_argument("--operation-fraction", type=float,
+                       help="target graph-operation rows / initial-edge rows; e.g. 0.01 = 1%%")
     parser.add_argument("--chunk-rows", type=int, default=500_000)
     args = parser.parse_args()
-    if not 0.0 < args.initial_fraction < 1.0 or args.chunk_rows < 1:
-        parser.error("initial-fraction must be in (0,1) and chunk-rows must be positive")
+    if args.initial_fraction is None and args.operation_fraction is None:
+        args.initial_fraction = 0.8
+    if args.initial_fraction is not None and not 0.0 < args.initial_fraction < 1.0:
+        parser.error("initial-fraction must be in (0,1)")
+    if args.operation_fraction is not None and not 0.0 < args.operation_fraction < 1.0:
+        parser.error("operation-fraction must be in (0,1)")
+    if args.chunk_rows < 1:
+        parser.error("chunk-rows must be positive")
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="vx-shuffle-") as temp_name:
@@ -77,14 +96,16 @@ def main() -> int:
         database.execute("CREATE TABLE edges (source INTEGER, target INTEGER, PRIMARY KEY(source, target))")
         chunks, rows, total = [], [], 0
         for record in keyed_rows(args.input, args.seed, database):
-            rows.append(record); total += 1
+            rows.append(record)
+            total += 1
             if len(rows) >= args.chunk_rows:
-                chunks.append(flush_chunk(rows, temp, len(chunks))); rows = []
+                chunks.append(flush_chunk(rows, temp, len(chunks)))
+                rows = []
         if rows:
             chunks.append(flush_chunk(rows, temp, len(chunks)))
         if total < 2:
             raise ValueError("at least two data rows are required")
-        initial_count = max(1, min(total - 1, int(total * args.initial_fraction)))
+        initial_count = initial_count_for(total, args.initial_fraction, args.operation_fraction)
         initial = args.output_dir / "initial.edges"
         insertions = args.output_dir / "insertions.edges"
         shuffled = args.output_dir / "shuffled.edges"
@@ -94,7 +115,6 @@ def main() -> int:
                 all_rows.write(row)
                 (base if index < initial_count else updates).write(row)
 
-    # Valid deletions are sampled from the initial graph in its frozen order.
     deletions = args.output_dir / "deletions.edges"
     delete_count = min(total - initial_count, initial_count)
     with initial.open() as source, deletions.open("w") as target:
@@ -109,17 +129,26 @@ def main() -> int:
             target.write("d " + deletion)
     files = {p.name: {"sha256": sha256(p), "rows": sum(1 for _ in p.open())}
              for p in (initial, insertions, deletions, graphbolt_stream, shuffled)}
+    actual_operation_fraction = (delete_count * 2) / initial_count
     metadata = {
-        "schema_version": 1,
+        "schema_version": 2,
         "artifact_type": "graphbolt-neutral-workload",
         "source": {"path": str(args.input), "sha256": sha256(args.input)},
         "shuffle": {"algorithm": "sha256(seed:source_line:normalized_row) external merge", "seed": args.seed},
-        "split": {"initial_fraction_requested": args.initial_fraction, "initial_rows": initial_count,
-                  "insertion_rows": total - initial_count, "deletion_rows": delete_count,
-                  "graphbolt_operation_rows": delete_count * 2},
-        "semantics": {"source_is_validated_as_a_simple_directed_edge_set": True,
-                      "insertions_are_absent_from_initial_by_construction": True,
-                      "deletions_are_present_in_initial_by_construction": True},
+        "split": {
+            "initial_fraction_requested": args.initial_fraction,
+            "operation_fraction_requested": args.operation_fraction,
+            "operation_fraction_actual": actual_operation_fraction,
+            "initial_rows": initial_count,
+            "insertion_rows": total - initial_count,
+            "deletion_rows": delete_count,
+            "graphbolt_operation_rows": delete_count * 2,
+        },
+        "semantics": {
+            "source_is_validated_as_a_simple_directed_edge_set": True,
+            "insertions_are_absent_from_initial_by_construction": True,
+            "deletions_are_present_in_initial_by_construction": True,
+        },
         "graphbolt": {
             "stream_format": "alternating 'a source target' and 'd source target' rows",
             "required_flags": ["-fixedBatchSize", "-enforceEdgeValidity", "-simple"],
