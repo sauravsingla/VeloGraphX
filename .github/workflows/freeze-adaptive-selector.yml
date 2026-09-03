@@ -1,6 +1,7 @@
 name: Freeze Passing Adaptive Selector
 on:
   push:
+    branches: [main]
     paths: ['.github/workflows/freeze-adaptive-selector.yml']
 permissions:
   contents: write
