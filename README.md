@@ -4,44 +4,55 @@
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## What it is
+**VeloGraphX is a C++20 CPU engine for exact analytics on changing graphs.**
 
-VeloGraphX is a C++20 CPU engine for **exact analytics on changing graphs**. It maintains graph state with localized repair when updates are cheap enough, but can switch to full recomputation when repair becomes more expensive. The goal is predictable exactness with measurable update/recompute trade-offs, not new BFS/SSSP/triangle algorithms.
+It maintains results with localized incremental repair when that is cheaper, and switches to full recomputation when repair becomes too expensive. The emphasis is **exactness, measurable crossover behavior, and reproducible system comparisons** rather than inventing new BFS/SSSP/triangle algorithms.
 
-## Novelty
+## Why VeloGraphX
 
-- Couples **compact mutable storage + exact localized repair + measured affected work + repair-vs-recompute selection** in one CPU-native system.
-- Makes the incremental/full crossover explicit: the selector owns the decision before excessive repair work is incurred.
-- Treats **exactness as a benchmark gate**: incremental outputs are checked against independent full recomputation/reference implementations.
-- Uses scale, root-locality, affected-work and observed-cost signals; policy quality is evaluated on pinned datasets, multiple roots/regimes and retained artifacts.
-- Separates algorithms from graph representation through a **non-intrusive C++20 graph-access contract**, so the same algorithm can be exercised over mutable storage, read-optimised CSR and foreign graph representations.
+- **Exact dynamic analytics:** incremental outputs are checked against independent full recomputation.
+- **Adaptive repair vs recompute:** the selector uses scale, root locality, update fraction, affected work, and observed cost.
+- **Storage-independent algorithms:** a C++20 graph-access contract lets the same algorithm run over mutable storage, CSR, and foreign graph representations.
+- **Systems-oriented runtime:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching, and asynchronous partition loading.
+- **Auditable benchmarks:** pinned datasets/versions, raw samples, correctness gates, retained artifacts, and explicit negative results.
 
-See [related-work positioning](docs/related-work-positioning.md), the [graph abstraction](docs/graph-abstraction.md), and the [ablation study](docs/ablation-study.md).
+See [graph abstraction](docs/graph-abstraction.md), [benchmark methodology](docs/benchmark-methodology.md), and [related-work positioning](docs/related-work-positioning.md).
 
-## Results
+## Results at a glance
 
-GitHub-hosted results below are **engineering evidence, not publication-grade hardware claims**.
+GitHub-hosted measurements below are **engineering evidence, not publication-grade hardware claims**.
 
-| Evidence | Result | Scope |
-| --- | ---: | --- |
-| Dynamic exactness stress | **2,000,000 updates; 0 BFS / 0 triangle mismatches** | 6 adversarial scenarios; independent check after every batch |
-| Refined adaptive BFS | **108/108 exact; 1.66% mean overhead from regime-best** | 3 datasets × 4 roots × 3 regimes × 3 reps |
-| `web-Google` adaptive BFS | **1.17% mean overhead** | down from 25.8% in the pre-refinement campaign |
-| External storage swap | **exact across DynamicGraph / CSR / Teseo** | identical `BasicIncrementalBFS::recompute`, 5 reps |
-| Multicore BFS workload | **2.74× at 4 threads (~69% efficiency)** | 50K vertices, degree 8, 32 independent tasks, median of 5 reps |
-| Connected-components workload | **2.50× at 4 threads (~62%)** | same workload contract |
-| Triangle-count workload | **2.24× at 4 threads (~56%)** | same workload contract |
-| Variable-byte adjacency compression | **3.25×–3.78× smaller** | 100K vertices, degrees 4/8/16 |
-| Compressed BFS trade-off | **3.8×–5.7× slower than raw traversal** | same end-to-end compression campaign |
-| Public dynamic graph scale | **875,713 vertices / 5,105,039 edges** | pinned `web-Google` normalization |
+| Evidence | Result |
+| --- | ---: |
+| Dynamic exactness stress | **2,000,000 updates; 0 BFS / 0 triangle mismatches** |
+| Adaptive BFS selector | **108/108 exact; 1.66% mean overhead from regime-best** |
+| `web-Google` adaptive BFS | **1.17% mean overhead** |
+| Multicore BFS workload | **2.74× at 4 threads (~69% efficiency)** |
+| Connected components | **2.50× at 4 threads (~62%)** |
+| Triangle count | **2.24× at 4 threads (~56%)** |
+| Adjacency compression | **3.25×–3.78× smaller** |
+| Public graph scale exercised | **875,713 vertices / 5,105,039 edges** (`web-Google`) |
 
-The refined selector uses root out/in locality, guarded affected-work fallback for low-degree roots on large graphs, update-fraction guards and the existing observed-cost model. Across the 36 root/regime configurations its dataset-level mean overhead was **2.70% (`ca-GrQc`)**, **1.10% (`soc-Epinions1`)**, and **1.17% (`web-Google`)**; worst observed regime overhead was **10.67%**. Run `33471125549`, artifact `9786648824`. Exactness stress/multicore/compression evidence: run `33467637208`.
+Adaptive-selector campaign: run `33471125549`, artifact `9786648824`. Exactness/multicore/compression: run `33467637208`.
 
-## Comparisons
+## Competitor comparisons
 
-### Static native BFS / SSSP
+### Dynamic BFS vs NetworKit 11.2.1
 
-Same hosted runner, graph/source/thread count, five repetitions, kernel-only timing, pinned external versions and correctness checks. LAGraph/SuiteSparse:GraphBLAS and GAP follow the repository's Davis benchmark contract.
+Native C++, one OpenMP thread, same machine, update stream and roots; five paired repetitions per root. Every execution must match a fresh full BFS.
+
+| Dataset | VeloGraphX | NetworKit `DynBFS` | VX / NK |
+| --- | ---: | ---: | ---: |
+| `web-Google` | **27.182 ms** | 37.458 ms | **0.730×** |
+| `ca-GrQc` | 0.1115 ms | **0.08274 ms** | **1.350×** |
+
+VeloGraphX wins all three tested roots on `web-Google`; NetworKit wins all three on the smaller `ca-GrQc`. All **30 paired executions passed exact full-BFS verification**.
+
+NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33542995289`, artifact `9814639042`.
+
+### Static BFS / SSSP vs GAP and LAGraph
+
+Same hosted runner, graph/source/thread count, five repetitions, kernel-only timing, pinned competitor versions and correctness checks.
 
 | Kernel | Threads | VeloGraphX | GAP v1.5 | LAGraph v1.3.x |
 | --- | ---: | ---: | ---: | ---: |
@@ -50,49 +61,50 @@ Same hosted runner, graph/source/thread count, five repetitions, kernel-only tim
 | SSSP | 1 | 8.982 ms | **1.060 ms** | 23.500 ms |
 | SSSP | 4 | 9.003 ms | **1.290 ms** | 27.100 ms |
 
-VeloGraphX wins BFS on this workload; **GAP remains substantially faster for SSSP**. Pinned contract: SuiteSparse:GraphBLAS `v10.5.0`, LAGraph `d01064de77b606473744b99f63b1487963556194`, GAP `v1.5`. Run `33418520303`, artifact `9768499895`.
+VeloGraphX wins BFS on this workload; **GAP remains substantially faster for SSSP**.
 
-### Dynamic BFS vs NetworKit 11.2.1
-
-Native C++, one OpenMP thread, same machine/update stream, three fixed roots per dataset, five paired repetitions per root, exactness and nontrivial-reachability gates. Values are the mean of the three root means.
-
-| Dataset | VeloGraphX | NetworKit `DynBFS` | VX / NK |
-| --- | ---: | ---: | ---: |
-| `web-Google` | **27.182 ms** | 37.458 ms | **0.730×** |
-| `ca-GrQc` | 0.1115 ms | **0.08274 ms** | **1.350×** |
-
-VeloGraphX wins all three roots on the larger `web-Google` case but **loses all three roots on `ca-GrQc`**. All 30 paired executions passed exact full-BFS verification. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33542995289`, artifact `9814639042`.
+Pinned contract: SuiteSparse:GraphBLAS `v10.5.0`, LAGraph `d01064de77b606473744b99f63b1487963556194`, GAP `v1.5`. Run `33418520303`, artifact `9768499895`.
 
 ### Same-algorithm storage swap: Teseo
 
-This experiment keeps `BasicIncrementalBFS::recompute()` fixed and changes only the graph representation. Graph construction is outside the timer; five recomputations are run and the median is reported. Full distance vectors must match.
+`BasicIncrementalBFS::recompute()` is unchanged; only graph representation changes. Construction is outside the timer and full distance vectors must match.
 
-| Vertices / edges | `DynamicGraph` | `CsrGraph` | Teseo adapter | Exact |
-| --- | ---: | ---: | ---: | :---: |
-| 8,192 / 32,768 | 120.434 µs | **57.988 µs** | 4,341.401 µs | yes |
-| 32,768 / 131,072 | 500.383 µs | **234.284 µs** | 21,854.866 µs | yes |
+| Vertices / edges | `DynamicGraph` | `CsrGraph` | Teseo adapter |
+| --- | ---: | ---: | ---: |
+| 8,192 / 32,768 | 120.434 µs | **57.988 µs** | 4,341.401 µs |
+| 32,768 / 131,072 | 500.383 µs | **234.284 µs** | 21,854.866 µs |
 
-Read-optimised CSR is about **2.08×–2.14× faster** than the mutable VeloGraphX representation for full recomputation on these cases. Using the same VeloGraphX BFS implementation, `DynamicGraph` traversal is about **36×–44× faster than the Teseo iterator adapter**. This is deliberately a **storage-interface experiment, not a system-level claim against Teseo's own algorithms or capabilities**. Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; run `33475389747`, artifact `9787994251`. See [Teseo storage evidence](docs/teseo-storage-evidence.md).
+CSR is about **2.08×–2.14× faster** than VeloGraphX mutable storage for full recomputation on these cases. With the same VeloGraphX BFS implementation, `DynamicGraph` traversal is about **36×–44× faster than the Teseo iterator adapter**.
 
-RisGraph and other dynamic systems remain relevant prior work; results from different runners or incompatible semantics are intentionally **not merged into same-semantics tables**. A new [three-system campaign](docs/three-system-dynamic-bfs-campaign.md) runs VeloGraphX, NetworKit and RisGraph on the same machine, roots and streams across web/social/road/R-MAT/large-social graphs and the full 0.0001%-10% update sweep; its numbers are published only after the complete artifact set passes audit.
+This is a **storage-interface experiment, not a claim against Teseo's own algorithms**. Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; run `33475389747`, artifact `9787994251`. See [Teseo evidence](docs/teseo-storage-evidence.md).
 
-## How it works
+## New comparison campaigns
+
+The repository now contains broader benchmark contracts whose final comparative numbers are intentionally withheld until their full artifacts pass audit.
+
+**VeloGraphX vs NetworKit vs RisGraph.** The [three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md) uses the same machine, roots, streams and timed envelope across `web-Google`, `soc-Epinions1`, `roadNet-CA`, R-MAT and `com-LiveJournal`, sweeping update fractions from **0.0001% to 10%**. Competitor wins and selector losses are retained rather than filtered.
+
+**GraphBolt/DZiG + GAPBS publication contract.** The [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) pins the official GraphBolt artifact revision, generates a deterministic native update stream, parses native timing/work counters, and independently verifies GraphBolt BFS reachability. Hosted CI validates the contract; comparative performance numbers require the controlled dedicated runner.
+
+The [canonical publication campaign](docs/canonical-publication-campaign.md) is the path for controlled 1/2/4/8/16/32-thread scaling, NUMA placement, hardware counters, checksum-pinned datasets and larger R-MAT/real-world workloads.
+
+## Architecture
 
 ```text
 update batch
    ↓
-mutable graph: base CSR + deltas/row patches + consolidation
+mutable graph: base CSR + deltas / row patches + consolidation
    ↓
-affected-work / cost + root-locality signals
+affected work + observed cost + root locality + update fraction
    ↓
 localized exact repair  ← selector →  full recomputation
    ↓
 exact maintained result
 ```
 
-Implemented analytics include BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank-related paths. Generic unweighted algorithms use the C++20 graph-access layer rather than a concrete storage type; the weighted SSSP path currently retains a specialised weighted-graph contract while sharing the common Dijkstra engine. Runtime/storage code also includes SIMD intersections, work stealing, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
+Implemented paths include BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank-related analytics. Generic unweighted algorithms use the graph-access abstraction; weighted SSSP currently keeps a specialized weighted-graph contract while sharing the Dijkstra engine.
 
-## Quick Start
+## Quick start
 
 Requires CMake ≥ 3.20 and a C++20 compiler.
 
@@ -106,11 +118,9 @@ ctest --test-dir build --output-on-failure
 ./build/velographx_dynamic_example
 ```
 
-The default build includes **29 CTest targets** plus benchmark executables. One test uses an ADL-only foreign graph type to prevent accidental coupling of generic algorithms back to VeloGraphX storage members.
+The default build includes **29 CTest targets** plus benchmark executables. One test uses an ADL-only foreign graph type to guard against accidental storage coupling.
 
-## Reproduce
-
-The 2M-update exactness headline can be reproduced locally without dataset downloads:
+## Reproduce the 2M-update exactness test
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
@@ -119,27 +129,18 @@ c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/exactness_stress.cpp build/libv
 ./build/exactness_stress 2000000 256
 ```
 
-The refined selector, native competitor and Teseo storage-swap campaigns are encoded as workflows so version pins, correctness gates and artifacts stay with the run.
+For benchmark interpretation and reproducibility details, see [benchmark methodology](docs/benchmark-methodology.md), [native competitors](docs/hosted-native-competitors.md), [ablation study](docs/ablation-study.md), and [limitations](docs/limitations.md).
 
-```bash
-# Requires an authenticated GitHub CLI.
-gh workflow run adaptive-selector-refinement.yml --ref main
-gh workflow run hosted-native-competitors.yml --ref main
-gh workflow run external-teseo-storage.yml --ref main
+## Current limitations
 
-gh run list --workflow adaptive-selector-refinement.yml --limit 1
-gh run list --workflow hosted-native-competitors.yml --limit 1
-gh run list --workflow external-teseo-storage.yml --limit 1
-```
+- Hosted CI demonstrates reproducibility and engineering behavior; it is not controlled-hardware publication evidence.
+- The adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, not universally.
+- Teseo/Sortledton experiments isolate the BFS/storage interface and are not full-system comparisons.
+- Compression saves memory but currently slows BFS traversal (**3.8×–5.7×** in the hosted compression campaign).
+- Dedicated-runner NUMA, hardware-counter, near-memory-capacity and final multi-system publication results remain pending.
 
-Benchmark contracts and interpretation rules: [benchmark methodology](docs/benchmark-methodology.md), [graph abstraction](docs/graph-abstraction.md), [native competitors](docs/hosted-native-competitors.md), [limitations](docs/limitations.md).
+See [limitations](docs/limitations.md) for the full evidence boundary.
 
-## Limitations / Roadmap
+## License / contributing
 
-**Current:** hosted CI establishes exactness/reproducibility, 1/2/4-thread engineering behavior, compressed-storage trade-offs, same-run native comparisons and pinned same-algorithm storage swaps for Teseo and Sortledton. The refined adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, but this is not evidence of universal selector optimality. The external-storage experiments isolate one BFS/storage interface on small synthetic graphs and are not general Teseo or Sortledton performance comparisons. Compression saves space but currently slows BFS traversal.
-
-**Next:** execute the [unified canonical publication campaign](docs/canonical-publication-campaign.md) on the dedicated `velographx-benchmark` runner to cover checksum-pinned web/social/road graphs, the complete Kronecker/R-MAT series, the largest clean in-memory boundary, 1/2/4/8/16/32-thread scaling, NUMA placement and hardware counters. Audit and then rerun the new same-machine three-system dynamic-BFS campaign on that controlled runner. Dedicated NVMe/`io_uring` throughput, weighted-dynamic evaluation and a frozen long-term Python API remain separate follow-ups. See [limitations](docs/limitations.md).
-
-## License / Contributing
-
-Apache License 2.0 — see [LICENSE](LICENSE). Contributions should be small, tested and benchmarked when performance claims change; see [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Apache License 2.0 — see [LICENSE](LICENSE). Contributions should be small, tested, and benchmarked when performance claims change; see [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
