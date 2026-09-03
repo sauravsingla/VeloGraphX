@@ -91,7 +91,8 @@ jobs:
           make -C build/gapbs bfs -j2
           git -C build/gapbs rev-parse HEAD | tee build/compare/gapbs-commit.txt
           for name in tiny medium large; do
-            OMP_NUM_THREADS=1 build/gapbs/bfs -f build/compare/$name/final.edges -n 3 -r "$ROOT" -v \
+            cp build/compare/$name/final.edges build/compare/$name/final.el
+            OMP_NUM_THREADS=1 build/gapbs/bfs -f build/compare/$name/final.el -n 3 -r "$ROOT" -v \
               | tee build/compare/$name/gapbs.log
             test "$(grep -c 'Verification: *PASS' build/compare/$name/gapbs.log)" -ge 1
             test "$(grep -c 'Trial Time:' build/compare/$name/gapbs.log)" -eq 3
