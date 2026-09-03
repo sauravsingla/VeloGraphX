@@ -1,0 +1,259 @@
+name: Hosted GraphBolt GAPBS Expanded Matrix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hosted-graphbolt-gap-expanded-matrix.yml'
+      - 'datasets/graphbolt-hosted-matrix.json'
+      - 'tools/prepare_hosted_graph_dataset.py'
+      - 'tools/prepare_graphbolt_workload.py'
+      - 'tools/parse_graphbolt_dzig_output.py'
+      - 'tools/verify_graphbolt_bfs_output.py'
+      - 'tools/summarize_hosted_graphbolt_matrix.py'
+      - 'benchmarks/graphbolt_contract_bfs.cpp'
+      - 'CMakeLists.txt'
+
+jobs:
+  compare:
+    name: ${{ matrix.dataset }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: [web-Google, soc-Epinions1, roadNet-CA, rmat-scale17]
+    env:
+      GRAPHBOLT_SHA: 2d56f39cb17c85d624bee6a63f8fc34a8f149a36
+      GAPBS_REF: v1.5
+      SAMPLES: '7'
+      MAX_EDGES: '250000'
+      OMP_NUM_THREADS: '1'
+      CILK_NWORKERS: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve pinned dataset configuration
+        id: dataset
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          name=os.environ['MATRIX_DATASET']
+          cfg=next(x for x in json.load(open('datasets/graphbolt-hosted-matrix.json'))['datasets'] if x['name']==name)
+          for k in ('name','family','url','sha256','compression','generator','scale','directed'):
+              v=cfg.get(k,'')
+              if isinstance(v,bool): v=str(v).lower()
+              print(f'{k}={v}')
+          PY
+        env:
+          MATRIX_DATASET: ${{ matrix.dataset }}
+
+      - name: Build VeloGraphX neutral-stream comparator
+        run: |
+          cmake -S . -B build/vx -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/vx --target velographx_graphbolt_contract_bfs -j2
+
+      - name: Prepare checksum-verified hosted dataset
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE="build/matrix/${{ matrix.dataset }}"
+          mkdir -p "$BASE"
+          if [ "${{ steps.dataset.outputs.generator }}" = "rmat" ]; then
+            python tools/prepare_hosted_graph_dataset.py \
+              --output "$BASE/source.edges" --metadata "$BASE/dataset-metadata.json" \
+              --source-name "${{ matrix.dataset }}" --source-family "${{ steps.dataset.outputs.family }}" \
+              --seed 20260903 --max-edges "$MAX_EDGES" --rmat-scale "${{ steps.dataset.outputs.scale }}"
+          else
+            curl -L --fail --retry 4 --retry-delay 3 "${{ steps.dataset.outputs.url }}" -o "$BASE/source.archive"
+            echo "${{ steps.dataset.outputs.sha256 }}  $BASE/source.archive" | sha256sum -c -
+            if [ "${{ steps.dataset.outputs.compression }}" = "gzip" ]; then
+              gzip -dc "$BASE/source.archive" > "$BASE/source.raw"
+            else
+              cp "$BASE/source.archive" "$BASE/source.raw"
+            fi
+            DIRECTED=''
+            if [ "${{ steps.dataset.outputs.directed }}" = "true" ]; then DIRECTED='--directed'; fi
+            python tools/prepare_hosted_graph_dataset.py \
+              --input "$BASE/source.raw" --output "$BASE/source.edges" --metadata "$BASE/dataset-metadata.json" \
+              --source-name "${{ matrix.dataset }}" --source-family "${{ steps.dataset.outputs.family }}" \
+              --seed 20260903 --max-edges "$MAX_EDGES" $DIRECTED
+            python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['META']); m=json.loads(p.read_text())
+          m['source']['archive_url']=os.environ['URL']
+          m['source']['archive_sha256_expected']=os.environ['SHA']
+          m['source']['archive_checksum_verified']=True
+          m['source']['compression']=os.environ['COMP']
+          p.write_text(json.dumps(m,indent=2,sort_keys=True)+'\n')
+          PY
+          fi
+          cat "$BASE/dataset-metadata.json"
+        env:
+          META: build/matrix/${{ matrix.dataset }}/dataset-metadata.json
+          URL: ${{ steps.dataset.outputs.url }}
+          SHA: ${{ steps.dataset.outputs.sha256 }}
+          COMP: ${{ steps.dataset.outputs.compression }}
+
+      - name: Generate six deterministic update fractions and final graphs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE="build/matrix/${{ matrix.dataset }}"
+          for spec in p0001:0.00001 p001:0.0001 p01:0.001 p1:0.01 p5:0.05 p10:0.10; do
+            name=${spec%%:*}; frac=${spec##*:}
+            python tools/prepare_graphbolt_workload.py \
+              --input "$BASE/source.edges" --output-dir "$BASE/$name" \
+              --seed 20260903 --operation-fraction "$frac" --chunk-rows 250000
+            python - "$BASE/$name" <<'PY'
+          from pathlib import Path
+          import sys
+          d=Path(sys.argv[1]); edges=set()
+          for row in (d/'initial.edges').read_text().splitlines():
+              if row.strip(): edges.add(tuple(map(int,row.split()[:2])))
+          for row in (d/'graphbolt.stream').read_text().splitlines():
+              if not row.strip(): continue
+              op,u,v=row.split()[:3]; e=(int(u),int(v))
+              if op=='a': edges.add(e)
+              elif op=='d': edges.remove(e)
+              else: raise SystemExit('bad update opcode')
+          with (d/'final.edges').open('w') as f:
+              for u,v in sorted(edges): f.write(f'{u} {v}\n')
+          PY
+          done
+
+      - name: Run VeloGraphX across roots and repetitions
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE="build/matrix/${{ matrix.dataset }}"
+          ROOTS=$(python -c "import json; print(' '.join(map(str,json.load(open('$BASE/dataset-metadata.json'))['normalized']['roots'])))")
+          for name in p0001 p001 p01 p1 p5 p10; do
+            for root in $ROOTS; do
+              OUT="$BASE/$name/root-$root"; mkdir -p "$OUT"
+              for sample in $(seq 1 "$SAMPLES"); do
+                build/vx/velographx_graphbolt_contract_bfs \
+                  "$BASE/$name/initial.edges" "$BASE/$name/graphbolt.stream" "$root" \
+                  | tee "$OUT/vx-$sample.json"
+              done
+            done
+          done
+
+      - name: Build GAPBS and run seven-sample post-update BFS references
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE="build/matrix/${{ matrix.dataset }}"
+          git clone --depth 1 --branch "$GAPBS_REF" https://github.com/sbeamer/gapbs.git build/gapbs
+          make -C build/gapbs bfs -j2
+          git -C build/gapbs rev-parse HEAD | tee "$BASE/gapbs-commit.txt"
+          ROOTS=$(python -c "import json; print(' '.join(map(str,json.load(open('$BASE/dataset-metadata.json'))['normalized']['roots'])))")
+          for name in p0001 p001 p01 p1 p5 p10; do
+            cp "$BASE/$name/final.edges" "$BASE/$name/final.el"
+            for root in $ROOTS; do
+              OUT="$BASE/$name/root-$root"
+              OMP_NUM_THREADS=1 build/gapbs/bfs -f "$BASE/$name/final.el" -n "$SAMPLES" -r "$root" -v | tee "$OUT/gapbs.log"
+              test "$(grep -c 'Trial Time:' "$OUT/gapbs.log")" -eq "$SAMPLES"
+              test "$(grep -c 'Verification: *PASS' "$OUT/gapbs.log")" -ge 1
+            done
+          done
+
+      - name: Build pinned official GraphBolt and run roots/repetitions
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE="$PWD/build/matrix/${{ matrix.dataset }}"
+          docker run --rm \
+            -e DEBIAN_FRONTEND=noninteractive -e GRAPHBOLT_SHA="$GRAPHBOLT_SHA" \
+            -e SAMPLES="$SAMPLES" -e CILK_NWORKERS=1 \
+            -v "$BASE:/evidence" ubuntu:18.04 bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates git build-essential gcc-7 g++-7 cmake make python3
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 70
+              update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 70
+              ln -sf /usr/bin/g++-7 /usr/local/bin/g++-5
+              git clone --filter=blob:none https://github.com/pdclab/graphbolt.git /tmp/graphbolt
+              git -C /tmp/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+              test "$(git -C /tmp/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+              cd /tmp/graphbolt
+              sh install_mimalloc.sh
+              make -C tools/converters SNAPtoAdjConverter
+              make -C apps BFS
+              export LD_PRELOAD=/tmp/graphbolt/lib/mimalloc/out/release/libmimalloc.so
+              export CILK_NWORKERS=1
+              ROOTS=$(python3 -c "import json; print(\" \".join(map(str,json.load(open(\"/evidence/dataset-metadata.json\"))[\"normalized\"][\"roots\"])))")
+              for name in p0001 p001 p01 p1 p5 p10; do
+                tools/converters/SNAPtoAdjConverter /evidence/$name/initial.edges /evidence/$name/initial.adj
+                OPS=$(wc -l < /evidence/$name/graphbolt.stream)
+                for root in $ROOTS; do
+                  for sample in $(seq 1 "$SAMPLES"); do
+                    apps/BFS -source "$root" -numberOfUpdateBatches 1 -nEdges "$OPS" \
+                      -streamPath /evidence/$name/graphbolt.stream -fixedBatchSize \
+                      -enforceEdgeValidity -simple -outputFile /evidence/$name/root-$root/gb-out-$sample \
+                      /evidence/$name/initial.adj | tee /evidence/$name/root-$root/gb-$sample.log
+                  done
+                done
+              done
+              printf "graphbolt_sha=%s\ncompiler=g++-7\ncilk_plus=true\ncilk_nworkers=1\nmimalloc=v1.6.0\n" "$GRAPHBOLT_SHA" > /evidence/graphbolt-runtime.txt
+            '
+
+      - name: Parse GraphBolt, verify every answer, and summarize statistics
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE="build/matrix/${{ matrix.dataset }}"
+          ROOTS=$(python -c "import json; print(' '.join(map(str,json.load(open('$BASE/dataset-metadata.json'))['normalized']['roots'])))")
+          for name in p0001 p001 p01 p1 p5 p10; do
+            OPS=$(wc -l < "$BASE/$name/graphbolt.stream")
+            for root in $ROOTS; do
+              OUT="$BASE/$name/root-$root"
+              for sample in $(seq 1 "$SAMPLES"); do
+                python tools/parse_graphbolt_dzig_output.py \
+                  --input "$OUT/gb-$sample.log" --output "$OUT/gb-$sample.json" \
+                  --expected-batches 1 --expected-operations "$OPS"
+                python tools/verify_graphbolt_bfs_output.py \
+                  --initial "$BASE/$name/initial.edges" --stream "$BASE/$name/graphbolt.stream" \
+                  --graphbolt-output "$OUT/gb-out-${sample}1" --source "$root" \
+                  --output "$OUT/gb-exact-$sample.json"
+              done
+            done
+          done
+          python tools/summarize_hosted_graphbolt_matrix.py \
+            --dataset-dir "$BASE" --expected-samples "$SAMPLES" --output "$BASE/summary.json"
+
+      - name: Capture host and evidence boundary
+        shell: bash
+        run: |
+          BASE="build/matrix/${{ matrix.dataset }}"
+          lscpu > "$BASE/host-lscpu.txt"
+          nproc > "$BASE/host-nproc.txt"
+          (cat /sys/devices/system/cpu/smt/active || true) > "$BASE/host-smt-active.txt"
+          (cat /sys/kernel/mm/transparent_hugepage/enabled || true) > "$BASE/host-thp.txt"
+          (taskset -pc $$ || true) > "$BASE/host-affinity.txt"
+          env | grep -E '^(OMP|GOMP|CILK)_' | sort > "$BASE/parallel-env.txt" || true
+          {
+            echo 'evidence=hosted engineering expanded matrix'
+            echo 'publication_grade=false'
+            echo 'research_claim=false'
+            echo 'real_sources=checksum verified; deterministic hosted edge samples'
+            echo 'fractions=0.001%,0.01%,0.1%,1%,5%,10%'
+            echo 'roots=3 high-outdegree roots per prepared graph'
+            echo 'samples_per_root_regime=7'
+            echo 'noise_gate=sub-millisecond medians flagged, not deleted'
+            echo 'negative_results=retained'
+            echo 'gapbs_scope=post-update BFS kernel only; not comparable dynamic envelope'
+          } > "$BASE/evidence-scope.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hosted-graphbolt-gap-expanded-${{ matrix.dataset }}
+          path: build/matrix/${{ matrix.dataset }}/
+          retention-days: 90
