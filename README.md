@@ -8,21 +8,38 @@
 
 **Exact dynamic graph analytics in C++20.**
 
-> **Maintain exact graph analytics as your graph changes — without blindly recomputing everything.**
+> **Maintain exact graph analytics as your graph changes — repairing affected work when that is cheaper and falling back to full recomputation when it is not.**
 
-VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It combines mutable graph storage, localized incremental repair, and adaptive fallback to full recomputation when repair becomes more expensive.
+VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It combines mutable graph storage, localized incremental maintenance, adaptive repair/recompute decisions, and reproducible systems evaluation.
 
 **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches**  
-**Adaptive repair/recompute · Multicore CPU · Storage-independent algorithms · Reproducible benchmarks**  
-**29 CTest targets · Linux/macOS CI · ASan/UBSan · Python interoperability**
+**Adaptive repair/recompute · Multicore CPU · Storage-independent algorithms · Reproducible benchmarks**
 
-## Why VeloGraphX?
+Engineering quality: **29 CTest targets · Linux/macOS CI · ASan/UBSan · Python interoperability**
 
-- **Exact, not approximate:** maintained results are correctness-gated against fresh recomputation.
-- **Adaptive execution:** repair only the affected work when that is cheaper; recompute when it is not.
-- **Built for changing graphs:** mutable storage, batching, consolidation and dynamic algorithm paths are first-class concerns.
-- **Systems-oriented:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching and asynchronous loading.
-- **Auditable performance:** pinned competitors and datasets, raw samples, retained artifacts, correctness gates and negative results.
+**Quick links:** [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
+
+## When should I use VeloGraphX?
+
+VeloGraphX is designed for workloads where a graph changes over time and analytics must be maintained across updates without assuming that incremental repair is always the fastest choice. Relevant use cases include evolving network analysis, relationship and fraud graphs, changing knowledge graphs, infrastructure/dependency graphs, and graph-systems research.
+
+If your graph is static, a specialized static CSR engine may be simpler or faster. If approximate answers are acceptable, streaming or approximate graph methods may offer different trade-offs. VeloGraphX focuses on **correctness-preserving analytics under graph mutation and explicit measurement of the repair-vs-recompute crossover**.
+
+## What is different?
+
+VeloGraphX brings four concerns into one systems design:
+
+- **Mutable graph storage:** segmented CSR, packed deltas, sparse row patches and explicit consolidation.
+- **Incremental analytics:** maintained state for dynamic BFS/SSSP, connected components, triangles, k-core, weighted SSSP and PageRank-related paths.
+- **Adaptive execution:** measure affected work and observed cost instead of assuming incremental execution always wins.
+- **Auditable evaluation:** correctness gates, pinned datasets/competitors, retained artifacts and explicit negative results.
+
+## Design principles
+
+- **Correctness first:** incremental paths are checked against fresh or converged reference computation where required.
+- **Measure crossover:** choose localized repair or full recomputation according to workload and observed cost.
+- **Separate algorithms from storage:** graph-access abstractions let the same algorithmic path work across multiple representations.
+- **Make evidence reproducible:** benchmark provenance, timing contracts and claim boundaries are part of the project design.
 
 ## Results at a glance
 
@@ -42,6 +59,19 @@ VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It
 | Public scale exercised | **875,713 vertices / 5,105,039 edges** (`web-Google`) |
 
 Detailed comparison methodology, competitor revisions, timing contracts, artifacts and negative results are kept in the [benchmark documentation](docs/benchmark-methodology.md) rather than duplicated here.
+
+## Algorithm capabilities
+
+| Algorithm | Full/reference path | Dynamic/incremental path | Correctness contract |
+| --- | :---: | :---: | --- |
+| BFS / unweighted SSSP | ✓ | ✓ | Exact distances |
+| Weighted SSSP | ✓ | ✓ | Exact distances; destructive/increasing-weight updates can fall back to recomputation |
+| Connected components | ✓ | ✓ | Exact maintained connectivity |
+| Triangle count | ✓ | ✓ | Exact count |
+| k-core | ✓ | ✓ | Exact core-number maintenance |
+| PageRank | ✓ | ✓ | Localized maintenance with residual/tolerance validation and conservative full fallback |
+
+The implementation also includes graph-access abstraction, SIMD-oriented intersection paths, multicore scheduling, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
 
 ## 30-second start
 
@@ -81,9 +111,12 @@ initial.add(2, 0);
 graph.apply(initial);
 
 velographx::IncrementalTriangleCount triangles(graph);
+
 velographx::UpdateBatch update;
 update.add(2, 3);
 triangles.apply(update);
+
+auto current_triangles = triangles.value();
 ```
 
 For the complete dynamic example, see [`examples/dynamic_transactions.cpp`](examples/dynamic_transactions.cpp). Optional Python bindings are enabled with `-DVELOGRAPHX_BUILD_PYTHON=ON`; see [`python/README.md`](python/README.md).
@@ -96,7 +129,7 @@ flowchart LR
     G --> S{Adaptive selector}
     S -->|localized affected work| R[Exact incremental repair]
     S -->|repair cost too high| F[Full recomputation]
-    R --> E[Exact maintained result]
+    R --> E[Maintained result]
     F --> E
 ```
 
@@ -106,8 +139,8 @@ The selector uses **update fraction, affected work, graph scale, root locality a
 
 ## Algorithms & runtime
 
-- **Exact dynamic analytics:** BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank paths.
-- **Storage-independent algorithms:** the same graph-access contract supports mutable storage, CSR and foreign graph representations.
+- **Dynamic analytics:** BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank-related maintenance paths.
+- **Storage-independent execution:** the graph-access contract supports mutable storage, CSR and foreign graph representations.
 - **CPU systems runtime:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
 - **C++ first, Python optional:** native hot paths remain in C++; pybind11 bindings can be enabled at build time.
 
@@ -145,14 +178,21 @@ The default build currently defines **29 CTest targets** plus benchmark executab
 | Benchmarks | [Methodology](docs/benchmark-methodology.md) · [Competitor benchmarking](docs/competitor-benchmarking.md) · [Ablation study](docs/ablation-study.md) |
 | Reproduction | [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md) · [Three-system campaign](docs/three-system-dynamic-bfs-campaign.md) |
 | Publication boundary | [Canonical publication campaign](docs/canonical-publication-campaign.md) · [Controlled-hardware execution](docs/controlled-hardware-execution.md) · [Limitations](docs/limitations.md) |
+| Python | [Python bindings](python/README.md) |
 | Research citation | [`CITATION.cff`](CITATION.cff) |
 
 ## Evidence boundary / next step
 
 The hosted campaigns establish correctness, reproducibility and crossover behavior, but shared GitHub runners are noisy and hardware can vary. **Controlled-hardware publication tables remain pending.** The canonical campaign is designed for pinned datasets and hardware, **1/2/4/8/16/32-thread scaling, NUMA placement, hardware counters and larger real-world/R-MAT workloads**.
 
-## Project
+## Project status
 
-Current source version: **0.7.0**. Research citation metadata is available in [`CITATION.cff`](CITATION.cff). **GitHub release publication is pending**, so cite the repository and the relevant commit/version when using current results.
+VeloGraphX is an **active research and engineering project**. Current source version: **0.7.0**. APIs may evolve before 1.0, so pin a version or commit for reproducible experiments.
 
-Apache-2.0 licensed. See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md).
+Research citation metadata is available in [`CITATION.cff`](CITATION.cff). **GitHub release publication is pending**, so cite the repository and the relevant commit/version when using current results.
+
+## Contributing
+
+Contributions are welcome, particularly around **dynamic graph algorithms, CPU optimization, storage policies, benchmark reproducibility, interoperability and documentation**. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a contribution.
+
+Apache-2.0 licensed. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md).
