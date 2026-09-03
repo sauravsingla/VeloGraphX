@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
-[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](CITATION.cff)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](CITATION.cff)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Cite](https://img.shields.io/badge/cite-CITATION.cff-blue.svg)](CITATION.cff)
 
@@ -233,9 +233,9 @@ The hosted campaigns establish correctness, reproducibility and crossover behavi
 
 ## Project status
 
-VeloGraphX is an **active research and engineering project**. Current source version: **0.7.0**. APIs may evolve before 1.0, so pin a version or commit for reproducible experiments.
+VeloGraphX is an **active research and engineering project**. Current source version: **0.8.0**. APIs may evolve before 1.0, so pin a version or commit for reproducible experiments.
 
-Research citation metadata is available in [`CITATION.cff`](CITATION.cff). **GitHub release publication is pending**, so cite the repository and the relevant commit/version when using current results.
+Research citation metadata is available in [`CITATION.cff`](CITATION.cff). The current GitHub release is [`v0.8.0`](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.0); pin the release or a specific commit when using results in reproducible experiments.
 
 ## Contributing
 
