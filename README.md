@@ -197,4 +197,6 @@ Research citation metadata is available in [`CITATION.cff`](CITATION.cff). **Git
 
 Contributions are welcome, particularly around **dynamic graph algorithms, CPU optimization, storage policies, benchmark reproducibility, interoperability and documentation**. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a contribution.
 
+**New to VeloGraphX?** Start with a [good first issue](https://github.com/sauravsingla/VeloGraphX/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) or join the [Discussions](https://github.com/sauravsingla/VeloGraphX/discussions) to share a workload, idea or benchmark suggestion.
+
 Apache-2.0 licensed. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md).
