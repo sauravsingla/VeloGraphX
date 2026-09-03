@@ -1,6 +1,7 @@
 name: Adaptive BFS Policy Held-out Final
 on:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/adaptive-policy-heldout-final.yml'
   workflow_dispatch:
