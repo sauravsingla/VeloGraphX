@@ -4,19 +4,24 @@
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](CITATION.cff)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Cite](https://img.shields.io/badge/cite-CITATION.cff-blue.svg)](CITATION.cff)
 
-**VeloGraphX is a C++20 CPU engine for exact analytics on changing graphs.** It combines mutable graph storage, localized incremental repair, and adaptive fallback to full recomputation when repair becomes more expensive.
+**Exact dynamic graph analytics in C++20.**
 
-The project focuses on **exactness, crossover-aware execution, storage independence, and reproducible system comparisons**.
+> **Maintain exact graph analytics as your graph changes — without blindly recomputing everything.**
 
-## Highlights
+VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It combines mutable graph storage, localized incremental repair, and adaptive fallback to full recomputation when repair becomes more expensive.
 
-- **Exact dynamic analytics:** BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank paths.
-- **Adaptive repair vs recompute:** decisions use update fraction, affected work, graph scale, root locality and observed cost.
-- **Storage-independent algorithms:** the same graph-access contract supports mutable storage, CSR and foreign graph representations.
-- **CPU systems runtime:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
-- **Auditable benchmarking:** pinned competitors/datasets, raw samples, correctness gates, retained artifacts and negative results.
-- **C++ first, Python optional:** native hot paths remain in C++; pybind11 bindings can be enabled at build time.
+**2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches**  
+**Adaptive repair/recompute · Multicore CPU · Storage-independent algorithms · Reproducible benchmarks**
+
+## Why VeloGraphX?
+
+- **Exact, not approximate:** maintained results are correctness-gated against fresh recomputation.
+- **Adaptive execution:** repair only the affected work when that is cheaper; recompute when it is not.
+- **Built for changing graphs:** mutable storage, batching, consolidation and dynamic algorithm paths are first-class concerns.
+- **Systems-oriented:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching and asynchronous loading.
+- **Auditable performance:** pinned competitors and datasets, raw samples, retained artifacts, correctness gates and negative results.
 
 ## Results at a glance
 
@@ -35,7 +40,54 @@ The project focuses on **exactness, crossover-aware execution, storage independe
 | Compression | **3.25×–3.78× smaller**, with a current BFS traversal cost |
 | Public scale exercised | **875,713 vertices / 5,105,039 edges** (`web-Google`) |
 
-### VeloGraphX vs GraphBolt/DZiG — dynamic BFS
+## 30-second start
+
+Requires **CMake ≥ 3.20** and a **C++20 compiler**.
+
+```bash
+git clone https://github.com/sauravsingla/VeloGraphX.git
+cd VeloGraphX
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+./build/velographx_example
+./build/velographx_dynamic_example
+```
+
+Minimal C++ API:
+
+```cpp
+#include "velographx/algorithms.hpp"
+
+velographx::CsrGraph graph({{0,1}, {1,2}, {2,3}}, false);
+auto distance = velographx::bfs_distances(graph, 0);
+auto triangles = velographx::triangle_count(graph);
+```
+
+For dynamic updates, see [`examples/dynamic_transactions.cpp`](examples/dynamic_transactions.cpp). Optional Python bindings are enabled with `-DVELOGRAPHX_BUILD_PYTHON=ON`; see [`python/README.md`](python/README.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Update batch] --> G[Mutable graph\nbase CSR + deltas / row patches]
+    G --> S{Adaptive selector}
+    S -->|localized affected work| R[Exact incremental repair]
+    S -->|repair cost too high| F[Full recomputation]
+    R --> E[Exact maintained result]
+    F --> E
+```
+
+The selector uses **update fraction, affected work, graph scale, root locality and observed cost** to decide when incremental repair is worthwhile.
+
+## Algorithms & runtime
+
+- **Exact dynamic analytics:** BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank paths.
+- **Storage-independent algorithms:** the same graph-access contract supports mutable storage, CSR and foreign graph representations.
+- **CPU systems runtime:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
+- **C++ first, Python optional:** native hot paths remain in C++; pybind11 bindings can be enabled at build time.
+
+## VeloGraphX vs GraphBolt/DZiG — dynamic BFS
 
 Same deterministic directed graph, root, update workload and one-worker configuration. Both timings cover **graph mutation + incremental answer maintenance**; GraphBolt stream-read time is excluded.
 
@@ -51,7 +103,7 @@ All VeloGraphX results were exact; every GraphBolt result passed an independent 
 
 Evidence: run `33713976273`, artifact `9877875056`. See [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md).
 
-### VeloGraphX vs NetworKit vs RisGraph — dynamic BFS
+## VeloGraphX vs NetworKit vs RisGraph — dynamic BFS
 
 The hosted [three-system campaign](docs/three-system-dynamic-bfs-campaign.md) uses the same machine, graph, root, update stream and one-thread configuration across five datasets and update fractions from **0.0001% to 10%**.
 
@@ -65,7 +117,7 @@ All **91 configurations passed exactness gates**. Crossover behavior is retained
 
 Evidence: run `33578440940`. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; RisGraph revision `4e77f77...`.
 
-### Other comparison evidence
+## Other comparison evidence
 
 | Comparison | Result | Evidence |
 | --- | --- | --- |
@@ -77,48 +129,6 @@ Evidence: run `33578440940`. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8b
 
 The Teseo result is a **storage-interface experiment, not a comparison against Teseo's own graph algorithms**.
 
-## Architecture
-
-```text
-update batch
-   ↓
-mutable graph: base CSR + deltas / row patches + consolidation
-   ↓
-affected work + observed cost + root locality + update fraction
-   ↓
-localized exact repair  ← selector →  full recomputation
-   ↓
-exact maintained result
-```
-
-## Quick start
-
-Requires **CMake ≥ 3.20** and a **C++20 compiler**.
-
-```bash
-git clone https://github.com/sauravsingla/VeloGraphX.git
-cd VeloGraphX
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-./build/velographx_example
-./build/velographx_dynamic_example
-```
-
-The default build currently defines **29 CTest targets** plus benchmark executables.
-
-### Minimal C++ API
-
-```cpp
-#include "velographx/algorithms.hpp"
-
-velographx::CsrGraph graph({{0,1}, {1,2}, {2,3}}, false);
-auto distance = velographx::bfs_distances(graph, 0);
-auto triangles = velographx::triangle_count(graph);
-```
-
-For dynamic updates, see [`examples/dynamic_transactions.cpp`](examples/dynamic_transactions.cpp). Optional Python bindings are enabled with `-DVELOGRAPHX_BUILD_PYTHON=ON`; see [`python/README.md`](python/README.md).
-
 ## Reproduce the 2M-update exactness test
 
 ```bash
@@ -129,6 +139,8 @@ c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/exactness_stress.cpp \
   build/libvelographx.a -pthread -o build/exactness_stress
 ./build/exactness_stress 2000000 256
 ```
+
+The default build currently defines **29 CTest targets** plus benchmark executables.
 
 ## Evidence & documentation
 
