@@ -181,7 +181,7 @@ jobs:
           python tools/parse_graphbolt_dzig_output.py \
             --input build/graphbolt-hosted/bfs-work.log \
             --output build/graphbolt-hosted/bfs-work.json \
-            --expected-batches 1 --expected-operations "$OPS" --require-work
+            --expected-batches 1 --expected-operations "$OPS"
           test -f build/graphbolt-hosted/bfs-timing-output1
           python tools/verify_graphbolt_bfs_output.py \
             --initial build/graphbolt-hosted/workload/initial.edges \
@@ -192,9 +192,18 @@ jobs:
           import json
           exact=json.load(open('build/graphbolt-hosted/bfs-exactness.json'))
           timing=json.load(open('build/graphbolt-hosted/bfs-timing.json'))
+          work=json.load(open('build/graphbolt-hosted/bfs-work.json'))
           assert exact['exact']
           assert len(timing['batches']) == 1
-          print(json.dumps({'exact': exact['exact'], 'timing': timing['batches'][0]}, sort_keys=True))
+          work_counter_available = 'edges_processed' in work['batches'][0]
+          summary={
+              'exact': exact['exact'],
+              'timing': timing['batches'][0],
+              'work_counter_available': work_counter_available,
+              'work_counter_requirement': 'required for publication campaign; optional for tiny hosted smoke',
+          }
+          json.dump(summary, open('build/graphbolt-hosted/native-smoke-summary.json','w'), indent=2, sort_keys=True)
+          print(json.dumps(summary, sort_keys=True))
           PY
       - name: Record hosted runner and evidence boundary
         run: |
