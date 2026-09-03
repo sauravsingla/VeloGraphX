@@ -35,41 +35,43 @@ GitHub-hosted measurements below are **engineering evidence, not publication-gra
 
 Adaptive-selector campaign: run `33471125549`, artifact `9786648824`. Exactness/multicore/compression: run `33467637208`.
 
-## Competitor comparisons
+## VeloGraphX vs Other Graph Systems
 
-### Dynamic BFS vs NetworKit 11.2.1
+All published comparisons below use matched workloads and correctness checks. Results where another system wins are reported explicitly.
+
+### VeloGraphX vs NetworKit 11.2.1 — Dynamic BFS
 
 Native C++, one OpenMP thread, same machine, update stream and roots; five paired repetitions per root. Every execution must match a fresh full BFS.
 
-| Dataset | VeloGraphX | NetworKit `DynBFS` | VX / NK |
-| --- | ---: | ---: | ---: |
-| `web-Google` | **27.182 ms** | 37.458 ms | **0.730×** |
-| `ca-GrQc` | 0.1115 ms | **0.08274 ms** | **1.350×** |
+| Dataset | VeloGraphX | NetworKit `DynBFS` | VX / NK | Winner |
+| --- | ---: | ---: | ---: | --- |
+| `web-Google` | **27.182 ms** | 37.458 ms | **0.730×** | **VeloGraphX (~1.38× faster)** |
+| `ca-GrQc` | 0.1115 ms | **0.08274 ms** | 1.350× | **NetworKit (~1.35× faster)** |
 
 VeloGraphX wins all three tested roots on `web-Google`; NetworKit wins all three on the smaller `ca-GrQc`. All **30 paired executions passed exact full-BFS verification**.
 
 NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33542995289`, artifact `9814639042`.
 
-### Static BFS / SSSP vs GAP and LAGraph
+### VeloGraphX vs GAP v1.5 vs LAGraph v1.3.x — Static BFS / SSSP
 
 Same hosted runner, graph/source/thread count, five repetitions, kernel-only timing, pinned competitor versions and correctness checks.
 
-| Kernel | Threads | VeloGraphX | GAP v1.5 | LAGraph v1.3.x |
-| --- | ---: | ---: | ---: | ---: |
-| BFS | 1 | **0.425 ms** | 0.790 ms | 4.000 ms |
-| BFS | 4 | **0.406 ms** | 0.830 ms | 4.800 ms |
-| SSSP | 1 | 8.982 ms | **1.060 ms** | 23.500 ms |
-| SSSP | 4 | 9.003 ms | **1.290 ms** | 27.100 ms |
+| Kernel | Threads | VeloGraphX | GAP v1.5 | LAGraph v1.3.x | Winner |
+| --- | ---: | ---: | ---: | ---: | --- |
+| BFS | 1 | **0.425 ms** | 0.790 ms | 4.000 ms | **VeloGraphX** |
+| BFS | 4 | **0.406 ms** | 0.830 ms | 4.800 ms | **VeloGraphX** |
+| SSSP | 1 | 8.982 ms | **1.060 ms** | 23.500 ms | **GAP** |
+| SSSP | 4 | 9.003 ms | **1.290 ms** | 27.100 ms | **GAP** |
 
 VeloGraphX wins BFS on this workload; **GAP remains substantially faster for SSSP**.
 
 Pinned contract: SuiteSparse:GraphBLAS `v10.5.0`, LAGraph `d01064de77b606473744b99f63b1487963556194`, GAP `v1.5`. Run `33418520303`, artifact `9768499895`.
 
-### Same-algorithm storage swap: Teseo
+### VeloGraphX storage vs CSR vs Teseo adapter — Same BFS algorithm
 
 `BasicIncrementalBFS::recompute()` is unchanged; only graph representation changes. Construction is outside the timer and full distance vectors must match.
 
-| Vertices / edges | `DynamicGraph` | `CsrGraph` | Teseo adapter |
+| Vertices / edges | VeloGraphX `DynamicGraph` | `CsrGraph` | Teseo adapter |
 | --- | ---: | ---: | ---: |
 | 8,192 / 32,768 | 120.434 µs | **57.988 µs** | 4,341.401 µs |
 | 32,768 / 131,072 | 500.383 µs | **234.284 µs** | 21,854.866 µs |
@@ -78,13 +80,13 @@ CSR is about **2.08×–2.14× faster** than VeloGraphX mutable storage for full
 
 This is a **storage-interface experiment, not a claim against Teseo's own algorithms**. Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; run `33475389747`, artifact `9787994251`. See [Teseo evidence](docs/teseo-storage-evidence.md).
 
-## New comparison campaigns
+## Next comparison campaigns
 
-The repository now contains broader benchmark contracts whose final comparative numbers are intentionally withheld until their full artifacts pass audit.
+The repository contains broader benchmark contracts whose final comparative numbers are intentionally withheld until their full artifacts pass audit.
 
 **VeloGraphX vs NetworKit vs RisGraph.** The [three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md) uses the same machine, roots, streams and timed envelope across `web-Google`, `soc-Epinions1`, `roadNet-CA`, R-MAT and `com-LiveJournal`, sweeping update fractions from **0.0001% to 10%**. Competitor wins and selector losses are retained rather than filtered.
 
-**GraphBolt/DZiG + GAPBS publication contract.** The [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) pins the official GraphBolt artifact revision, generates a deterministic native update stream, parses native timing/work counters, and independently verifies GraphBolt BFS reachability. Hosted CI validates the contract; comparative performance numbers require the controlled dedicated runner.
+**VeloGraphX vs GraphBolt/DZiG + GAPBS.** The [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) pins the official GraphBolt artifact revision, generates a deterministic native update stream, parses native timing/work counters, and independently verifies GraphBolt BFS reachability. Hosted CI validates the contract; comparative performance numbers require the controlled dedicated runner.
 
 The [canonical publication campaign](docs/canonical-publication-campaign.md) is the path for controlled 1/2/4/8/16/32-thread scaling, NUMA placement, hardware counters, checksum-pinned datasets and larger R-MAT/real-world workloads.
 
