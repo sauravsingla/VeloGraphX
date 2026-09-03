@@ -62,6 +62,48 @@ VeloGraphX brings four concerns into one systems design:
 | Compression | **3.25×–3.78× smaller**, with a current BFS traversal cost |
 | Public scale exercised | **875,713 vertices / 5,105,039 edges** (`web-Google`) |
 
+### Selected competitor results
+
+GitHub-hosted measurements below are **reproducible engineering evidence, not publication-grade hardware claims**. All reported dynamic results are correctness-gated.
+
+#### Dynamic BFS — VeloGraphX vs GraphBolt/DZiG
+
+Both systems consume the same deterministic directed graph and mutation stream. The comparable timing envelope includes **graph mutation + maintained answer update**; GraphBolt stream-reading time is excluded.
+
+| Update operations | VeloGraphX median | GraphBolt/DZiG median | VeloGraphX speedup |
+| ---: | ---: | ---: | ---: |
+| 400 | **83.45 µs** | 1,281 µs | **15.35×** |
+| 4,000 | **1,427.86 µs** | 6,106 µs | **4.28×** |
+| 20,000 | **6,875.96 µs** | 16,012 µs | **2.33×** |
+
+**Correctness:** all reported VeloGraphX results were exact, and every GraphBolt/DZiG final answer passed independent fresh-recompute directed-reachability verification.
+
+GraphBolt/DZiG is pinned to commit `2d56f39cb17c85d624bee6a63f8fc34a8f149a36` and executed with `CILK_NWORKERS=1`.
+
+#### Static BFS — VeloGraphX vs GAPBS vs LAGraph
+
+These measurements compare fresh BFS kernels on prepared graph representations.
+
+| Threads | VeloGraphX | GAPBS | LAGraph | Fastest |
+| ---: | ---: | ---: | ---: | --- |
+| 1 | **0.425 ms** | 0.790 ms | 4.0 ms | **VeloGraphX** |
+| 4 | **0.406 ms** | 0.830 ms | 4.8 ms | **VeloGraphX** |
+
+#### Static SSSP — VeloGraphX vs GAPBS
+
+The same campaign also retains cases where a competitor wins.
+
+| Threads | VeloGraphX | GAPBS | Fastest |
+| ---: | ---: | ---: | --- |
+| 1 | 8.982 ms | **1.060 ms** | **GAPBS** |
+| 4 | 9.003 ms | **1.290 ms** | **GAPBS** |
+
+These results intentionally include both wins and losses. They demonstrate workload-specific behavior rather than a universal performance advantage.
+
+> **Timing boundary:** GAPBS results are fresh static recomputation on an already-materialized post-update graph and therefore are **not** presented as a direct dynamic-system comparison with VeloGraphX. Dataset loading, one-time preparation, and correctness verification are excluded from the primary kernel timing where specified by the benchmark contract.
+
+For exact competitor revisions, dataset provenance, raw samples, correctness gates, timing contracts, and reproduction instructions, see the [benchmark methodology](docs/benchmark-methodology.md) and [GraphBolt/DZiG + GAPBS benchmark contract](docs/graphbolt-dzig-gap-benchmark-contract.md).
+
 Detailed comparison methodology, competitor revisions, timing contracts, artifacts and negative results are kept in the [benchmark documentation](docs/benchmark-methodology.md) rather than duplicated here.
 
 ## Algorithm capabilities
