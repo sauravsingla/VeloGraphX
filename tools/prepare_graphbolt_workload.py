@@ -96,24 +96,35 @@ def main() -> int:
 
     # Valid deletions are sampled from the initial graph in its frozen order.
     deletions = args.output_dir / "deletions.edges"
-    delete_count = total - initial_count
+    delete_count = min(total - initial_count, initial_count)
     with initial.open() as source, deletions.open("w") as target:
         for index, row in enumerate(source):
             if index == delete_count:
                 break
             target.write(row)
+    graphbolt_stream = args.output_dir / "graphbolt.stream"
+    with insertions.open() as additions, deletions.open() as removals, graphbolt_stream.open("w") as target:
+        for addition, deletion in zip(additions, removals):
+            target.write("a " + addition)
+            target.write("d " + deletion)
     files = {p.name: {"sha256": sha256(p), "rows": sum(1 for _ in p.open())}
-             for p in (initial, insertions, deletions, shuffled)}
+             for p in (initial, insertions, deletions, graphbolt_stream, shuffled)}
     metadata = {
         "schema_version": 1,
         "artifact_type": "graphbolt-neutral-workload",
         "source": {"path": str(args.input), "sha256": sha256(args.input)},
         "shuffle": {"algorithm": "sha256(seed:source_line:normalized_row) external merge", "seed": args.seed},
         "split": {"initial_fraction_requested": args.initial_fraction, "initial_rows": initial_count,
-                  "mutation_rows": total - initial_count},
+                  "insertion_rows": total - initial_count, "deletion_rows": delete_count,
+                  "graphbolt_operation_rows": delete_count * 2},
         "semantics": {"source_is_validated_as_a_simple_directed_edge_set": True,
                       "insertions_are_absent_from_initial_by_construction": True,
                       "deletions_are_present_in_initial_by_construction": True},
+        "graphbolt": {
+            "stream_format": "alternating 'a source target' and 'd source target' rows",
+            "required_flags": ["-fixedBatchSize", "-enforceEdgeValidity", "-simple"],
+            "batch_size_unit": "edge operations",
+        },
         "files": files,
         "research_claim": False,
     }

@@ -8,6 +8,10 @@ on:
       - 'tools/configure_publication_cpu.py'
       - 'tools/capture_benchmark_environment.py'
       - 'tools/validate_publication_measurements.py'
+      - 'tools/parse_graphbolt_dzig_output.py'
+      - 'tools/verify_graphbolt_bfs_output.py'
+      - 'benchmarks/fixtures/graphbolt-dzig-output.txt'
+      - 'benchmarks/fixtures/graphbolt-bfs-output.txt'
       - 'docs/graphbolt-dzig-gap-benchmark-contract.md'
   push:
     branches: [main]
@@ -17,6 +21,10 @@ on:
       - 'tools/configure_publication_cpu.py'
       - 'tools/capture_benchmark_environment.py'
       - 'tools/validate_publication_measurements.py'
+      - 'tools/parse_graphbolt_dzig_output.py'
+      - 'tools/verify_graphbolt_bfs_output.py'
+      - 'benchmarks/fixtures/graphbolt-dzig-output.txt'
+      - 'benchmarks/fixtures/graphbolt-bfs-output.txt'
   workflow_dispatch:
 
 jobs:
@@ -33,6 +41,46 @@ jobs:
           python tools/prepare_graphbolt_workload.py --input datasets/example-local-edge-list.txt --output-dir build/work-a --seed 41 --chunk-rows 1
           python tools/prepare_graphbolt_workload.py --input datasets/example-local-edge-list.txt --output-dir build/work-b --seed 41 --chunk-rows 2
           diff -ru build/work-a build/work-b
+          python - <<'PY'
+          import json
+          data=json.load(open('build/work-a/metadata.json'))
+          assert data['files']['graphbolt.stream']['rows'] == 2
+          stream=open('build/work-a/graphbolt.stream').read().splitlines()
+          assert stream[0].startswith('a ') and stream[1].startswith('d ')
+          PY
+      - name: Pin and inspect official DZiG artifact
+        env:
+          GRAPHBOLT_SHA: 2d56f39cb17c85d624bee6a63f8fc34a8f149a36
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/pdclab/graphbolt.git build/graphbolt
+          git -C build/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+          test "$(git -C build/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+          test "$(git -C build/graphbolt rev-parse --abbrev-ref HEAD)" = HEAD
+          grep -Fq -- '-fixedBatchSize' build/graphbolt/AE_README.md
+          grep -Fq -- '-enforceEdgeValidity' build/graphbolt/AE_README.md
+          grep -Fq -- 'Finished batch' build/graphbolt/AE_README.md
+          printf 'repository=https://github.com/pdclab/graphbolt.git\nbranch=eurosys21-artifact\ncommit=%s\n' "$GRAPHBOLT_SHA" > build/graphbolt-pin.txt
+      - name: Verify native-output timing and work parser
+        run: |
+          python tools/parse_graphbolt_dzig_output.py \
+            --input benchmarks/fixtures/graphbolt-dzig-output.txt \
+            --output build/graphbolt-parsed.json --expected-batches 1 \
+            --expected-operations 1000 --require-work
+          python - <<'PY'
+          import json
+          row=json.load(open('build/graphbolt-parsed.json'))['batches'][0]
+          assert abs(row['mutation_seconds'] - 0.001103) < 1e-12
+          assert abs(row['answer_ready_seconds'] - 0.004384) < 1e-12
+          assert row['edges_processed'] == 357552
+          PY
+      - name: Verify independent GraphBolt BFS exactness gate
+        run: |
+          python tools/verify_graphbolt_bfs_output.py \
+            --initial build/work-a/initial.edges \
+            --stream build/work-a/graphbolt.stream \
+            --graphbolt-output benchmarks/fixtures/graphbolt-bfs-output.txt \
+            --source 0 --output build/graphbolt-bfs-exactness.json
+          python -c "import json; assert json.load(open('build/graphbolt-bfs-exactness.json'))['exact']"
       - name: Verify physical-core plan and environment evidence
         run: |
           python tools/configure_publication_cpu.py --threads 1 --output build/cpu-plan.json --shell-output build/cpu-env.sh
