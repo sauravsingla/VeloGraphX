@@ -122,7 +122,6 @@ jobs:
             -e GRAPHBOLT_SHA="$GRAPHBOLT_SHA" \
             -v "$PWD/build/graphbolt-hosted:/evidence" \
             ubuntu:18.04 bash -euxo pipefail -c '
-              sed -i "s|archive.ubuntu.com|old-releases.ubuntu.com|g; s|security.ubuntu.com|old-releases.ubuntu.com|g" /etc/apt/sources.list
               apt-get update
               apt-get install -y --no-install-recommends ca-certificates git build-essential gcc-7 g++-7 cmake make
               update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 70
