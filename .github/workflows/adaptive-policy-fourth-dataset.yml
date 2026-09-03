@@ -1,6 +1,7 @@
 name: Adaptive BFS Fourth Dataset Frozen Evaluation
 on:
   push:
+    branches: [main]
     paths: ['.github/workflows/adaptive-policy-fourth-dataset.yml']
   workflow_dispatch:
 jobs:
