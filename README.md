@@ -27,6 +27,7 @@ GitHub-hosted measurements below are **engineering evidence, not publication-gra
 | Dynamic exactness stress | **2,000,000 updates; 0 BFS / 0 triangle mismatches** |
 | Adaptive BFS selector | **108/108 exact; 1.66% mean overhead from regime-best** |
 | Three-system dynamic BFS | **91/91 exact; 45 VeloGraphX / 27 RisGraph / 19 NetworKit raw-policy wins** |
+| GraphBolt/DZiG hosted dynamic BFS | **VeloGraphX 15.35× / 4.28× / 2.33× faster across tiny / medium / large update regimes** |
 | `web-Google` adaptive BFS | **1.17% mean overhead** |
 | Multicore BFS workload | **2.74× at 4 threads (~69% efficiency)** |
 | Connected components | **2.50× at 4 threads (~62%)** |
@@ -34,11 +35,29 @@ GitHub-hosted measurements below are **engineering evidence, not publication-gra
 | Adjacency compression | **3.25×–3.78× smaller** |
 | Public graph scale exercised | **875,713 vertices / 5,105,039 edges** (`web-Google`) |
 
-Adaptive-selector campaign: run `33471125549`, artifact `9786648824`. Three-system adaptive campaign: run `33578440940`. Exactness/multicore/compression: run `33467637208`.
+Adaptive-selector campaign: run `33471125549`, artifact `9786648824`. Three-system adaptive campaign: run `33578440940`. GraphBolt/DZiG + GAPBS hosted comparison: run `33713976273`, artifact `9877875056`. Exactness/multicore/compression: run `33467637208`.
 
 ## VeloGraphX vs Other Graph Systems
 
 All published comparisons below use matched workloads and correctness checks. Results where another system wins are reported explicitly.
+
+### VeloGraphX vs GraphBolt/DZiG + GAPBS — Hosted Dynamic BFS
+
+The hosted comparison uses the same deterministic directed graph, root, update workload and one-thread configuration. VeloGraphX and official GraphBolt/DZiG are compared over the **graph mutation + incremental answer-maintenance** envelope. GraphBolt stream-read time is excluded. GAPBS v1.5 is retained separately as a **post-update fresh-BFS kernel reference**, not as an equivalent dynamic-system timing envelope.
+
+| Update regime | Operations | VeloGraphX median | GraphBolt/DZiG median | VeloGraphX vs GraphBolt |
+| --- | ---: | ---: | ---: | ---: |
+| Tiny | 400 | **83.45 µs** | 1,281 µs | **15.35× faster** |
+| Medium | 4,000 | **1,427.86 µs** | 6,106 µs | **4.28× faster** |
+| Large | 20,000 | **6,875.96 µs** | 16,012 µs | **2.33× faster** |
+
+VeloGraphX won all three tested incremental update regimes against the pinned official GraphBolt/DZiG implementation. The observed raw-sample ranges were **76.18–86.63 µs**, **1.36–2.01 ms**, and **6.77–6.95 ms** for VeloGraphX, versus **1.268–1.350 ms**, **6.044–6.219 ms**, and **15.985–16.059 ms** for GraphBolt/DZiG.
+
+For context, the GAPBS v1.5 fresh-BFS kernel medians on the already-materialized post-update graphs were **750 µs**, **770 µs**, and **870 µs** for the tiny, medium, and large regimes. Those values deliberately exclude graph mutation and graph loading/materialization, so they **must not be interpreted as a direct winner table against the dynamic systems**.
+
+Every VeloGraphX result was exact, every GraphBolt result passed an independent fresh-recompute reachability verifier, and every GAPBS run passed its verifier. The hosted graph had **50,000 vertices and roughly 190K–200K directed edges**, root `0`, with one worker thread. Official GraphBolt was pinned to `2d56f39cb17c85d624bee6a63f8fc34a8f149a36` and executed with its required GCC 7/Cilk Plus + mimalloc legacy stack and `CILK_NWORKERS=1`; GAPBS was pinned to v1.5 (`b5e3e19c...`).
+
+Run `33713976273`, artifact `9877875056`. The artifact contains the raw samples and campaign evidence. This result is explicitly **hosted engineering evidence (`publication_grade=false`, `research_claim=false`)**, not a controlled-hardware publication claim. The dedicated pinned-machine campaign remains required before promoting these numbers as publication-grade performance evidence. See the [GraphBolt/DZiG benchmark contract](docs/graphbolt-dzig-gap-benchmark-contract.md).
 
 ### VeloGraphX vs NetworKit 11.2.1 — Dynamic BFS
 
@@ -104,11 +123,11 @@ CSR is about **2.08×–2.14× faster** than VeloGraphX mutable storage for full
 
 This is a **storage-interface experiment, not a claim against Teseo's own algorithms**. Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; run `33475389747`, artifact `9787994251`. See [Teseo evidence](docs/teseo-storage-evidence.md).
 
-## Publication Campaigns Still Pending
+## Publication Campaign Still Pending
 
 The hosted comparisons above are reproducible engineering evidence. **Final controlled-hardware comparative tables are still pending** and will be promoted only after the complete artifacts pass correctness, provenance, workload-equivalence and audit gates.
 
-**VeloGraphX vs GraphBolt/DZiG + GAPBS.** The [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) pins the official GraphBolt artifact revision, generates a deterministic native update stream, parses native timing/work counters, and independently verifies GraphBolt BFS reachability. Hosted CI validates the machinery; **no final VeloGraphX-vs-GraphBolt/DZiG performance claim is made from hosted CI**.
+The GraphBolt/DZiG + GAPBS campaign now has a successful native hosted comparison with raw samples and independent exactness gates. Its hosted results are reported above, while the [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) continues to define the stricter publication boundary.
 
 The [canonical publication campaign](docs/canonical-publication-campaign.md) is the path for controlled **1/2/4/8/16/32-thread scaling**, NUMA placement, hardware counters, checksum-pinned datasets and larger R-MAT/real-world workloads.
 
@@ -160,6 +179,7 @@ For benchmark interpretation and reproducibility details, see [benchmark methodo
 - Hosted CI demonstrates reproducibility and engineering behavior; it is not controlled-hardware publication evidence.
 - The adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, not universally.
 - Three-system hosted results demonstrate real crossover behavior but remain subject to shared-runner noise and hardware variability.
+- The GraphBolt/DZiG + GAPBS hosted comparison is exact and native, but remains shared-runner engineering evidence; GAPBS is a post-update kernel reference with a different timing envelope.
 - Teseo/Sortledton experiments isolate the BFS/storage interface and are not full-system comparisons.
 - Compression saves memory but currently slows BFS traversal (**3.8×–5.7×** in the hosted compression campaign).
 - Dedicated-runner NUMA, hardware-counter, near-memory-capacity and final publication results remain pending.
