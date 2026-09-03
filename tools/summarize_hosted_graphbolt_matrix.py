@@ -34,7 +34,18 @@ def stats(values):
 
 
 def json_files(path: Path, prefix: str):
-    return [json.loads(p.read_text()) for p in sorted(path.glob(f"{prefix}-*.json"))]
+    """Load only numbered sample files for a prefix.
+
+    Exact matching is important because ``gb-*.json`` would also select
+    ``gb-exact-*.json`` and silently mix parser output with verifier output.
+    """
+    pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)\.json$")
+    matches = []
+    for candidate in path.iterdir():
+        match = pattern.fullmatch(candidate.name)
+        if match:
+            matches.append((int(match.group(1)), candidate))
+    return [json.loads(candidate.read_text()) for _, candidate in sorted(matches)]
 
 
 def gap_samples(path: Path):
@@ -66,7 +77,10 @@ def main() -> int:
             gb = json_files(root_dir, "gb")
             gx = json_files(root_dir, "gb-exact")
             if not (len(vx) == len(gb) == len(gx) == args.expected_samples):
-                raise ValueError(f"{root_dir}: expected {args.expected_samples} samples per dynamic system")
+                raise ValueError(
+                    f"{root_dir}: expected {args.expected_samples} samples per dynamic system; "
+                    f"found vx={len(vx)} gb={len(gb)} gb_exact={len(gx)}"
+                )
             if not all(x.get("exact") for x in vx):
                 raise ValueError(f"{root_dir}: VeloGraphX exactness failure")
             if not all(x.get("exact") for x in gx):
@@ -79,7 +93,8 @@ def main() -> int:
             gb_read = stats([x["batches"][0]["reading_seconds"] * 1e6 for x in gb])
             gap_us = stats(gap_samples(root_dir / "gapbs.log"))
             if gap_us is None or gap_us["n"] != args.expected_samples:
-                raise ValueError(f"{root_dir}: expected {args.expected_samples} GAPBS samples")
+                found = 0 if gap_us is None else gap_us["n"]
+                raise ValueError(f"{root_dir}: expected {args.expected_samples} GAPBS samples; found {found}")
 
             work_values = [x["batches"][0].get("edges_processed") for x in gb]
             work_values = [x for x in work_values if x is not None]
