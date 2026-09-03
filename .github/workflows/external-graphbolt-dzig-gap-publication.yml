@@ -143,6 +143,7 @@ jobs:
               apt-get install -y --no-install-recommends ca-certificates git build-essential gcc-7 g++-7 cmake make
               update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 70
               update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 70
+              ln -sf /usr/bin/g++-7 /usr/local/bin/g++-5
               g++ --version | tee /evidence/gcc-version.txt
               git clone --filter=blob:none https://github.com/pdclab/graphbolt.git /tmp/graphbolt
               git -C /tmp/graphbolt checkout --detach "$GRAPHBOLT_SHA"
