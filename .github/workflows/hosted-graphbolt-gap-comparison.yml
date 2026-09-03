@@ -1,0 +1,219 @@
+name: Hosted VeloGraphX GraphBolt GAPBS Comparison
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hosted-graphbolt-gap-comparison.yml'
+      - 'benchmarks/graphbolt_contract_bfs.cpp'
+      - 'tools/prepare_graphbolt_workload.py'
+      - 'tools/parse_graphbolt_dzig_output.py'
+      - 'tools/verify_graphbolt_bfs_output.py'
+      - 'CMakeLists.txt'
+
+jobs:
+  compare:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      GRAPHBOLT_SHA: 2d56f39cb17c85d624bee6a63f8fc34a8f149a36
+      GAPBS_REF: v1.5
+      ROOT: '0'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build VeloGraphX neutral-stream comparator
+        run: |
+          cmake -S . -B build/vx -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/vx --target velographx_graphbolt_contract_bfs -j2
+
+      - name: Generate deterministic connected directed graph and three update regimes
+        run: |
+          mkdir -p build/compare
+          python - <<'PY'
+          from pathlib import Path
+          n=50000
+          edges=set()
+          for u in range(n):
+              for v in ((u+1)%n, (u+3)%n, (u*7+11)%n, (u*13+17)%n):
+                  if u != v:
+                      edges.add((u,v))
+          p=Path('build/compare/source.edges')
+          with p.open('w') as f:
+              for u,v in sorted(edges):
+                  f.write(f'{u} {v}\n')
+          print('vertices', n, 'edges', len(edges))
+          assert len(edges) >= 190000
+          PY
+          for spec in tiny:0.999 medium:0.99 large:0.95; do
+            name=${spec%%:*}; frac=${spec##*:}
+            python tools/prepare_graphbolt_workload.py \
+              --input build/compare/source.edges \
+              --output-dir build/compare/$name \
+              --seed 20260903 --initial-fraction "$frac" --chunk-rows 50000
+          done
+          python - <<'PY'
+          from pathlib import Path
+          for name in ('tiny','medium','large'):
+              d=Path('build/compare')/name
+              edges=set()
+              for row in (d/'initial.edges').read_text().splitlines():
+                  if row.strip(): edges.add(tuple(map(int,row.split()[:2])))
+              for row in (d/'graphbolt.stream').read_text().splitlines():
+                  if not row.strip(): continue
+                  op,u,v=row.split()[:3]; e=(int(u),int(v))
+                  if op=='a': edges.add(e)
+                  elif op=='d': edges.remove(e)
+                  else: raise SystemExit('bad op')
+              with (d/'final.edges').open('w') as f:
+                  for u,v in sorted(edges): f.write(f'{u} {v}\n')
+          PY
+
+      - name: Run VeloGraphX update plus answer maintenance samples
+        run: |
+          for name in tiny medium large; do
+            for sample in 1 2 3; do
+              build/vx/velographx_graphbolt_contract_bfs \
+                build/compare/$name/initial.edges \
+                build/compare/$name/graphbolt.stream "$ROOT" \
+                | tee build/compare/$name/vx-$sample.json
+            done
+          done
+
+      - name: Build GAPBS v1.5 and run verified post-update full recompute baseline
+        run: |
+          git clone --depth 1 --branch "$GAPBS_REF" https://github.com/sbeamer/gapbs.git build/gapbs
+          make -C build/gapbs bfs -j2
+          git -C build/gapbs rev-parse HEAD | tee build/compare/gapbs-commit.txt
+          for name in tiny medium large; do
+            OMP_NUM_THREADS=1 build/gapbs/bfs -f build/compare/$name/final.edges -n 3 -r "$ROOT" -v \
+              | tee build/compare/$name/gapbs.log
+            test "$(grep -c 'Verification: *PASS' build/compare/$name/gapbs.log)" -eq 3
+          done
+
+      - name: Build pinned official GraphBolt and run native repeated samples
+        run: |
+          docker run --rm \
+            -e DEBIAN_FRONTEND=noninteractive \
+            -e GRAPHBOLT_SHA="$GRAPHBOLT_SHA" \
+            -e ROOT="$ROOT" \
+            -v "$PWD/build/compare:/evidence" \
+            ubuntu:18.04 bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates git build-essential gcc-7 g++-7 cmake make python3
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 70
+              update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 70
+              ln -sf /usr/bin/g++-7 /usr/local/bin/g++-5
+              git clone --filter=blob:none https://github.com/pdclab/graphbolt.git /tmp/graphbolt
+              git -C /tmp/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+              test "$(git -C /tmp/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+              cd /tmp/graphbolt
+              sh install_mimalloc.sh
+              make -C tools/converters SNAPtoAdjConverter
+              make -C apps BFS
+              export LD_PRELOAD=/tmp/graphbolt/lib/mimalloc/out/release/libmimalloc.so
+              for name in tiny medium large; do
+                tools/converters/SNAPtoAdjConverter /evidence/$name/initial.edges /evidence/$name/initial.adj
+                OPS=$(wc -l < /evidence/$name/graphbolt.stream)
+                for sample in 1 2 3; do
+                  apps/BFS -source "$ROOT" -numberOfUpdateBatches 1 -nEdges "$OPS" \
+                    -streamPath /evidence/$name/graphbolt.stream -fixedBatchSize \
+                    -enforceEdgeValidity -simple -outputFile /evidence/$name/gb-out-$sample \
+                    /evidence/$name/initial.adj | tee /evidence/$name/gb-$sample.log
+                done
+              done
+              printf "graphbolt_sha=%s\ncompiler=g++-7\ncilk_plus=true\nmimalloc=v1.6.0\n" "$GRAPHBOLT_SHA" > /evidence/graphbolt-runtime.txt
+            '
+
+      - name: Parse GraphBolt, verify every final answer and summarize all systems
+        run: |
+          for name in tiny medium large; do
+            OPS=$(wc -l < build/compare/$name/graphbolt.stream)
+            for sample in 1 2 3; do
+              python tools/parse_graphbolt_dzig_output.py \
+                --input build/compare/$name/gb-$sample.log \
+                --output build/compare/$name/gb-$sample.json \
+                --expected-batches 1 --expected-operations "$OPS"
+              python tools/verify_graphbolt_bfs_output.py \
+                --initial build/compare/$name/initial.edges \
+                --stream build/compare/$name/graphbolt.stream \
+                --graphbolt-output build/compare/$name/gb-out-${sample}1 \
+                --source "$ROOT" --output build/compare/$name/gb-exact-$sample.json
+            done
+          done
+          python - <<'PY'
+          import json, re, statistics
+          from pathlib import Path
+          rows=[]
+          for name in ('tiny','medium','large'):
+              d=Path('build/compare')/name
+              meta=json.load(open(d/'metadata.json'))
+              vx=[json.load(open(d/f'vx-{i}.json')) for i in (1,2,3)]
+              gb=[json.load(open(d/f'gb-{i}.json')) for i in (1,2,3)]
+              gx=[json.load(open(d/f'gb-exact-{i}.json')) for i in (1,2,3)]
+              assert all(x['exact'] for x in vx)
+              assert all(x['exact'] for x in gx)
+              gap_text=(d/'gapbs.log').read_text()
+              gap=[float(x) for x in re.findall(r'Trial Time:\s*([0-9.]+)', gap_text)]
+              assert len(gap)==3
+              vx_us=[x['answer_ready_us'] for x in vx]
+              gb_us=[x['batches'][0]['answer_ready_seconds']*1e6 for x in gb]
+              gap_us=[x*1e6 for x in gap]
+              initial=meta['split']['initial_rows']; ops=meta['split']['graphbolt_operation_rows']
+              row={
+                'regime':name,
+                'initial_edges':initial,
+                'operations':ops,
+                'operation_fraction':ops/initial,
+                'velographx_answer_ready_us_samples':vx_us,
+                'graphbolt_answer_ready_us_samples':gb_us,
+                'gapbs_post_update_bfs_us_samples':gap_us,
+                'velographx_median_us':statistics.median(vx_us),
+                'graphbolt_median_us':statistics.median(gb_us),
+                'gapbs_median_us':statistics.median(gap_us),
+                'velographx_exact':True,
+                'graphbolt_exact':True,
+                'gapbs_verified':True,
+              }
+              rows.append(row)
+          result={
+            'schema_version':1,
+            'artifact_type':'hosted-velographx-graphbolt-gapbs-comparison',
+            'runner':'github-hosted ubuntu-22.04',
+            'threads':1,
+            'graphbolt_commit':'2d56f39cb17c85d624bee6a63f8fc34a8f149a36',
+            'gapbs_ref':'v1.5',
+            'timing_scope':{
+              'velographx':'graph mutation + incremental answer maintenance',
+              'graphbolt':'graph mutation + incremental answer maintenance; stream read excluded',
+              'gapbs':'post-update BFS kernel only on already-materialized final graph; graph mutation/loading excluded',
+            },
+            'publication_grade':False,
+            'research_claim':False,
+            'rows':rows,
+          }
+          Path('build/compare/summary.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,indent=2,sort_keys=True))
+          PY
+
+      - name: Capture evidence boundary and host information
+        run: |
+          lscpu > build/compare/host-lscpu.txt
+          {
+            echo 'evidence=hosted engineering comparison'
+            echo 'publication_grade=false'
+            echo 'research_claim=false'
+            echo 'important=GAPBS timing is a post-update full-recompute kernel baseline and is not the same update+maintenance envelope as VeloGraphX/GraphBolt'
+          } > build/compare/evidence-scope.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hosted-velographx-graphbolt-gapbs-comparison
+          path: build/compare/
+          retention-days: 90
