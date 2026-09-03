@@ -105,3 +105,53 @@ jobs:
           name: graphbolt-dzig-gap-contract
           path: build/
           retention-days: 90
+
+  hosted-legacy-runtime:
+    name: GraphBolt official legacy runtime smoke
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pinned GraphBolt with its required GCC Cilk Plus stack
+        env:
+          GRAPHBOLT_SHA: 2d56f39cb17c85d624bee6a63f8fc34a8f149a36
+        run: |
+          mkdir -p build/graphbolt-hosted
+          docker run --rm \
+            -e DEBIAN_FRONTEND=noninteractive \
+            -e GRAPHBOLT_SHA="$GRAPHBOLT_SHA" \
+            -v "$PWD/build/graphbolt-hosted:/evidence" \
+            ubuntu:18.04 bash -euxo pipefail -c '
+              sed -i "s|archive.ubuntu.com|old-releases.ubuntu.com|g; s|security.ubuntu.com|old-releases.ubuntu.com|g" /etc/apt/sources.list
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates git build-essential gcc-7 g++-7 cmake make
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 70
+              update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 70
+              g++ --version | tee /evidence/gcc-version.txt
+              git clone --filter=blob:none https://github.com/pdclab/graphbolt.git /tmp/graphbolt
+              git -C /tmp/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+              test "$(git -C /tmp/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+              cd /tmp/graphbolt
+              sh install_mimalloc.sh
+              test -f lib/mimalloc/out/release/libmimalloc.so
+              make -C apps clean
+              make -C apps WORKFLAG=1 BFS
+              test -x apps/BFS
+              ldd apps/BFS | tee /evidence/graphbolt-bfs-ldd.txt
+              printf "graphbolt_sha=%s\nmimalloc=v1.6.0\ncompiler=g++-7\ncilk_plus=true\nhosted_ci_engineering_evidence=true\nresearch_claim=false\n" "$GRAPHBOLT_SHA" > /evidence/runtime-pin.txt
+            '
+      - name: Record hosted runner and container boundary
+        run: |
+          {
+            echo 'runner=github-hosted ubuntu-22.04'
+            echo 'graphbolt_runtime_container=ubuntu:18.04'
+            echo 'purpose=compatibility/build gate only'
+            echo 'performance_claim=false'
+          } > build/graphbolt-hosted/evidence-scope.txt
+          lscpu > build/graphbolt-hosted/host-lscpu.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: graphbolt-official-legacy-runtime-smoke
+          path: build/graphbolt-hosted/
+          retention-days: 90
