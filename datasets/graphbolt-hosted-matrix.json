@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "purpose": "Checksum-pinned source datasets for the hosted GraphBolt/DZiG + GAPBS engineering matrix. Hosted jobs use deterministic edge samples; full-source publication runs remain a dedicated-runner task.",
+  "hosted_max_directed_edges": 250000,
+  "datasets": [
+    {
+      "name": "web-Google",
+      "family": "scale-free-web",
+      "url": "https://raw.githubusercontent.com/ease-lab/dbg/3737683c0a0bcff6469a4691c16f51425a6bbfd3/datasets/web-Google.txt",
+      "sha256": "8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1",
+      "compression": "none",
+      "directed": true
+    },
+    {
+      "name": "soc-Epinions1",
+      "family": "scale-free-social",
+      "url": "https://snap.stanford.edu/data/soc-Epinions1.txt.gz",
+      "sha256": "69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938",
+      "compression": "gzip",
+      "directed": true
+    },
+    {
+      "name": "roadNet-CA",
+      "family": "road-network",
+      "url": "https://snap.stanford.edu/data/roadNet-CA.txt.gz",
+      "sha256": "383f7b14424530a9e25c392969a9c19dace32ebcfd141f0967a1433498c2acdd",
+      "compression": "gzip",
+      "directed": false
+    },
+    {
+      "name": "rmat-scale17",
+      "family": "deterministic-rmat",
+      "generator": "rmat",
+      "scale": 17,
+      "edge_factor": 4,
+      "seed": 20260903,
+      "directed": true
+    }
+  ],
+  "research_claim": false,
+  "publication_grade": false
+}
