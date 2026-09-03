@@ -26,6 +26,7 @@ GitHub-hosted measurements below are **engineering evidence, not publication-gra
 | --- | ---: |
 | Dynamic exactness stress | **2,000,000 updates; 0 BFS / 0 triangle mismatches** |
 | Adaptive BFS selector | **108/108 exact; 1.66% mean overhead from regime-best** |
+| Three-system dynamic BFS | **91/91 exact; 45 VeloGraphX / 27 RisGraph / 19 NetworKit raw-policy wins** |
 | `web-Google` adaptive BFS | **1.17% mean overhead** |
 | Multicore BFS workload | **2.74× at 4 threads (~69% efficiency)** |
 | Connected components | **2.50× at 4 threads (~62%)** |
@@ -33,7 +34,7 @@ GitHub-hosted measurements below are **engineering evidence, not publication-gra
 | Adjacency compression | **3.25×–3.78× smaller** |
 | Public graph scale exercised | **875,713 vertices / 5,105,039 edges** (`web-Google`) |
 
-Adaptive-selector campaign: run `33471125549`, artifact `9786648824`. Exactness/multicore/compression: run `33467637208`.
+Adaptive-selector campaign: run `33471125549`, artifact `9786648824`. Three-system adaptive campaign: run `33578440940`. Exactness/multicore/compression: run `33467637208`.
 
 ## VeloGraphX vs Other Graph Systems
 
@@ -51,6 +52,29 @@ Native C++, one OpenMP thread, same machine, update stream and roots; five paire
 VeloGraphX wins all three tested roots on `web-Google`; NetworKit wins all three on the smaller `ca-GrQc`. All **30 paired executions passed exact full-BFS verification**.
 
 NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; run `33542995289`, artifact `9814639042`.
+
+### VeloGraphX vs NetworKit vs RisGraph — Hosted Dynamic BFS
+
+The [three-system campaign](docs/three-system-dynamic-bfs-campaign.md) runs VeloGraphX, NetworKit `DynBFS` and RisGraph `bfs_inc_batch` on the **same hosted machine, graph, root, update stream and one-thread configuration**. It covers `web-Google`, `soc-Epinions1`, `roadNet-CA`, deterministic R-MAT and `com-LiveJournal`, with update fractions from **0.0001% to 10%**.
+
+Across the complete raw incremental-policy campaign, **all 91 configurations passed exactness gates**. The fastest system by configuration was:
+
+| System | Wins | Share |
+| --- | ---: | ---: |
+| **VeloGraphX** | **45** | **49.5%** |
+| RisGraph | 27 | 29.7% |
+| NetworKit | 19 | 20.9% |
+
+The follow-up adaptive-selector run (`33578440940`) shows why crossover-aware execution matters. On `web-Google`, VeloGraphX switches toward full recomputation as update batches become large:
+
+| Update fraction | Adaptive VeloGraphX | NetworKit | RisGraph | Hosted outcome |
+| --- | ---: | ---: | ---: | --- |
+| 5% | ~137–140 ms | ~309–345 ms | ~396–420 ms | **VeloGraphX ~2.2–2.5× vs NK; ~2.8–3.1× vs RisGraph** |
+| 10% | ~258–262 ms | ~423–445 ms | ~559–600 ms | **VeloGraphX ~1.6–1.7× vs NK; ~2.1–2.3× vs RisGraph** |
+
+Small-update regimes expose the opposite crossover. At `web-Google` **0.001%**, RisGraph is roughly **76–95 µs**, NetworKit **100–152 µs**, while VeloGraphX is around **1.7 ms** for incremental repair and **1.9–2.0 ms** for the selector measurement. These competitor wins are retained rather than filtered.
+
+This section is **hosted engineering evidence, not a controlled-hardware publication claim**. Final publication tables still require the dedicated pinned-machine campaign. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; RisGraph revision `4e77f77...`.
 
 ### VeloGraphX vs GAP v1.5 vs LAGraph v1.3.x — Static BFS / SSSP
 
@@ -80,15 +104,13 @@ CSR is about **2.08×–2.14× faster** than VeloGraphX mutable storage for full
 
 This is a **storage-interface experiment, not a claim against Teseo's own algorithms**. Teseo commit `2c37c2831c4d2acaaa838a86e1318363ce68c45b`; run `33475389747`, artifact `9787994251`. See [Teseo evidence](docs/teseo-storage-evidence.md).
 
-## Comparison Campaigns Awaiting Final Results
+## Publication Campaigns Still Pending
 
-The broader comparison infrastructure below is implemented and auditable, but **final comparative performance numbers are not yet publication-ready**. Results will be promoted here only after the complete controlled-run artifacts pass the repository's correctness, provenance, workload-equivalence and audit gates.
+The hosted comparisons above are reproducible engineering evidence. **Final controlled-hardware comparative tables are still pending** and will be promoted only after the complete artifacts pass correctness, provenance, workload-equivalence and audit gates.
 
-**VeloGraphX vs NetworKit vs RisGraph.** The [three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md) is implemented around the same machine, roots, update streams and timed envelope across `web-Google`, `soc-Epinions1`, `roadNet-CA`, R-MAT and `com-LiveJournal`, sweeping update fractions from **0.0001% to 10%**. Competitor wins and selector losses are retained rather than filtered. Hosted/engineering executions may validate the campaign machinery, but the final three-system comparison table remains pending the complete audited run on the controlled benchmark environment.
+**VeloGraphX vs GraphBolt/DZiG + GAPBS.** The [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) pins the official GraphBolt artifact revision, generates a deterministic native update stream, parses native timing/work counters, and independently verifies GraphBolt BFS reachability. Hosted CI validates the machinery; **no final VeloGraphX-vs-GraphBolt/DZiG performance claim is made from hosted CI**.
 
-**VeloGraphX vs GraphBolt/DZiG + GAPBS.** The [GraphBolt/DZiG contract](docs/graphbolt-dzig-gap-benchmark-contract.md) pins the official GraphBolt artifact revision, generates a deterministic native update stream, parses native timing/work counters, and independently verifies GraphBolt BFS reachability. The contract and verification path are implemented; hosted CI validates that machinery. **No final VeloGraphX-vs-GraphBolt/DZiG performance claim is made from hosted CI.** Comparative performance numbers require the controlled dedicated runner and must pass the full audit gates before publication.
-
-The [canonical publication campaign](docs/canonical-publication-campaign.md) is the path for controlled **1/2/4/8/16/32-thread scaling**, NUMA placement, hardware counters, checksum-pinned datasets and larger R-MAT/real-world workloads. Until those runs complete and pass audit, the published comparison evidence remains the validated NetworKit, GAP/LAGraph and Teseo results above.
+The [canonical publication campaign](docs/canonical-publication-campaign.md) is the path for controlled **1/2/4/8/16/32-thread scaling**, NUMA placement, hardware counters, checksum-pinned datasets and larger R-MAT/real-world workloads.
 
 ## Architecture
 
@@ -137,9 +159,10 @@ For benchmark interpretation and reproducibility details, see [benchmark methodo
 
 - Hosted CI demonstrates reproducibility and engineering behavior; it is not controlled-hardware publication evidence.
 - The adaptive selector averages **1.66% overhead from regime-best** on the tested 36 root/regime configurations, not universally.
+- Three-system hosted results demonstrate real crossover behavior but remain subject to shared-runner noise and hardware variability.
 - Teseo/Sortledton experiments isolate the BFS/storage interface and are not full-system comparisons.
 - Compression saves memory but currently slows BFS traversal (**3.8×–5.7×** in the hosted compression campaign).
-- Dedicated-runner NUMA, hardware-counter, near-memory-capacity and final multi-system publication results remain pending.
+- Dedicated-runner NUMA, hardware-counter, near-memory-capacity and final publication results remain pending.
 
 See [limitations](docs/limitations.md) for the full evidence boundary.
 
