@@ -2,6 +2,7 @@ name: Adaptive BFS Policy Final Validation
 
 on:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/adaptive-policy-final-validation.yml'
   workflow_dispatch:
