@@ -13,7 +13,8 @@
 VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It combines mutable graph storage, localized incremental repair, and adaptive fallback to full recomputation when repair becomes more expensive.
 
 **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches**  
-**Adaptive repair/recompute · Multicore CPU · Storage-independent algorithms · Reproducible benchmarks**
+**Adaptive repair/recompute · Multicore CPU · Storage-independent algorithms · Reproducible benchmarks**  
+**29 CTest targets · Linux/macOS CI · ASan/UBSan · Python interoperability**
 
 ## Why VeloGraphX?
 
@@ -40,6 +41,8 @@ VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It
 | Compression | **3.25×–3.78× smaller**, with a current BFS traversal cost |
 | Public scale exercised | **875,713 vertices / 5,105,039 edges** (`web-Google`) |
 
+Detailed comparison methodology, competitor revisions, timing contracts, artifacts and negative results are kept in the [benchmark documentation](docs/benchmark-methodology.md) rather than duplicated here.
+
 ## 30-second start
 
 Requires **CMake ≥ 3.20** and a **C++20 compiler**.
@@ -54,7 +57,7 @@ ctest --test-dir build --output-on-failure
 ./build/velographx_dynamic_example
 ```
 
-Minimal C++ API:
+Minimal static C++ API:
 
 ```cpp
 #include "velographx/algorithms.hpp"
@@ -64,7 +67,26 @@ auto distance = velographx::bfs_distances(graph, 0);
 auto triangles = velographx::triangle_count(graph);
 ```
 
-For dynamic updates, see [`examples/dynamic_transactions.cpp`](examples/dynamic_transactions.cpp). Optional Python bindings are enabled with `-DVELOGRAPHX_BUILD_PYTHON=ON`; see [`python/README.md`](python/README.md).
+Minimal dynamic C++ API:
+
+```cpp
+#include "velographx/storage/dynamic_graph.hpp"
+#include "velographx/incremental/triangles.hpp"
+
+velographx::DynamicGraph graph(6, false);
+velographx::UpdateBatch initial;
+initial.add(0, 1);
+initial.add(1, 2);
+initial.add(2, 0);
+graph.apply(initial);
+
+velographx::IncrementalTriangleCount triangles(graph);
+velographx::UpdateBatch update;
+update.add(2, 3);
+triangles.apply(update);
+```
+
+For the complete dynamic example, see [`examples/dynamic_transactions.cpp`](examples/dynamic_transactions.cpp). Optional Python bindings are enabled with `-DVELOGRAPHX_BUILD_PYTHON=ON`; see [`python/README.md`](python/README.md).
 
 ## Architecture
 
@@ -78,7 +100,9 @@ flowchart LR
     F --> E
 ```
 
-The selector uses **update fraction, affected work, graph scale, root locality and observed cost** to decide when incremental repair is worthwhile.
+The current storage layer uses **segmented CSR, packed deltas, sparse row-level patches, forward/reverse adjacency, and explicit canonical CSR consolidation** for long-running patch accumulation.
+
+The selector uses **update fraction, affected work, graph scale, root locality and observed cost** to decide when incremental repair is worthwhile. See the [architecture](docs/architecture.md) and [dynamic-storage design](docs/dynamic-storage.md) for implementation details.
 
 ## Algorithms & runtime
 
@@ -87,47 +111,18 @@ The selector uses **update fraction, affected work, graph scale, root locality a
 - **CPU systems runtime:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
 - **C++ first, Python optional:** native hot paths remain in C++; pybind11 bindings can be enabled at build time.
 
-## VeloGraphX vs GraphBolt/DZiG — dynamic BFS
+## Benchmark evidence
 
-Same deterministic directed graph, root, update workload and one-worker configuration. Both timings cover **graph mutation + incremental answer maintenance**; GraphBolt stream-read time is excluded.
+The headline results above are backed by retained benchmark contracts, pinned datasets/competitors, correctness gates and machine-readable artifacts. Detailed results are intentionally kept outside the landing page:
 
-| Updates | VeloGraphX median | GraphBolt/DZiG median | Outcome |
-| ---: | ---: | ---: | ---: |
-| 400 | **83.45 µs** | 1,281 µs | **15.35× faster** |
-| 4,000 | **1,427.86 µs** | 6,106 µs | **4.28× faster** |
-| 20,000 | **6,875.96 µs** | 16,012 µs | **2.33× faster** |
+- [Benchmark methodology](docs/benchmark-methodology.md) — timing, repetition, provenance and claim boundaries.
+- [Competitor benchmarking](docs/competitor-benchmarking.md) — external-system comparison rules and adapters.
+- [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md) — dynamic BFS comparison contract and static GAPBS context.
+- [Three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md) — VeloGraphX, NetworKit and RisGraph crossover evidence.
+- [Ablation study](docs/ablation-study.md) — policy/component contribution analysis.
+- [Controlled-hardware execution](docs/controlled-hardware-execution.md) — requirements for publication-quality hardware claims.
 
-All VeloGraphX results were exact; every GraphBolt result passed an independent fresh-recompute reachability verifier. Official GraphBolt is pinned to `2d56f39cb17c85d624bee6a63f8fc34a8f149a36` with `CILK_NWORKERS=1`.
-
-**GAPBS context:** v1.5 fresh-BFS kernel medians were **750 / 770 / 870 µs** on the already-materialized post-update graphs. GAPBS excludes mutation and graph materialization, so these values are a **static recompute reference, not a direct dynamic-system comparison**.
-
-Evidence: run `33713976273`, artifact `9877875056`. See [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md).
-
-## VeloGraphX vs NetworKit vs RisGraph — dynamic BFS
-
-The hosted [three-system campaign](docs/three-system-dynamic-bfs-campaign.md) uses the same machine, graph, root, update stream and one-thread configuration across five datasets and update fractions from **0.0001% to 10%**.
-
-| System | Fastest configurations | Share |
-| --- | ---: | ---: |
-| **VeloGraphX** | **45** | **49.5%** |
-| RisGraph | 27 | 29.7% |
-| NetworKit | 19 | 20.9% |
-
-All **91 configurations passed exactness gates**. Crossover behavior is retained: on `web-Google` at **0.001%** updates, RisGraph (~76–95 µs) and NetworKit (~100–152 µs) beat VeloGraphX (~1.7 ms raw incremental repair). At **5–10%**, adaptive VeloGraphX becomes substantially faster on the tested `web-Google` workload.
-
-Evidence: run `33578440940`. NetworKit revision `359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c`; RisGraph revision `4e77f77...`.
-
-## Other comparison evidence
-
-| Comparison | Result | Evidence |
-| --- | --- | --- |
-| NetworKit `DynBFS` | VX **27.182 ms** vs NK 37.458 ms on `web-Google`; VX 0.1115 ms vs NK **0.08274 ms** on `ca-GrQc`; **30/30 exact** | run `33542995289`, artifact `9814639042` |
-| GAP v1.5 / LAGraph — BFS | VX **0.425 ms** (1T), **0.406 ms** (4T); GAP 0.790/0.830 ms; LAGraph 4.0/4.8 ms | run `33418520303`, artifact `9768499895` |
-| GAP v1.5 / LAGraph — SSSP | GAP **1.060 ms** (1T), **1.290 ms** (4T); VX 8.982/9.003 ms | same run |
-| CSR storage | CSR full BFS ~**2.08×–2.14× faster** than VeloGraphX mutable storage in tested cases | run `33475389747`, artifact `9787994251` |
-| Teseo adapter | VeloGraphX `DynamicGraph` traversal ~**36×–44× faster** than the tested Teseo iterator adapter using the same VX BFS | same run |
-
-The Teseo result is a **storage-interface experiment, not a comparison against Teseo's own graph algorithms**.
+Known negative results are retained rather than hidden: competitors win some small-update regimes; GAP is much faster on the tested static SSSP workload; CSR is faster for full recompute; and compression currently trades traversal speed for memory reduction.
 
 ## Reproduce the 2M-update exactness test
 
@@ -144,19 +139,20 @@ The default build currently defines **29 CTest targets** plus benchmark executab
 
 ## Evidence & documentation
 
-- [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Graph abstraction](docs/graph-abstraction.md)
-- [Benchmark methodology](docs/benchmark-methodology.md) · [Competitor benchmarking](docs/competitor-benchmarking.md) · [Ablation study](docs/ablation-study.md)
-- [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md) · [Three-system campaign](docs/three-system-dynamic-bfs-campaign.md)
-- [Canonical publication campaign](docs/canonical-publication-campaign.md) · [Controlled-hardware execution](docs/controlled-hardware-execution.md) · [Limitations](docs/limitations.md)
+| Area | Documentation |
+| --- | --- |
+| Architecture | [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Graph abstraction](docs/graph-abstraction.md) |
+| Benchmarks | [Methodology](docs/benchmark-methodology.md) · [Competitor benchmarking](docs/competitor-benchmarking.md) · [Ablation study](docs/ablation-study.md) |
+| Reproduction | [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md) · [Three-system campaign](docs/three-system-dynamic-bfs-campaign.md) |
+| Publication boundary | [Canonical publication campaign](docs/canonical-publication-campaign.md) · [Controlled-hardware execution](docs/controlled-hardware-execution.md) · [Limitations](docs/limitations.md) |
+| Research citation | [`CITATION.cff`](CITATION.cff) |
 
 ## Evidence boundary / next step
 
 The hosted campaigns establish correctness, reproducibility and crossover behavior, but shared GitHub runners are noisy and hardware can vary. **Controlled-hardware publication tables remain pending.** The canonical campaign is designed for pinned datasets and hardware, **1/2/4/8/16/32-thread scaling, NUMA placement, hardware counters and larger real-world/R-MAT workloads**.
 
-Known negative results are intentionally preserved: competitors win some small-update regimes; GAP is much faster on the tested static SSSP workload; CSR is faster for full recompute; and compression currently trades traversal speed for memory reduction.
-
 ## Project
 
-Current project version: **0.7.0**. Research citation metadata is available in [`CITATION.cff`](CITATION.cff). No GitHub release is currently published, so cite the repository and the relevant commit/version when using current results.
+Current source version: **0.7.0**. Research citation metadata is available in [`CITATION.cff`](CITATION.cff). **GitHub release publication is pending**, so cite the repository and the relevant commit/version when using current results.
 
 Apache-2.0 licensed. See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md).
