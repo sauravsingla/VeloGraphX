@@ -24,7 +24,7 @@ if(NOT _configure_result EQUAL 0)
 endif()
 
 execute_process(
-  COMMAND "@CMAKE_COMMAND@" --build "${_consumer_build}" --config "@CMAKE_BUILD_TYPE@"
+  COMMAND "@CMAKE_COMMAND@" --build "${_consumer_build}"
   RESULT_VARIABLE _build_result
 )
 if(NOT _build_result EQUAL 0)
