@@ -16,9 +16,9 @@ VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It
 **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches**  
 **Adaptive repair/recompute · Multicore CPU · Storage-independent algorithms · Reproducible benchmarks**
 
-Engineering quality: **29 CTest targets · Linux/macOS CI · ASan/UBSan · Python interoperability**
+Engineering quality: **30 CTest targets · Linux/macOS CI · ASan/UBSan · Python interoperability**
 
-**Quick links:** [Release](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.0) · [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
+**Quick links:** [Release](https://github.com/sauravsingla/VeloGraphX/releases/latest) · [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
 
 > **Want to try it?** Build and run the dynamic example in under a minute → [Quick start](#quick-start)
 
@@ -211,7 +211,7 @@ c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/exactness_stress.cpp \
 ./build/exactness_stress 2000000 256
 ```
 
-The default build currently defines **29 CTest targets** plus benchmark executables.
+The default build currently defines **30 CTest targets** plus benchmark executables.
 
 ## Evidence boundary / next step
 
@@ -219,9 +219,9 @@ The hosted campaigns establish correctness, reproducibility and crossover behavi
 
 ## Project status
 
-VeloGraphX is an **active research and engineering project**. Current source version: **0.8.0**. APIs may evolve before 1.0, so pin a version or commit for reproducible experiments.
+VeloGraphX is an **active research and engineering project**. Current core library/source version: **0.8.0**. APIs may evolve before 1.0, so pin a version or commit for reproducible experiments.
 
-Research citation metadata is available in [`CITATION.cff`](CITATION.cff). The current GitHub release is [`v0.8.0`](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.0); pin the release or a specific commit when using results in reproducible experiments.
+Research citation metadata is available in [`CITATION.cff`](CITATION.cff). The latest GitHub release is [`v0.8.1`](https://github.com/sauravsingla/VeloGraphX/releases/latest), a CI/release-workflow maintenance release; the core library APIs remain at **0.8.0**. Pin the release or a specific commit when using results in reproducible experiments.
 
 ## Contributing
 
