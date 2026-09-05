@@ -23,7 +23,7 @@ jobs:
       SORTLEDTON_SHA: 6eb638f3ad38f8a10a127e7e118528f4c8d07a6e
       SORTLEDTON_BUILD: external/sortledton/build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |

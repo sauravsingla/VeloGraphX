@@ -28,7 +28,7 @@ jobs:
       LAGRAPH_SHA: d01064de77b606473744b99f63b1487963556194
       GAPBS_TAG: v1.5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install build dependencies
         run: |
