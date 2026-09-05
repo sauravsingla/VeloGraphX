@@ -1,10 +1,6 @@
 name: Adaptive BFS Policy Held-out Validation
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/adaptive-policy-heldout-validation.yml'
   workflow_dispatch:
 
 jobs:
