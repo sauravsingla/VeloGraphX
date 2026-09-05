@@ -11,7 +11,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=ON
       - name: Build
@@ -30,7 +30,7 @@ jobs:
       VELOGRAPHX_RANDOMIZED_OPS: 300
       VELOGRAPHX_RANDOMIZED_SEEDS: 2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure ASan/UBSan
         run: cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DVELOGRAPHX_BUILD_TESTS=ON -DVELOGRAPHX_BUILD_BENCHMARKS=OFF -DVELOGRAPHX_ENABLE_SANITIZERS=ON
       - name: Build
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -169,7 +169,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

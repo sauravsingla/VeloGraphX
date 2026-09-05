@@ -19,7 +19,7 @@ jobs:
       CA_MIN_IMPROVEMENT: 0.05
       WEB_MAX_REGRESSION: 0.03
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

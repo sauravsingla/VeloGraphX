@@ -21,7 +21,7 @@ jobs:
       SIMPLE_UPDATE_FRACTION: '0.01'
       EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

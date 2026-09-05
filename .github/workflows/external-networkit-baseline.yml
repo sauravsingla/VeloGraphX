@@ -26,7 +26,7 @@ jobs:
       BATCH_SIZE: '4096'
       EXPECTED_SOURCE_SHA: '8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:

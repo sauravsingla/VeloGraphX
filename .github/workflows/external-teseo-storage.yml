@@ -26,7 +26,7 @@ jobs:
     env:
       TESEO_SHA: 2c37c2831c4d2acaaa838a86e1318363ce68c45b
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |

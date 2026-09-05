@@ -16,7 +16,7 @@ jobs:
       AMAZON_GZIP_SHA256: '5f1071ac04203b1bc8fc4af5fb473818a180ff1b97e3d7bd716d789801d1f2a3'
       AMAZON_NORMALIZED_SHA256: '12fe44abf64966ad08b371bf4befd96df6aa8cd129ecb800dd6cc5dc1a753d30'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: '4381113005c221e6db2c19bac753a57d872e6374'
       - uses: actions/setup-python@v5

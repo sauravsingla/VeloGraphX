@@ -34,7 +34,7 @@ jobs:
       GOLDEN_COMMIT: 1085ba049bb94451661d119284d7cd9b68687a81
       GOLDEN_INCLUDE: external/TriangleCounting/TKDE-triangle-code/Golden-triangle/undirected
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:

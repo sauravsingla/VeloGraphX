@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Acquire canonical SNAP LiveJournal snapshot
         run: |
           mkdir -p build/livejournal
@@ -137,7 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Acquire canonical SNAP Orkut snapshot
         run: |
           mkdir -p build/orkut
@@ -193,7 +193,7 @@ jobs:
       GOLDEN_COMMIT: 1085ba049bb94451661d119284d7cd9b68687a81
       GOLDEN_INCLUDE: external/TriangleCounting/TKDE-triangle-code/Golden-triangle/undirected
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Acquire LiveJournal and pinned published exact reference
         run: |
           mkdir -p build/reference external
