@@ -81,9 +81,9 @@ def build_document() -> dict:
         "relationshipType": "DESCRIBES",
         "relatedSpdxElement": "SPDXRef-Package-VeloGraphX",
     }, {
-        "spdxElementId": "SPDXRef-Package-VeloGraphX",
+        "spdxElementId": "SPDXRef-Package-liburing",
         "relationshipType": "OPTIONAL_DEPENDENCY_OF",
-        "relatedSpdxElement": "SPDXRef-Package-liburing",
+        "relatedSpdxElement": "SPDXRef-Package-VeloGraphX",
         "comment": "liburing is optional and disabled by default.",
     }]
 
