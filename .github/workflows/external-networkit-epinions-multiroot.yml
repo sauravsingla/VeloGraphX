@@ -30,7 +30,7 @@ jobs:
       EPINIONS_STREAM_SHA256: a56649d8455dd645a66b59ef9676fad21e0d898210bfe038e89db24e81f9dc27
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install build dependencies

@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: '4381113005c221e6db2c19bac753a57d872e6374'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: {python-version: '3.12'}
       - name: Verify frozen selector source
         run: |

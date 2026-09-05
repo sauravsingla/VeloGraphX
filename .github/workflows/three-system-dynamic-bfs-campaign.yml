@@ -44,7 +44,7 @@ jobs:
       RISGRAPH_SHA: 4e77f774d4aa7cd0bf3011e713496573b70c91ab
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 

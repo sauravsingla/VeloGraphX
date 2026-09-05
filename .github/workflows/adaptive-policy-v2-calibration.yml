@@ -13,7 +13,7 @@ jobs:
       EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: {python-version: '3.12'}
       - name: Apply selector-owned uncertainty transformation
         run: |
