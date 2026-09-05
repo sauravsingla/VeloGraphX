@@ -1,9 +1,5 @@
 name: Adaptive BFS Policy Held-out Final
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/adaptive-policy-heldout-final.yml'
   workflow_dispatch:
 jobs:
   heldout:
@@ -41,7 +37,6 @@ jobs:
           python - <<'PY'
           import json,os,subprocess
           from pathlib import Path
-          # Roots and batch sizes are disjoint from the 27-regime calibration/validation campaign.
           configs=[
             ('ca-GrQc',0.75,[364,1236,2108],[160,640,1280]),
             ('soc-Epinions1',0.90,[18,737,1719],[640,2560,5120]),
@@ -71,7 +66,6 @@ jobs:
           batch_regrets.sort(); p95=batch_regrets[min(len(batch_regrets)-1,int(.95*(len(batch_regrets)-1)))]
           summary={'all_exact':True,'regimes':len(a),'mean_regret_vs_best_policy':statistics.mean(rel),'p95_batch_regret':p95,'worst_regime_regret':max(rel),'oracle_decision_match_within_1pct':matches/total,'mean_adaptive_excess_us_vs_best_inc_full':statistics.mean(overhead),'crossovers':d['datasets']}
           print(json.dumps(summary,indent=2)); open('build/heldout/summary/paper-metrics.json','w').write(json.dumps(summary,indent=2)+'\n')
-          # Paper target: mean <=5%, worst <=25%, exactness mandatory. p95 is reported, not silently optimized.
           assert summary['mean_regret_vs_best_policy'] <= .05, summary
           assert summary['worst_regime_regret'] <= .25, summary
           PY

@@ -1,8 +1,6 @@
 name: Adaptive BFS Amazon0302 Frozen One-Shot Evaluation
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/adaptive-policy-fifth-dataset-evaluation.yml']
+  workflow_dispatch:
 
 jobs:
   frozen-evaluation:
