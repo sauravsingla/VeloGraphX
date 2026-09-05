@@ -20,7 +20,7 @@ Engineering quality: **29 CTest targets · Linux/macOS CI · ASan/UBSan · Pytho
 
 **Quick links:** [Release](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.0) · [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
 
-> **Want to try it?** Build and run the dynamic example in under a minute → [30-second start](#30-second-start)
+> **Want to try it?** Build and run the dynamic example in under a minute → [Quick start](#quick-start)
 
 ![VeloGraphX dynamic analytics flow](docs/assets/velographx-flow.svg)
 
@@ -65,8 +65,6 @@ VeloGraphX brings four concerns into one systems design:
 
 ### Selected competitor results
 
-GitHub-hosted measurements below are **reproducible engineering evidence, not publication-grade hardware claims**. All reported dynamic results are correctness-gated.
-
 #### Dynamic BFS — VeloGraphX vs GraphBolt/DZiG
 
 Both systems consume the same deterministic directed graph and mutation stream. The comparable timing envelope includes **graph mutation + maintained answer update**; GraphBolt stream-reading time is excluded.
@@ -105,8 +103,6 @@ These results intentionally include both wins and losses. They demonstrate workl
 
 For exact competitor revisions, dataset provenance, raw samples, correctness gates, timing contracts, and reproduction instructions, see the [benchmark methodology](docs/benchmark-methodology.md) and [GraphBolt/DZiG + GAPBS benchmark contract](docs/graphbolt-dzig-gap-benchmark-contract.md).
 
-Detailed comparison methodology, competitor revisions, timing contracts, artifacts and negative results are kept in the [benchmark documentation](docs/benchmark-methodology.md) rather than duplicated here.
-
 ## Algorithm capabilities
 
 | Algorithm | Full/reference path | Dynamic/incremental path | Correctness contract |
@@ -120,7 +116,7 @@ Detailed comparison methodology, competitor revisions, timing contracts, artifac
 
 The implementation also includes graph-access abstraction, SIMD-oriented intersection paths, multicore scheduling, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
 
-## 30-second start
+## Quick start
 
 Requires **CMake ≥ 3.20** and a **C++20 compiler**.
 
@@ -191,18 +187,18 @@ The selector uses **update fraction, affected work, graph scale, root locality a
 - **CPU systems runtime:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
 - **C++ first, Python optional:** native hot paths remain in C++; pybind11 bindings can be enabled at build time.
 
-## Benchmark evidence
+## Benchmark & evidence
 
-The headline results above are backed by retained benchmark contracts, pinned datasets/competitors, correctness gates and machine-readable artifacts. Detailed results are intentionally kept outside the landing page:
+The headline results are backed by retained benchmark contracts, pinned datasets and competitors, correctness gates, machine-readable artifacts, and explicit claim boundaries. Known negative results are retained rather than hidden: competitors win some small-update regimes; GAP is much faster on the tested static SSSP workload; CSR is faster for full recompute; and compression currently trades traversal speed for memory reduction.
 
-- [Benchmark methodology](docs/benchmark-methodology.md) — timing, repetition, provenance and claim boundaries.
-- [Competitor benchmarking](docs/competitor-benchmarking.md) — external-system comparison rules and adapters.
-- [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md) — dynamic BFS comparison contract and static GAPBS context.
-- [Three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md) — VeloGraphX, NetworKit and RisGraph crossover evidence.
-- [Ablation study](docs/ablation-study.md) — policy/component contribution analysis.
-- [Controlled-hardware execution](docs/controlled-hardware-execution.md) — requirements for publication-quality hardware claims.
-
-Known negative results are retained rather than hidden: competitors win some small-update regimes; GAP is much faster on the tested static SSSP workload; CSR is faster for full recompute; and compression currently trades traversal speed for memory reduction.
+| Area | Documentation |
+| --- | --- |
+| Benchmark methodology | [Methodology](docs/benchmark-methodology.md) · [Competitor benchmarking](docs/competitor-benchmarking.md) · [Ablation study](docs/ablation-study.md) |
+| Reproduction | [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md) · [Three-system campaign](docs/three-system-dynamic-bfs-campaign.md) |
+| Architecture | [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Graph abstraction](docs/graph-abstraction.md) |
+| Publication boundary | [Canonical publication campaign](docs/canonical-publication-campaign.md) · [Controlled-hardware execution](docs/controlled-hardware-execution.md) · [Limitations](docs/limitations.md) |
+| Python | [Python bindings](python/README.md) |
+| Research citation | [`CITATION.cff`](CITATION.cff) |
 
 ## Reproduce the 2M-update exactness test
 
@@ -216,17 +212,6 @@ c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/exactness_stress.cpp \
 ```
 
 The default build currently defines **29 CTest targets** plus benchmark executables.
-
-## Evidence & documentation
-
-| Area | Documentation |
-| --- | --- |
-| Architecture | [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Graph abstraction](docs/graph-abstraction.md) |
-| Benchmarks | [Methodology](docs/benchmark-methodology.md) · [Competitor benchmarking](docs/competitor-benchmarking.md) · [Ablation study](docs/ablation-study.md) |
-| Reproduction | [GraphBolt/DZiG + GAPBS contract](docs/graphbolt-dzig-gap-benchmark-contract.md) · [Three-system campaign](docs/three-system-dynamic-bfs-campaign.md) |
-| Publication boundary | [Canonical publication campaign](docs/canonical-publication-campaign.md) · [Controlled-hardware execution](docs/controlled-hardware-execution.md) · [Limitations](docs/limitations.md) |
-| Python | [Python bindings](python/README.md) |
-| Research citation | [`CITATION.cff`](CITATION.cff) |
 
 ## Evidence boundary / next step
 
