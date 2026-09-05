@@ -61,7 +61,7 @@ VeloGraphX brings four concerns into one systems design:
 | Static SSSP vs GAP / LAGraph | **GAP fastest** in tested 1T and 4T SSSP cases |
 | Multicore | BFS **2.74×**, CC **2.50×**, triangles **2.24×** at 4 threads |
 | Compression | **3.25×–3.78× smaller**, with a current BFS traversal cost |
-| Public scale exercised | **875,713 vertices / 5,105,039 edges** (`web-Google`) |
+| Epinions multi-root BFS vs NetworKit | **3 roots × 5 repetitions exact; VeloGraphX ~1.74× faster** by aggregate mean batch latency (1T hosted campaign) |
 
 ### Selected competitor results
 
