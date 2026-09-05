@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(VeloGraphX VERSION 0.8.0 LANGUAGES CXX)
 
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
 option(VELOGRAPHX_BUILD_TESTS "Build tests" ON)
 option(VELOGRAPHX_BUILD_BENCHMARKS "Build benchmarks" ON)
 option(VELOGRAPHX_BUILD_PYTHON "Build Python bindings" OFF)
@@ -16,7 +19,11 @@ add_library(velographx STATIC
   src/algorithms.cpp
   src/io.cpp
 )
-target_include_directories(velographx PUBLIC ${PROJECT_SOURCE_DIR}/include)
+add_library(VeloGraphX::velographx ALIAS velographx)
+target_include_directories(velographx PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
 target_compile_features(velographx PUBLIC cxx_std_20)
 
 if(VELOGRAPHX_ENABLE_IO_URING)
@@ -38,6 +45,38 @@ if(VELOGRAPHX_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_link_options(velographx PUBLIC -fsanitize=address,undefined)
 endif()
 
+set(VELOGRAPHX_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/VeloGraphX")
+
+install(TARGETS velographx
+  EXPORT VeloGraphXTargets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+configure_package_config_file(
+  cmake/VeloGraphXConfig.cmake.in
+  "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfig.cmake"
+  INSTALL_DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}"
+)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfigVersion.cmake"
+  VERSION "${PROJECT_VERSION}"
+  COMPATIBILITY SameMajorVersion
+)
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfig.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfigVersion.cmake"
+  DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}"
+)
+install(EXPORT VeloGraphXTargets
+  FILE VeloGraphXTargets.cmake
+  NAMESPACE VeloGraphX::
+  DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}"
+)
+
 add_executable(velographx_example examples/basic.cpp)
 target_link_libraries(velographx_example PRIVATE velographx)
 add_executable(velographx_dynamic_example examples/dynamic_transactions.cpp)
@@ -56,6 +95,17 @@ if(VELOGRAPHX_BUILD_TESTS)
     add_test(NAME ${test_name} COMMAND velographx_test_${test_name})
     set_tests_properties(${test_name} PROPERTIES TIMEOUT 60)
   endforeach()
+
+  configure_file(
+    tests/package_consumer/run_consumer_test.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/run_package_consumer_test.cmake"
+    @ONLY
+  )
+  add_test(
+    NAME package_consumer
+    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_BINARY_DIR}/run_package_consumer_test.cmake"
+  )
+  set_tests_properties(package_consumer PROPERTIES TIMEOUT 120)
 endif()
 
 if(VELOGRAPHX_BUILD_BENCHMARKS)
