@@ -108,6 +108,6 @@ jobs:
         run: |
           mkdir -p build/v2-calibration
           { echo selector_commit=$(git rev-parse HEAD); echo selector=scale-conditioned-selector-owned-v3; echo mechanism=large_scale_selector_owns_recompute_no_internal_repair_fallback; echo development_datasets=ca-GrQc,soc-Epinions1,web-Google; echo email_EuAll_used_for_tuning=false; echo amazon0302_used_for_tuning=false; echo repetitions=3; echo feature_cost_in_adaptive_timing=true; echo fixed_targets='mean<=0.05,p95<=0.20,worst<=0.25,exact=100%'; } > build/v2-calibration/provenance.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: {name: adaptive-selector-owned-calibration, path: build/v2-calibration/, retention-days: 90}

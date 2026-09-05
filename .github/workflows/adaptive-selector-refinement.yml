@@ -106,7 +106,7 @@ jobs:
           json.dump(result,open('evidence/adaptive/refinement-summary.json','w'),indent=2)
           print(json.dumps(result,indent=2))
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: adaptive-selector-refinement-108-v5
           path: evidence/adaptive

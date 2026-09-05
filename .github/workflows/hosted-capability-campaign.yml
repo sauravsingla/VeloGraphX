@@ -166,7 +166,7 @@ jobs:
           PY
 
       - name: Upload hosted capability evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: velographx-hosted-capability-campaign
           path: capability-results/

@@ -149,7 +149,7 @@ jobs:
           PY
 
       - name: Upload evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: velographx-hipc2017-cpu-reimplementation
           path: build/hipc2017/

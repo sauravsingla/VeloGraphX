@@ -73,7 +73,7 @@ jobs:
         if: always()
         run: |
           { echo "sha=$(git rev-parse HEAD)"; echo "heldout_roots=ca:364,1236,2108;ep:18,737,1719;web:0,2,5"; echo "heldout_batches=ca:160,640,1280;ep:640,2560,5120;web:2560,8192,16384"; echo "repetitions=5"; } > build/heldout/pins.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: adaptive-policy-heldout-final

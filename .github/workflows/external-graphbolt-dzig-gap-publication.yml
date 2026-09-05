@@ -99,7 +99,7 @@ jobs:
           mkdir -p build
           printf '{"1":[2000,2100,2050,2075,2025],"2":[1100,1200,1150,1175,1125]}\n' > build/samples.json
           python tools/validate_publication_measurements.py --input build/samples.json --output build/quality.json --require-scaling
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: graphbolt-dzig-gap-contract
@@ -215,7 +215,7 @@ jobs:
             echo 'publication_grade=false'
           } > build/graphbolt-hosted/evidence-scope.txt
           lscpu > build/graphbolt-hosted/host-lscpu.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: graphbolt-official-native-hosted-smoke

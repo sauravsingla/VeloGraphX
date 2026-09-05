@@ -117,7 +117,7 @@ jobs:
             echo "hosted_runner_performance_gate=informational"
           } > build/multiroot-policy/pins.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: adaptive-bfs-policy-multiroot-validation

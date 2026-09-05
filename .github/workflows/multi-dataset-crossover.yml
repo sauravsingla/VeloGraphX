@@ -160,7 +160,7 @@ jobs:
           python tools/validate_result_bundle.py "build/multi/${{ matrix.dataset }}/result-bundle.json"
 
       - name: Upload machine-readable evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: velographx-multi-crossover-${{ matrix.dataset }}
           path: build/multi/${{ matrix.dataset }}/

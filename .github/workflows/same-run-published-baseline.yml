@@ -161,7 +161,7 @@ jobs:
           PY
 
       - name: Upload comparison evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: velographx-same-run-published-baseline
           path: build/same-run/

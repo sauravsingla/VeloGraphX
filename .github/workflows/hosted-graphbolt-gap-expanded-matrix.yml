@@ -251,7 +251,7 @@ jobs:
             echo 'gapbs_scope=post-update BFS kernel only; not comparable dynamic envelope'
           } > "$BASE/evidence-scope.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: hosted-graphbolt-gap-expanded-${{ matrix.dataset }}

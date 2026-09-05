@@ -103,7 +103,7 @@ jobs:
           assert d['publication_ready'] is False
           assert d['checks']['controlled_hardware_measurements_valid'] is False
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: canonical-publication-contract-smoke
           path: |
@@ -178,7 +178,7 @@ jobs:
           free -b | tee canonical-artifacts/memory-after.txt
           git rev-parse HEAD | tee canonical-artifacts/git-head.txt
           git status --porcelain | tee canonical-artifacts/git-status.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: canonical-publication-campaign

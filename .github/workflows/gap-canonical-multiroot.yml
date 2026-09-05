@@ -150,7 +150,7 @@ jobs:
 
       - name: Upload contract evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gap-multiroot-contract-smoke
           path: artifacts/gap-contract
@@ -244,7 +244,7 @@ jobs:
 
       - name: Upload canonical evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gap-canonical-${{ inputs.dataset }}-multiroot
           path: artifacts/gap-canonical

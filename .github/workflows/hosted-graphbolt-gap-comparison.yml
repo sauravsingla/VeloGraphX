@@ -218,7 +218,7 @@ jobs:
             echo 'important=GAPBS timing is a post-update full-recompute kernel baseline and is not the same update+maintenance envelope as VeloGraphX/GraphBolt'
           } > build/compare/evidence-scope.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: hosted-velographx-graphbolt-gapbs-comparison

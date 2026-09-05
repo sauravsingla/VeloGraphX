@@ -71,6 +71,6 @@ jobs:
         if: always()
         run: |
           { echo selector_commit=$(git rev-parse HEAD); echo dataset=email-EuAll; echo expected_vertices=265214; echo expected_edges=420045; echo roots=0,1000,10000; echo batches=256,1024,4096; echo repetitions=5; echo targets=mean5%,p95-20%,worst25%; } > build/fourth/provenance.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: {name: adaptive-fourth-dataset-frozen, path: build/fourth/, retention-days: 90}

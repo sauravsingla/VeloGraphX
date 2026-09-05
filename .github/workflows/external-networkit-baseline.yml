@@ -181,7 +181,7 @@ jobs:
           print(json.dumps(result,sort_keys=True))
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-external-networkit-web-google
           path: |

@@ -62,7 +62,7 @@ jobs:
           test -s data/roadNet-CA.metadata.json
           test -s data/kron-scale16-ef16-seed1.metadata.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: owens-benchmark-contract
           path: |

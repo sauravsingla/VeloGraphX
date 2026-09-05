@@ -123,7 +123,7 @@ jobs:
           Path('build/steady/web-google/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
           print(json.dumps(summary,sort_keys=True))
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-steady-state-web-google
           path: |
@@ -214,7 +214,7 @@ jobs:
           Path('build/steady/orkut/summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
           print(json.dumps(summary,sort_keys=True))
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-steady-state-orkut-100m
           path: |

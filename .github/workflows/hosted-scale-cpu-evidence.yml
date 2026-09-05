@@ -68,7 +68,7 @@ jobs:
           assert [int(r['threads']) for r in rows] == [1,2,4]
           assert len({r['digest'] for r in rows}) == 1
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-hosted-cpu-ablation-scaling
           path: |
@@ -121,7 +121,7 @@ jobs:
               summary['fractions'][f]={'requested_edges':requested,'incremental_median_ms':inc/1e6,'full_median_ms':full/1e6,'speedup':full/inc,'updates_per_s':requested*1e9/inc}
           json.dump(summary,open('build/livejournal/summary.json','w'),indent=2)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-livejournal-exact-scale
           path: |
@@ -173,7 +173,7 @@ jobs:
               summary['fractions'][f]={'requested_edges':requested,'incremental_median_ms':inc/1e6,'full_median_ms':full/1e6,'speedup':full/inc,'updates_per_s':requested*1e9/inc}
           json.dump(summary,open('build/orkut/summary.json','w'),indent=2)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-orkut-exact-scale
           path: |
@@ -221,7 +221,7 @@ jobs:
               rows=list(csv.DictReader(p.open())); status['tractable']=bool(rows); status['exact']=bool(rows) and rows[0].get('correct')=='1'
           pathlib.Path('build/reference/status.json').write_text(json.dumps(status,indent=2)+'\n')
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-livejournal-published-reference-feasibility
           path: |

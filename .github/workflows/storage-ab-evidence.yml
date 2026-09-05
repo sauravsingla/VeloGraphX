@@ -84,7 +84,7 @@ jobs:
           print('storage A/B artifact validation passed')
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-storage-ab-${{ matrix.label }}
           path: build/storage-ab/${{ matrix.label }}/

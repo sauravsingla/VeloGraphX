@@ -62,7 +62,7 @@ jobs:
           assert d['records']
           assert all('peak_rss_bytes' in r for r in d['records'] if r.get('benchmark_exit_code') == 0)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: capacity-campaign-smoke
           path: capacity-artifacts/
@@ -107,7 +107,7 @@ jobs:
         run: |
           free -b | tee capacity-artifacts/free-after.txt
           git rev-parse HEAD | tee capacity-artifacts/git-head.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: dedicated-capacity-campaign

@@ -71,7 +71,7 @@ jobs:
       - name: Freeze provenance
         run: |
           { echo freeze_commit=$(git rev-parse HEAD); echo performance_timings_observed=false; echo prior_unseen_dataset=email-EuAll; echo fifth_dataset=amazon0302; } > build/fifth-freeze/provenance.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: adaptive-fifth-dataset-topology-freeze
           path: build/fifth-freeze/

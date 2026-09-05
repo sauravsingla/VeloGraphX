@@ -107,7 +107,7 @@ jobs:
         if: always()
         run: |
           { echo evaluation=amazon0302-one-shot; echo selector_commit=$FROZEN_SELECTOR_COMMIT; echo benchmark_blob=$FROZEN_BENCHMARK_BLOB; echo selector=scale-conditioned-selector-owned-v3; echo source_transformation=false; echo tuning_after_freeze=false; echo roots=20802,99851,0; echo batches=512,2048,8192; echo repetitions=5; echo import_rate=0.90; echo gzip_sha256=$AMAZON_GZIP_SHA256; echo normalized_sha256=$AMAZON_NORMALIZED_SHA256; echo fixed_targets='exact=100%,mean<=5%,p95<=20%,worst<=25%'; } > build/amazon-one-shot/provenance.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: adaptive-amazon0302-frozen-one-shot

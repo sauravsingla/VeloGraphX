@@ -121,7 +121,7 @@ jobs:
       - name: Capture immutable evidence pins
         run: |
           { echo "velographx_sha=$(git rev-parse HEAD)"; echo "networkit_sha=$NETWORKIT_SHA"; echo "networkit_version=$NETWORKIT_VERSION"; echo "source_gzip_sha256=$EPINIONS_GZIP_SHA256"; echo "source_text_sha256=$EPINIONS_TEXT_SHA256"; echo "normalized_stream_sha256=$EPINIONS_STREAM_SHA256"; } | tee build/epinions/pins.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-native-networkit-epinions-multiroot
           path: build/epinions/

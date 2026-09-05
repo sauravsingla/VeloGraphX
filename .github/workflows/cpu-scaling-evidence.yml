@@ -100,7 +100,7 @@ jobs:
           print('CPU scaling artifact validation passed')
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-hosted-cpu-scaling
           path: |
@@ -190,7 +190,7 @@ jobs:
           print(json.dumps(status, sort_keys=True))
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velographx-controlled-cpu-scaling
           path: build/controlled-cpu-scaling/

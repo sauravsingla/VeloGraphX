@@ -29,7 +29,7 @@ jobs:
           grep -q '"mismatches":0' evidence/exactness/run.log
           test "$(grep -c '"bfs_mismatches":0' evidence/exactness/run.log)" -eq 6
           test "$(grep -c '"triangle_mismatches":0' evidence/exactness/run.log)" -eq 6
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: exactness-stress-two-million
           path: evidence/exactness
@@ -65,7 +65,7 @@ jobs:
               out.extend(rows)
           json.dump({'rows':out,'correctness':'digest-gated'},open('evidence/compression/summary.json','w'),indent=2)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: compression-end-to-end-hosted
           path: evidence/compression
@@ -144,7 +144,7 @@ jobs:
           json.dump({'all_results_exact':True,'adaptive_rows':len(adaptive),'mean_relative_to_regime_best':mean,'worst_relative_to_regime_best':worst},open('evidence/adaptive/broader-summary.json','w'),indent=2)
           print('adaptive_rows=',len(adaptive),'mean=',mean,'worst=',worst)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: adaptive-bfs-broader-validation
           path: evidence/adaptive
@@ -180,7 +180,7 @@ jobs:
               summary.append({'algorithm':alg,'threads':t,'median_speedup':statistics.median(xs),'repetitions':len(xs)})
           json.dump({'summary':summary},open('evidence/multicore/summary.json','w'),indent=2)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: multicore-workload-scaling
           path: evidence/multicore
