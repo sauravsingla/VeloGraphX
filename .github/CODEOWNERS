@@ -1,0 +1,8 @@
+# Security-sensitive repository surfaces
+/.github/workflows/ @sauravsingla
+/SECURITY.md @sauravsingla
+/docs/enterprise-security.md @sauravsingla
+/tools/security_scan.py @sauravsingla
+/tools/generate_spdx_sbom.py @sauravsingla
+/.github/dependabot.yml @sauravsingla
+/.github/CODEOWNERS @sauravsingla
