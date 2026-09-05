@@ -1,6 +1,7 @@
 # VeloGraphX
 
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
+[![Security / CodeQL](https://github.com/sauravsingla/VeloGraphX/actions/workflows/security.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/security.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](CITATION.cff)
 [![Release](https://img.shields.io/github/v/release/sauravsingla/VeloGraphX?label=release)](https://github.com/sauravsingla/VeloGraphX/releases/latest)
@@ -18,7 +19,7 @@ VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It
 
 Engineering quality: **30 CTest targets · Linux/macOS CI · ASan/UBSan · Python interoperability**
 
-**Quick links:** [Release](https://github.com/sauravsingla/VeloGraphX/releases/latest) · [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
+**Quick links:** [Release](https://github.com/sauravsingla/VeloGraphX/releases/latest) · [Enterprise Security](docs/enterprise-security.md) · [Security Policy](SECURITY.md) · [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
 
 > **Want to try it?** Build and run the dynamic example in under a minute → [Quick start](#quick-start)
 
