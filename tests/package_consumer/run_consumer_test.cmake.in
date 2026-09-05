@@ -1,0 +1,40 @@
+set(_prefix "@CMAKE_BINARY_DIR@/package-consumer-prefix")
+set(_consumer_build "@CMAKE_BINARY_DIR@/package-consumer-build")
+
+file(REMOVE_RECURSE "${_prefix}" "${_consumer_build}")
+
+execute_process(
+  COMMAND "@CMAKE_COMMAND@" --install "@CMAKE_BINARY_DIR@" --prefix "${_prefix}"
+  RESULT_VARIABLE _install_result
+)
+if(NOT _install_result EQUAL 0)
+  message(FATAL_ERROR "VeloGraphX install step failed: ${_install_result}")
+endif()
+
+execute_process(
+  COMMAND "@CMAKE_COMMAND@"
+    -S "@PROJECT_SOURCE_DIR@/tests/package_consumer"
+    -B "${_consumer_build}"
+    "-DCMAKE_PREFIX_PATH=${_prefix}"
+    "-DCMAKE_BUILD_TYPE=@CMAKE_BUILD_TYPE@"
+  RESULT_VARIABLE _configure_result
+)
+if(NOT _configure_result EQUAL 0)
+  message(FATAL_ERROR "External package consumer configure failed: ${_configure_result}")
+endif()
+
+execute_process(
+  COMMAND "@CMAKE_COMMAND@" --build "${_consumer_build}" --config "@CMAKE_BUILD_TYPE@"
+  RESULT_VARIABLE _build_result
+)
+if(NOT _build_result EQUAL 0)
+  message(FATAL_ERROR "External package consumer build failed: ${_build_result}")
+endif()
+
+execute_process(
+  COMMAND "${_consumer_build}/velographx_package_consumer"
+  RESULT_VARIABLE _run_result
+)
+if(NOT _run_result EQUAL 0)
+  message(FATAL_ERROR "External package consumer run failed: ${_run_result}")
+endif()
