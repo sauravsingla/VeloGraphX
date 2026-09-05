@@ -22,11 +22,13 @@ def edge_rows(path: Path):
 
 def apply_stream(edges: set[tuple[int, int]], path: Path):
     additions = deletions = 0
+    touched_vertices: set[int] = set()
     for number, raw in enumerate(path.read_text().splitlines(), 1):
         fields = raw.split()
         if len(fields) < 3 or fields[0] not in {"a", "d"}:
             raise ValueError(f"{path}:{number}: expected 'a|d source target'")
         edge = (int(fields[1]), int(fields[2]))
+        touched_vertices.update(edge)
         if fields[0] == "a":
             if edge in edges:
                 raise ValueError(f"{path}:{number}: invalid duplicate addition")
@@ -35,21 +37,19 @@ def apply_stream(edges: set[tuple[int, int]], path: Path):
             if edge not in edges:
                 raise ValueError(f"{path}:{number}: invalid deletion of absent edge")
             edges.remove(edge); deletions += 1
-    return additions, deletions
+    return additions, deletions, touched_vertices
 
 
 def fresh_reachable(edges: set[tuple[int, int]], source: int):
     adjacency = {}
-    vertices = {source}
     for u, v in edges:
         adjacency.setdefault(u, []).append(v)
-        vertices.update((u, v))
     reached, queue = {source}, deque([source])
     while queue:
         for target in adjacency.get(queue.popleft(), ()):
             if target not in reached:
                 reached.add(target); queue.append(target)
-    return vertices, reached
+    return reached
 
 
 def graphbolt_reachable(path: Path):
@@ -73,12 +73,31 @@ def main():
     parser.add_argument("--source", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    edges = set(edge_rows(args.initial))
-    additions, deletions = apply_stream(edges, args.stream)
-    vertices, expected = fresh_reachable(edges, args.source)
+
+    initial_edges = set(edge_rows(args.initial))
+    # GraphBolt's output domain is defined by the workload graph, not only by
+    # vertices that still have an incident edge after applying deletions. Keep
+    # that stable domain so vertices made isolated by an update are verified as
+    # unreachable instead of being mistaken for unexpected GraphBolt output.
+    vertices = {args.source}
+    for u, v in initial_edges:
+        vertices.update((u, v))
+
+    edges = set(initial_edges)
+    additions, deletions, touched_vertices = apply_stream(edges, args.stream)
+    vertices.update(touched_vertices)
+    expected = fresh_reachable(edges, args.source)
     observed = graphbolt_reachable(args.graphbolt_output)
-    if set(observed) != vertices:
-        raise ValueError("GraphBolt vertex domain differs from fresh recomputation")
+
+    observed_vertices = set(observed)
+    if observed_vertices != vertices:
+        missing = sorted(vertices - observed_vertices)
+        extra = sorted(observed_vertices - vertices)
+        raise ValueError(
+            "GraphBolt vertex domain differs from workload domain "
+            f"(missing={len(missing)}, extra={len(extra)}, "
+            f"missing_sample={missing[:5]}, extra_sample={extra[:5]})"
+        )
     mismatches = sorted(v for v in vertices if observed[v] != int(v in expected))
     if mismatches:
         raise ValueError(f"GraphBolt BFS reachability differs at {len(mismatches)} vertices")
