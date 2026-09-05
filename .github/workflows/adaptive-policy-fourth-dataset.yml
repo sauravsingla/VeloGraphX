@@ -1,8 +1,5 @@
 name: Adaptive BFS Fourth Dataset Frozen Evaluation
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/adaptive-policy-fourth-dataset.yml']
   workflow_dispatch:
 jobs:
   frozen-evaluation:
@@ -26,7 +23,6 @@ jobs:
           curl --fail --location --retry 3 https://snap.stanford.edu/data/email-EuAll.txt.gz -o build/fourth/email-EuAll.txt.gz
           gzip -dc build/fourth/email-EuAll.txt.gz > build/fourth/raw.txt
           python - <<'PY'
-          # Canonicalize to dense IDs so isolated numeric ID gaps do not distort state fractions.
           ids={}; edges=[]
           for line in open('build/fourth/raw.txt'):
             if not line.strip() or line[0]=='#': continue
@@ -45,7 +41,6 @@ jobs:
           python - <<'PY'
           import json,subprocess
           from pathlib import Path
-          # Fixed before measurement: three structurally distinct roots and update regimes.
           roots=[0,1000,10000]
           batches=[256,1024,4096]
           for root in roots:
