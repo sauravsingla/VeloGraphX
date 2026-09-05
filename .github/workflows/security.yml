@@ -1,0 +1,85 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-guard:
+    name: Secret scan and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: High-confidence secret-pattern scan
+        run: python3 tools/security_scan.py
+      - name: Generate SPDX 2.3 source-intake SBOM
+        run: python3 tools/generate_spdx_sbom.py --output build/velographx-sbom.spdx.json
+      - name: Validate SBOM structure
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('build/velographx-sbom.spdx.json')
+          doc = json.loads(p.read_text())
+          assert doc['spdxVersion'] == 'SPDX-2.3'
+          assert doc['SPDXID'] == 'SPDXRef-DOCUMENT'
+          assert any(x['name'] == 'VeloGraphX' for x in doc['packages'])
+          print(f"validated {p} with {len(doc['packages'])} packages")
+          PY
+      - name: Upload SPDX SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: velographx-spdx-sbom
+          path: build/velographx-sbom.spdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      packages: read
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [c-cpp, python]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@6f5948dfacef28e207b48d0905cf90c03365536d # v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+      - name: Build C++ for CodeQL
+        if: matrix.language == 'c-cpp'
+        run: |
+          cmake -S . -B build-codeql \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF \
+            -DVELOGRAPHX_BUILD_PYTHON=OFF
+          cmake --build build-codeql --target velographx -j 2
+      - name: Analyze
+        uses: github/codeql-action/analyze@6f5948dfacef28e207b48d0905cf90c03365536d # v3
+        with:
+          category: '/language:${{ matrix.language }}'
