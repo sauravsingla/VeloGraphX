@@ -5,53 +5,79 @@ on:
     paths:
       - 'pyproject.toml'
       - 'CMakeLists.txt'
+      - 'cmake/**'
       - 'python/**'
       - 'include/**'
+      - 'src/**'
+      - 'README.md'
+      - 'LICENSE'
       - '.github/workflows/python-package.yml'
   pull_request:
     paths:
       - 'pyproject.toml'
       - 'CMakeLists.txt'
+      - 'cmake/**'
       - 'python/**'
       - 'include/**'
+      - 'src/**'
+      - 'README.md'
+      - 'LICENSE'
       - '.github/workflows/python-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  wheel-smoke:
+  wheels:
+    name: Wheels (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-15-intel
+          - macos-14
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build and test wheels
+        uses: pypa/cibuildwheel@v4.2.0
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v6
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Build wheel
+      - name: Build source distribution
         run: |
           python -m pip install --upgrade pip build
-          python -m build --wheel
-      - name: Install wheel
-        run: python -m pip install dist/*.whl
-      - name: Import and dynamic-graph smoke test
+          python -m build --sdist
+      - name: Install and smoke-test source distribution
         run: |
-          python - <<'PY'
-          import velographx as vx
-
-          graph = vx.Graph(4, False)
-          initial = vx.UpdateBatch()
-          initial.add(0, 1)
-          initial.add(1, 2)
-          graph.apply(initial)
-
-          bfs = vx.IncrementalBFS(graph, 0)
-          assert bfs.distances[:3] == [0, 1, 2]
-
-          update = vx.UpdateBatch()
-          update.add(2, 3)
-          bfs.apply(update)
-          assert bfs.distances == [0, 1, 2, 3]
-
-          print('VeloGraphX wheel install OK')
-          PY
+          python -m pip install dist/*.tar.gz
+          python -c "import velographx as vx; g=vx.Graph(4, False); u=vx.UpdateBatch(); u.add(0, 1); u.add(1, 2); g.apply(u); bfs=vx.IncrementalBFS(g, 0); assert bfs.distances[:3] == [0, 1, 2]"
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v6
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
