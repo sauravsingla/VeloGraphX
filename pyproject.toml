@@ -50,6 +50,7 @@ Issues = "https://github.com/sauravsingla/VeloGraphX/issues"
 [tool.scikit-build]
 minimum-version = "0.10"
 wheel.packages = []
+build.targets = ["velographx_python"]
 install.components = ["python"]
 cmake.build-type = "Release"
 
@@ -57,7 +58,6 @@ cmake.build-type = "Release"
 VELOGRAPHX_BUILD_PYTHON = "ON"
 VELOGRAPHX_BUILD_TESTS = "OFF"
 VELOGRAPHX_BUILD_BENCHMARKS = "OFF"
-VELOGRAPHX_BUILD_EXAMPLES = "OFF"
 
 [tool.cibuildwheel]
 build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*", "cp313-*", "cp314-*"]
