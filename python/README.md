@@ -46,7 +46,7 @@ The bindings include tested interoperability paths for:
 - SciPy CSR matrices via `from_scipy_csr`;
 - Apache Arrow tables via `from_arrow_table`.
 
-CI exercises these adapters alongside dynamic graph operations, incremental BFS, connected components, k-core, PageRank and weighted SSSP bindings. A separate package workflow builds an installable wheel on Linux and macOS and imports the installed module as a smoke test.
+CI exercises these adapters alongside dynamic graph operations, incremental BFS, connected components, k-core, PageRank and weighted SSSP bindings. The package workflow builds and smoke-tests CPython 3.9–3.14 wheels for manylinux x86_64, Windows x64, macOS Intel and macOS Apple Silicon, plus a source distribution.
 
 Ownership, lifetime and dtype behavior are treated as correctness contracts and are validated in CI rather than being described as unverified zero-copy guarantees.
 
