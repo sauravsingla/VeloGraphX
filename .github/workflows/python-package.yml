@@ -1,0 +1,57 @@
+name: Python Package
+
+on:
+  push:
+    paths:
+      - 'pyproject.toml'
+      - 'CMakeLists.txt'
+      - 'python/**'
+      - 'include/**'
+      - '.github/workflows/python-package.yml'
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'CMakeLists.txt'
+      - 'python/**'
+      - 'include/**'
+      - '.github/workflows/python-package.yml'
+
+jobs:
+  wheel-smoke:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+      - name: Install wheel
+        run: python -m pip install dist/*.whl
+      - name: Import and dynamic-graph smoke test
+        run: |
+          python - <<'PY'
+          import velographx as vx
+
+          graph = vx.Graph(4, False)
+          initial = vx.UpdateBatch()
+          initial.add(0, 1)
+          initial.add(1, 2)
+          graph.apply(initial)
+
+          bfs = vx.IncrementalBFS(graph, 0)
+          assert bfs.distances[:3] == [0, 1, 2]
+
+          update = vx.UpdateBatch()
+          update.add(2, 3)
+          bfs.apply(update)
+          assert bfs.distances == [0, 1, 2, 3]
+
+          print('VeloGraphX wheel install OK')
+          PY
