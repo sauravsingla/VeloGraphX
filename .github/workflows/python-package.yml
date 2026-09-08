@@ -12,6 +12,7 @@ on:
       - 'README.md'
       - 'LICENSE'
       - '.github/workflows/python-package.yml'
+      - '.github/workflows/publish-pypi.yml'
   pull_request:
     paths:
       - 'pyproject.toml'
@@ -23,6 +24,7 @@ on:
       - 'README.md'
       - 'LICENSE'
       - '.github/workflows/python-package.yml'
+      - '.github/workflows/publish-pypi.yml'
   workflow_dispatch:
 
 permissions:
