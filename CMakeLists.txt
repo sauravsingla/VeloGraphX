@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VeloGraphX VERSION 0.8.0 LANGUAGES CXX)
+project(VeloGraphX VERSION 0.8.2 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
