@@ -1,4 +1,6 @@
 if(SKBUILD)
+  set(PYBIND11_FINDPYTHON ON)
+  find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
   find_package(pybind11 CONFIG REQUIRED)
 else()
   find_package(pybind11 CONFIG QUIET)
