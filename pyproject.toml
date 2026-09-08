@@ -1,0 +1,53 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.10",
+  "pybind11>=2.12",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "velographx"
+version = "0.8.1"
+description = "Exact incremental graph analytics for evolving graphs, powered by a C++20 engine."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Saurav Singla" },
+]
+keywords = [
+  "dynamic-graphs",
+  "graph-analytics",
+  "incremental-computing",
+  "high-performance-computing",
+  "cpp20",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: C++",
+  "Programming Language :: C++ :: 20",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/sauravsingla/VeloGraphX"
+Repository = "https://github.com/sauravsingla/VeloGraphX"
+Documentation = "https://github.com/sauravsingla/VeloGraphX#readme"
+Issues = "https://github.com/sauravsingla/VeloGraphX/issues"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+wheel.packages = []
+install.components = ["python"]
+cmake.build-type = "Release"
+
+[tool.scikit-build.cmake.define]
+VELOGRAPHX_BUILD_PYTHON = "ON"
+VELOGRAPHX_BUILD_TESTS = "OFF"
+VELOGRAPHX_BUILD_BENCHMARKS = "OFF"
