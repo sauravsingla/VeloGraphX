@@ -11,9 +11,8 @@ if(pybind11_FOUND)
 
   if(SKBUILD)
     install(TARGETS velographx_python
-      LIBRARY DESTINATION .
-      RUNTIME DESTINATION .
-      COMPONENT python
+      LIBRARY DESTINATION . COMPONENT python
+      RUNTIME DESTINATION . COMPONENT python
     )
   endif()
 else()
