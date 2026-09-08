@@ -2,11 +2,34 @@
 
 VeloGraphX provides optional pybind11 bindings while keeping the native C++ engine on the performance-critical paths.
 
-## Build
+## Install with pip from a checkout
 
-Install pybind11, then configure with the Python bindings enabled:
+The repository is now packaged with `pyproject.toml` and scikit-build-core, so a local checkout can be built and installed with one command:
 
 ```bash
+python -m pip install .
+```
+
+For an editable developer install:
+
+```bash
+python -m pip install -e .
+```
+
+The build backend installs pybind11 in an isolated build environment and configures the CMake Python target automatically. A C++20-capable compiler is still required when building from source.
+
+Once VeloGraphX wheels are published to PyPI, end users will be able to install the published package with:
+
+```bash
+python -m pip install velographx
+```
+
+## Manual CMake build
+
+For development or direct CMake use, the previous build path remains supported:
+
+```bash
+python -m pip install pybind11
 cmake -S . -B build-python -DCMAKE_BUILD_TYPE=Release \
   -DVELOGRAPHX_BUILD_TESTS=OFF \
   -DVELOGRAPHX_BUILD_BENCHMARKS=OFF \
@@ -14,8 +37,6 @@ cmake -S . -B build-python -DCMAKE_BUILD_TYPE=Release \
   -Dpybind11_DIR="$(python -m pybind11 --cmakedir)"
 cmake --build build-python -j
 ```
-
-The resulting `velographx` extension is built from the same C++ engine used by the native API.
 
 ## Interoperability
 
@@ -25,7 +46,7 @@ The bindings include tested interoperability paths for:
 - SciPy CSR matrices via `from_scipy_csr`;
 - Apache Arrow tables via `from_arrow_table`.
 
-CI exercises these adapters alongside dynamic graph operations, incremental BFS, connected components, k-core, PageRank and weighted SSSP bindings.
+CI exercises these adapters alongside dynamic graph operations, incremental BFS, connected components, k-core, PageRank and weighted SSSP bindings. A separate package workflow builds an installable wheel on Linux and macOS and imports the installed module as a smoke test.
 
 Ownership, lifetime and dtype behavior are treated as correctness contracts and are validated in CI rather than being described as unverified zero-copy guarantees.
 
