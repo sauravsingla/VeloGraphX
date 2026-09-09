@@ -1,8 +1,22 @@
-find_package(pybind11 CONFIG QUIET)
+if(SKBUILD)
+  set(PYBIND11_FINDPYTHON ON)
+  find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+  find_package(pybind11 CONFIG REQUIRED)
+else()
+  find_package(pybind11 CONFIG QUIET)
+endif()
+
 if(pybind11_FOUND)
   pybind11_add_module(velographx_python bindings.cpp)
   target_include_directories(velographx_python PRIVATE ${PROJECT_SOURCE_DIR}/include)
   set_target_properties(velographx_python PROPERTIES OUTPUT_NAME velographx)
+
+  if(SKBUILD)
+    install(TARGETS velographx_python
+      LIBRARY DESTINATION . COMPONENT python
+      RUNTIME DESTINATION . COMPONENT python
+    )
+  endif()
 else()
   message(STATUS "pybind11 not found; Python extension skipped")
 endif()

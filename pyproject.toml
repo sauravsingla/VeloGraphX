@@ -1,0 +1,68 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.10",
+  "pybind11>=2.12",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "velographx"
+version = "0.8.2"
+description = "Exact incremental graph analytics for evolving graphs, powered by a C++20 engine."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Saurav Singla" },
+]
+keywords = [
+  "dynamic-graphs",
+  "graph-analytics",
+  "incremental-computing",
+  "high-performance-computing",
+  "cpp20",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: C++",
+  "Programming Language :: C++ :: 20",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/sauravsingla/VeloGraphX"
+Repository = "https://github.com/sauravsingla/VeloGraphX"
+Documentation = "https://github.com/sauravsingla/VeloGraphX#readme"
+Issues = "https://github.com/sauravsingla/VeloGraphX/issues"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+wheel.packages = []
+build.targets = ["velographx_python"]
+install.components = ["python"]
+cmake.build-type = "Release"
+
+[tool.scikit-build.cmake.define]
+VELOGRAPHX_BUILD_PYTHON = "ON"
+VELOGRAPHX_BUILD_TESTS = "OFF"
+VELOGRAPHX_BUILD_BENCHMARKS = "OFF"
+
+[tool.cibuildwheel]
+build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*", "cp313-*", "cp314-*"]
+skip = ["*-musllinux_*"]
+test-command = "python -c \"import velographx as vx; g=vx.Graph(4, False); u=vx.UpdateBatch(); u.add(0, 1); u.add(1, 2); g.apply(u); bfs=vx.IncrementalBFS(g, 0); assert bfs.distances[:3] == [0, 1, 2]\""
+
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
