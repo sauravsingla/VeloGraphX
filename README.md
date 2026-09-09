@@ -3,7 +3,7 @@
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
 [![Security / CodeQL](https://github.com/sauravsingla/VeloGraphX/actions/workflows/security.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/security.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
-[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](CITATION.cff)
+[![Version](https://img.shields.io/badge/version-0.8.2-blue.svg)](https://github.com/sauravsingla/VeloGraphX/releases/latest)
 [![Release](https://img.shields.io/github/v/release/sauravsingla/VeloGraphX?label=release)](https://github.com/sauravsingla/VeloGraphX/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Cite](https://img.shields.io/badge/cite-CITATION.cff-blue.svg)](CITATION.cff)
@@ -17,11 +17,11 @@ VeloGraphX is a high-performance CPU engine for analytics on evolving graphs. It
 **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches**  
 **Adaptive repair/recompute · Multicore CPU · Storage-independent algorithms · Reproducible benchmarks**
 
-Engineering quality: **30 CTest targets · Linux/macOS CI · ASan/UBSan · Python interoperability**
+Engineering quality: **30 CTest targets · Linux/macOS CI · ASan/UBSan · Python 3.9–3.14 packaging**
 
 **Quick links:** [Release](https://github.com/sauravsingla/VeloGraphX/releases/latest) · [Enterprise Security](docs/enterprise-security.md) · [Security Policy](SECURITY.md) · [C++ examples](examples/) · [Python](python/README.md) · [Architecture](docs/architecture.md) · [Dynamic storage](docs/dynamic-storage.md) · [Benchmarks](docs/benchmark-methodology.md) · [Reproduction](#reproduce-the-2m-update-exactness-test)
 
-> **Want to try it?** Build and run the dynamic example in under a minute → [Quick start](#quick-start)
+> **Want to try it?** Starting with v0.8.2, install the Python package with `pip install velographx`, or build the C++ examples from source → [Quick start](#quick-start)
 
 ![VeloGraphX dynamic analytics flow](docs/assets/velographx-flow.svg)
 
@@ -46,6 +46,31 @@ VeloGraphX brings four concerns into one systems design:
 - **Measure crossover:** choose localized repair or full recomputation according to workload and observed cost.
 - **Separate algorithms from storage:** graph-access abstractions let the same algorithmic path work across multiple representations.
 - **Make evidence reproducible:** benchmark provenance, timing contracts and claim boundaries are part of the project design.
+
+## Python install
+
+Starting with **v0.8.2**, VeloGraphX is distributed as a Python package with prebuilt wheels for supported CPython platforms.
+
+```bash
+python -m pip install velographx
+```
+
+Minimal dynamic Python example:
+
+```python
+import velographx as vx
+
+g = vx.Graph(4, False)
+updates = vx.UpdateBatch()
+updates.add(0, 1)
+updates.add(1, 2)
+g.apply(updates)
+
+bfs = vx.IncrementalBFS(g, 0)
+print(bfs.distances)
+```
+
+The Python module uses the same native C++20 engine underneath. Release CI builds and smoke-tests CPython **3.9–3.14** wheels for Linux, Windows, macOS Intel and Apple Silicon, plus a source distribution. See [`python/README.md`](python/README.md) for source, editable, and manual CMake installation paths.
 
 ## Results at a glance
 
@@ -119,7 +144,7 @@ The implementation also includes graph-access abstraction, SIMD-oriented interse
 
 ## Quick start
 
-Requires **CMake ≥ 3.20** and a **C++20 compiler**.
+Requires **CMake ≥ 3.20** and a **C++20 compiler** for source builds.
 
 ```bash
 git clone https://github.com/sauravsingla/VeloGraphX.git
@@ -163,7 +188,7 @@ triangles.apply(update);
 auto current_triangles = triangles.value();
 ```
 
-For the complete dynamic example, see [`examples/dynamic_transactions.cpp`](examples/dynamic_transactions.cpp). Optional Python bindings are enabled with `-DVELOGRAPHX_BUILD_PYTHON=ON`; see [`python/README.md`](python/README.md).
+For the complete dynamic C++ example, see [`examples/dynamic_transactions.cpp`](examples/dynamic_transactions.cpp). For Python package usage and source-build options, see [`python/README.md`](python/README.md).
 
 ## Architecture
 
@@ -186,7 +211,7 @@ The selector uses **update fraction, affected work, graph scale, root locality a
 - **Dynamic analytics:** BFS/unweighted SSSP, weighted SSSP, connected components, triangle count, k-core and PageRank-related maintenance paths.
 - **Storage-independent execution:** the graph-access contract supports mutable storage, CSR and foreign graph representations.
 - **CPU systems runtime:** multicore execution, SIMD intersections, NUMA-aware policies, compression, partition caching and asynchronous partition loading.
-- **C++ first, Python optional:** native hot paths remain in C++; pybind11 bindings can be enabled at build time.
+- **C++ engine, packaged Python interface:** native hot paths remain in C++; v0.8.2 adds standard pip-installable Python distribution and cross-platform release wheels.
 
 ## Benchmark & evidence
 
@@ -220,9 +245,9 @@ The hosted campaigns establish correctness, reproducibility and crossover behavi
 
 ## Project status
 
-VeloGraphX is an **active research and engineering project**. Current core library/source version: **0.8.0**. APIs may evolve before 1.0, so pin a version or commit for reproducible experiments.
+VeloGraphX is an **active research and engineering project**. Current library/package version: **0.8.2**. APIs may evolve before 1.0, so pin a version or commit for reproducible experiments.
 
-Research citation metadata is available in [`CITATION.cff`](CITATION.cff). The latest GitHub release is [`v0.8.1`](https://github.com/sauravsingla/VeloGraphX/releases/latest), a CI/release-workflow maintenance release; the core library APIs remain at **0.8.0**. Pin the release or a specific commit when using results in reproducible experiments.
+The **v0.8.2** release adds production-oriented Python packaging, cross-platform wheel builds, source-distribution validation, installed-package smoke tests, and PyPI Trusted Publishing while preserving the existing C++20 engine and graph-analytics APIs. Research citation metadata is available in [`CITATION.cff`](CITATION.cff).
 
 ## Contributing
 
