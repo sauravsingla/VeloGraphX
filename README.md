@@ -249,6 +249,12 @@ VeloGraphX is an **active research and engineering project**. Current library/pa
 
 The **v0.8.2** release adds production-oriented Python packaging, cross-platform wheel builds, source-distribution validation, installed-package smoke tests, and PyPI Trusted Publishing while preserving the existing C++20 engine and graph-analytics APIs. Research citation metadata is available in [`CITATION.cff`](CITATION.cff).
 
+## Acknowledgments — Technical Feedback
+
+Thanks to [John D. Owens](https://github.com/jowens) (`@jowens`), [Scott Beamer](https://github.com/sbeamer) (`@sbeamer`), [Timothy A. Davis](https://github.com/DrTimothyAldenDavis) (`@DrTimothyAldenDavis`), and [Brian Wheatman](https://github.com/wheatman) (`@wheatman`) for helpful technical and benchmarking feedback that informed the evaluation methodology. Thanks also to Mikhail Kirilin for substantive NetworKit benchmarking feedback.
+
+Their feedback is acknowledged as technical input and does **not** imply endorsement of VeloGraphX or its results.
+
 ## Contributing
 
 Contributions are welcome, particularly around **dynamic graph algorithms, CPU optimization, storage policies, benchmark reproducibility, interoperability and documentation**. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a contribution.
