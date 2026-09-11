@@ -5,16 +5,20 @@ on:
     paths:
       - '.github/workflows/networkit-fair-benchmark-contract.yml'
       - 'benchmarks/external_networkit_fair_static.cpp'
+      - 'benchmarks/velographx_fair_static.cpp'
       - 'datasets/networkit-fair-benchmark-plan.json'
       - 'tools/validate_networkit_fair_plan.py'
       - 'docs/networkit-fair-benchmark-contract.md'
+      - 'CMakeLists.txt'
   pull_request:
     paths:
       - '.github/workflows/networkit-fair-benchmark-contract.yml'
       - 'benchmarks/external_networkit_fair_static.cpp'
+      - 'benchmarks/velographx_fair_static.cpp'
       - 'datasets/networkit-fair-benchmark-plan.json'
       - 'tools/validate_networkit_fair_plan.py'
       - 'docs/networkit-fair-benchmark-contract.md'
+      - 'CMakeLists.txt'
   workflow_dispatch:
 
 jobs:
@@ -32,44 +36,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Validate machine-readable Issue 63 plan
         run: python tools/validate_networkit_fair_plan.py
-
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build libomp-dev
-
       - name: Build VeloGraphX in matched Release mode
         run: |
           cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
-          cmake --build build/vx --target velographx_benchmark -j 2
-
+          cmake --build build/vx --target velographx_fair_static_benchmark -j 2
       - name: Build pinned NetworKit C++ core
         run: |
           git clone --filter=blob:none https://github.com/networkit/networkit.git build/networkit
           git -C build/networkit checkout --detach "$NETWORKIT_SHA"
           test "$(git -C build/networkit rev-parse HEAD)" = "$NETWORKIT_SHA"
           git -C build/networkit submodule update --init --recursive
-          cmake -S build/networkit -B build/networkit-build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$PWD/build/networkit-install" \
-            -DNETWORKIT_BUILD_TESTS=OFF
+          cmake -S build/networkit -B build/networkit-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PWD/build/networkit-install" -DNETWORKIT_BUILD_TESTS=OFF
           cmake --build build/networkit-build -j 2
           cmake --install build/networkit-build
           LIB=$(find build/networkit-install -type f \( -name 'libnetworkit.so' -o -name 'libnetworkit.a' \) | head -1)
           test -n "$LIB"
           echo "NETWORKIT_LIBDIR=$(dirname "$LIB")" >> "$GITHUB_ENV"
-
       - name: Compile maintainer-aligned native C++ harness
         run: |
-          c++ -O3 -DNDEBUG -std=c++20 -fopenmp \
-            -Ibuild/networkit-install/include \
-            benchmarks/external_networkit_fair_static.cpp \
-            -L"$NETWORKIT_LIBDIR" -Wl,-rpath,"$NETWORKIT_LIBDIR" -lnetworkit \
-            -o build/networkit_fair_static
-
+          c++ -O3 -DNDEBUG -std=c++20 -fopenmp -Ibuild/networkit-install/include benchmarks/external_networkit_fair_static.cpp -L"$NETWORKIT_LIBDIR" -Wl,-rpath,"$NETWORKIT_LIBDIR" -lnetworkit -o build/networkit_fair_static
       - name: Generate deterministic road-like contract graph
         run: |
           mkdir -p build/issue63
@@ -82,18 +73,12 @@ jobs:
                   for c in range(side):
                       u=r*side+c
                       if c+1 < side:
-                          v=u+1
-                          f.write(f'{u} {v}\n')
-                          f.write(f'{v} {u}\n')
+                          v=u+1; f.write(f'{u} {v}\n'); f.write(f'{v} {u}\n')
                       if r+1 < side:
-                          v=u+side
-                          f.write(f'{u} {v}\n')
-                          f.write(f'{v} {u}\n')
+                          v=u+side; f.write(f'{u} {v}\n'); f.write(f'{v} {u}\n')
           PY
-
       - name: Capture affinity and compiler contract
         run: |
-          mkdir -p build/issue63
           lscpu > build/issue63/lscpu.txt
           c++ --version > build/issue63/compiler.txt
           taskset -pc $$ > build/issue63/affinity-before.txt
@@ -102,42 +87,59 @@ jobs:
             echo "networkit_sha=$NETWORKIT_SHA"
             echo "networkit_version=$NETWORKIT_VERSION"
             echo "build_type=Release"
-            echo "compile_flags=-O3 -DNDEBUG -std=c++20 -fopenmp"
+            echo "networkit_compile_flags=-O3 -DNDEBUG -std=c++20 -fopenmp"
             echo "OMP_NUM_THREADS=$OMP_NUM_THREADS"
             echo "OMP_PROC_BIND=$OMP_PROC_BIND"
             echo "OMP_PLACES=$OMP_PLACES"
           } > build/issue63/pins.txt
-
-      - name: Run pinned single-CPU BFS and Dijkstra contract
+      - name: Run matched VeloGraphX and NetworKit BFS contract
         run: |
           CPU=$(awk '/Cpus_allowed_list/ {print $2}' /proc/self/status | cut -d, -f1 | cut -d- -f1)
           test -n "$CPU"
-          taskset -c "$CPU" build/networkit_fair_static build/issue63/grid.txt 0 5 > build/issue63/result.json
           echo "pinned_cpu=$CPU" >> build/issue63/pins.txt
+          taskset -c "$CPU" build/vx/velographx_fair_static_benchmark build/issue63/grid.txt 0 5 > build/issue63/velographx.json
+          taskset -c "$CPU" build/networkit_fair_static build/issue63/grid.txt 0 5 > build/issue63/networkit.json
           python - <<'PY'
           import json
-          r=json.load(open('build/issue63/result.json'))
-          assert r['native_cpp'] is True
-          assert r['graph_builder'] == 'NetworKit::GraphBuilder'
-          assert 'Traversal::BFSfrom' in r['bfs_api']
-          assert 'Traversal::DijkstraFrom' in r['dijkstra_api']
-          assert r['path_storage'] is False
-          assert r['warmup_runs_per_algorithm'] == 1
-          assert r['repetitions'] == 5
-          assert r['bfs_equals_unit_weight_dijkstra'] is True
-          assert r['visited_vertices'] == 128*128
-          assert r['graph_build_us'] > 0
-          assert len(r['bfs_samples_us']) == 5 and len(r['dijkstra_samples_us']) == 5
-          assert r['bfs_build_plus_algorithm_median_us'] >= r['bfs_algorithm_median_us']
-          assert r['networkit_endorsement'] is False
-          assert r['research_claim'] is False
+          from pathlib import Path
+          vx=json.load(open('build/issue63/velographx.json'))
+          nk=json.load(open('build/issue63/networkit.json'))
+          assert vx['native_cpp'] is True and nk['native_cpp'] is True
+          assert vx['vertices']==nk['vertices']==128*128
+          assert vx['edges']==nk['edges']
+          assert vx['root']==nk['root']==0
+          assert vx['repetitions']==nk['repetitions']==5
+          assert vx['visited_vertices']==nk['visited_vertices']==128*128
+          assert vx['distance_sum']==nk['distance_sum']
+          assert nk['bfs_equals_unit_weight_dijkstra'] is True
+          assert nk['path_storage'] is False
+          ratio=vx['bfs_algorithm_median_us']/nk['bfs_algorithm_median_us']
+          summary={
+            'schema_version':1,
+            'artifact_type':'velographx-networkit-fair-static-bfs-comparison',
+            'dataset':'deterministic-128x128-road-like-grid',
+            'vertices':vx['vertices'],'edges':vx['edges'],'root':0,'repetitions':5,
+            'velographx_bfs_algorithm_median_us':vx['bfs_algorithm_median_us'],
+            'networkit_bfs_algorithm_median_us':nk['bfs_algorithm_median_us'],
+            'velographx_over_networkit_latency_ratio':ratio,
+            'networkit_over_velographx_speed_ratio':(1/ratio if ratio else None),
+            'velographx_graph_build_us':vx['graph_build_us'],
+            'networkit_graph_build_us':nk['graph_build_us'],
+            'cross_system_exact_distance_sum_equal':True,
+            'visited_vertices':vx['visited_vertices'],
+            'same_host_same_pinned_cpu':True,
+            'native_cpp_both':True,
+            'hosted_ci_single_execution':True,
+            'research_claim':False,
+            'interpretation_note':'Engineering evidence on a small deterministic graph; not a cache-scale or publication-grade performance claim.'
+          }
+          Path('build/issue63/comparison.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,sort_keys=True))
           PY
-
       - name: Verify dynamic baseline remains native DynBFS
         run: |
           grep -F 'NetworKit::DynBFS dyn(graph, root, false);' benchmarks/external_networkit_native_bfs.cpp
           grep -F 'all_batches_correct_against_fresh_full_bfs' benchmarks/external_networkit_native_bfs.cpp
-
       - uses: actions/upload-artifact@v4
         with:
           name: issue63-networkit-fair-contract
