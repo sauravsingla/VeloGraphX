@@ -2,7 +2,7 @@
 
 # VeloGraphX
 
-### Exact Dynamic Graph Analytics for Evolving Graphs
+### Correctness-First Dynamic Graph Analytics for Evolving Graphs
 
 <hr width="78%">
 
@@ -57,20 +57,17 @@ This makes VeloGraphX useful for workloads where graph structure changes continu
 | Evidence | Verified result |
 | --- | --- |
 | Dynamic exactness stress | **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches** |
-| Adaptive BFS selector | **108/108 exact · 1.66% mean overhead from regime-best** |
+| Adaptive execution | **108/108 exact · 1.66% mean selector overhead from regime-best**; exact BFS repair was **1.83× / 1.24× faster than full recomputation** at 0.1% / 1% updates, while full recomputation was **2.45× faster** at 5% |
 | Exact dynamic triangles vs published reference | **15/15 exact** · **40.95× / 6.94× / 3.48× lower answer-ready latency** at 1% / 5% / 10% update batches |
-| Native repair/recompute crossover | Exact BFS repair was **1.83× / 1.24× faster than full recomputation** at 0.1% / 1% updates; at 5%, full recomputation was **2.45× faster** |
 | Native static BFS / SSSP vs GAP + LAGraph | BFS: **VeloGraphX fastest at 1/2/4T** — **1.60×–2.04× vs GAP** and **9.4×–11.8× vs LAGraph**. SSSP: **GAP fastest**; VeloGraphX **2.6×–3.0× faster than LAGraph** but **7.0×–8.5× slower than GAP** |
-| GraphBolt / DZiG comparison | **15.35× / 4.28× / 2.33× faster** on tested tiny / medium / large hosted update regimes |
-| Three-system dynamic BFS campaign | **91/91 exact** evaluated VeloGraphX results |
-| Dynamic BFS vs NetworKit | `web-Google`: **~1.38× faster VeloGraphX** · `ca-GrQc`: **~1.35× faster NetworKit** |
+| Dynamic BFS vs NetworKit | `web-Google`: **~1.38× faster VeloGraphX** · `ca-GrQc`: **~1.35× faster NetworKit**; all **30 paired executions exact** |
+| 100M+ graph maintenance | `com-Orkut`: **3,072,441 vertices · 234,370,166 directed arcs**; scale-aware policy delivered **2.25× maintenance-amortized throughput** and **59.6% less consolidation time**, with **~6.6% higher peak RSS** |
 | Multicore scaling at 4 threads | BFS **2.74×** · CC **2.50×** · triangles **2.24×** |
 | Compression | **3.25×–3.78× smaller**, with a documented traversal-performance trade-off |
-| Epinions multi-root BFS | **~1.74× faster** than NetworKit by aggregate mean batch latency in the hosted 1T campaign |
 
-The benchmark record deliberately includes cases where competitors win. GAP is substantially faster on the tested static SSSP workload, NetworKit wins some dynamic regimes, full recomputation wins when repair scope becomes too large, CSR remains preferable for some full-recomputation paths, and compression currently exchanges traversal speed for lower memory use.
+The benchmark record deliberately includes cases where competitors win. GAP is substantially faster on the tested static SSSP workload, NetworKit wins on the tested `ca-GrQc` dynamic-BFS workload, full recomputation wins when repair scope becomes too large, and the 100M+ scale-aware storage policy trades a larger bounded memory envelope for lower maintenance cost.
 
-See the [benchmark methodology](docs/benchmark-methodology.md), [hosted native competitor evidence](docs/hosted-native-competitors.md), [published exact triangle baseline](docs/same-run-published-baseline.md), [competitor benchmarking](docs/competitor-benchmarking.md), and [limitations](docs/limitations.md) for claim boundaries and reproduction details.
+See the [benchmark methodology](docs/benchmark-methodology.md), [hosted native competitor evidence](docs/hosted-native-competitors.md), [published exact triangle baseline](docs/same-run-published-baseline.md), [100M+ canonicalization evidence](docs/canonicalization-ab-evidence.md), [competitor benchmarking](docs/competitor-benchmarking.md), and [limitations](docs/limitations.md) for claim boundaries and reproduction details.
 
 ## Getting Started
 
@@ -166,14 +163,17 @@ VeloGraphX treats benchmarking as part of the system design rather than only as 
 
 The repository includes deterministic update streams and correctness validation, pinned public datasets and competitor revisions, repeated measurements and machine-readable benchmark artifacts, incremental-vs-recompute crossover experiments, storage and algorithm ablation studies, controlled-hardware experiment specifications, thread-scaling and NUMA experiment plans, and explicit publication and evidence boundaries.
 
+Additional hosted engineering campaigns include GraphBolt / DZiG update-regime comparisons, Epinions multi-root dynamic BFS, and the executable same-machine VeloGraphX / NetworKit / RisGraph campaign. These remain in the detailed benchmark record rather than the headline table so that claim maturity and timing contracts stay explicit.
+
 Useful references:
 
 - [Benchmark methodology](docs/benchmark-methodology.md)
 - [Hosted native competitor evidence](docs/hosted-native-competitors.md)
 - [Published exact triangle baseline](docs/same-run-published-baseline.md)
+- [100M+ canonicalization evidence](docs/canonicalization-ab-evidence.md)
 - [Ablation study](docs/ablation-study.md)
 - [GraphBolt / DZiG + GAPBS benchmark contract](docs/graphbolt-dzig-gap-benchmark-contract.md)
-- [Three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md)
+- [Three-system dynamic BFS campaign contract](docs/three-system-dynamic-bfs-campaign.md)
 - [Canonical publication campaign](docs/canonical-publication-campaign.md)
 - [Controlled-hardware execution](docs/controlled-hardware-execution.md)
 - [Limitations](docs/limitations.md)
