@@ -181,12 +181,6 @@ See the [Contributing Guide](CONTRIBUTING.md) to get started.
 
 New to VeloGraphX? Browse the [good first issues](https://github.com/sauravsingla/VeloGraphX/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) or join [GitHub Discussions](https://github.com/sauravsingla/VeloGraphX/discussions) to share a workload, idea, benchmark, or feature proposal.
 
-## Technical Feedback
-
-VeloGraphX's evaluation methodology has benefited from technical and benchmarking feedback from [John D. Owens](https://github.com/jowens), [Scott Beamer](https://github.com/sbeamer), [Timothy A. Davis](https://github.com/DrTimothyAldenDavis), [Brian Wheatman](https://github.com/wheatman), and Mikhail Kirilin.
-
-Their feedback is acknowledged as technical input and **does not imply endorsement of VeloGraphX or its benchmark results**.
-
 ## Project Status
 
 VeloGraphX is an **active research and engineering project**.
