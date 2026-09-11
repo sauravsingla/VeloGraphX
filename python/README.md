@@ -2,9 +2,19 @@
 
 VeloGraphX provides optional pybind11 bindings while keeping the native C++ engine on the performance-critical paths.
 
+## Install from PyPI
+
+Install the published package with:
+
+```bash
+python -m pip install velographx
+```
+
+Release CI builds and smoke-tests CPython 3.9–3.14 wheels for manylinux x86_64, Windows x64, macOS Intel and macOS Apple Silicon, plus a source distribution.
+
 ## Install with pip from a checkout
 
-The repository is now packaged with `pyproject.toml` and scikit-build-core, so a local checkout can be built and installed with one command:
+The repository is packaged with `pyproject.toml` and scikit-build-core, so a local checkout can be built and installed with one command:
 
 ```bash
 python -m pip install .
@@ -17,12 +27,6 @@ python -m pip install -e .
 ```
 
 The build backend installs pybind11 in an isolated build environment and configures the CMake Python target automatically. A C++20-capable compiler is still required when building from source.
-
-Once VeloGraphX wheels are published to PyPI, end users will be able to install the published package with:
-
-```bash
-python -m pip install velographx
-```
 
 ## Manual CMake build
 
@@ -46,7 +50,7 @@ The bindings include tested interoperability paths for:
 - SciPy CSR matrices via `from_scipy_csr`;
 - Apache Arrow tables via `from_arrow_table`.
 
-CI exercises these adapters alongside dynamic graph operations, incremental BFS, connected components, k-core, PageRank and weighted SSSP bindings. The package workflow builds and smoke-tests CPython 3.9–3.14 wheels for manylinux x86_64, Windows x64, macOS Intel and macOS Apple Silicon, plus a source distribution.
+CI exercises these adapters alongside dynamic graph operations, incremental BFS, connected components, k-core, PageRank and weighted SSSP bindings.
 
 Ownership, lifetime and dtype behavior are treated as correctness contracts and are validated in CI rather than being described as unverified zero-copy guarantees.
 
