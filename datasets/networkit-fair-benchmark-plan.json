@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "artifact_type": "velographx-networkit-fair-benchmark-plan",
+  "issue": 63,
+  "guidance": {
+    "source": "personal technical advice from Mikhail Kirilin (KIT / NetworKit maintainer), 2026-09-11",
+    "networkit_endorsement": false
+  },
+  "networkit": {
+    "version": "11.2.1",
+    "revision": "359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c",
+    "language": "C++",
+    "static_bfs_api": "NetworKit::Traversal::BFSfrom(callback)",
+    "static_dijkstra_api": "NetworKit::Traversal::DijkstraFrom(callback)",
+    "dynamic_bfs_api": "NetworKit::DynBFS(graph, source, false)",
+    "bulk_builder": "NetworKit::GraphBuilder"
+  },
+  "timing_contract": {
+    "warmup_runs_per_algorithm": 1,
+    "algorithm_only": true,
+    "graph_build_inclusive": true,
+    "input_parse_reported_separately": true,
+    "same_build_mode": "Release",
+    "required_compile_flags": ["-O3", "-DNDEBUG", "-std=c++20", "-fopenmp"],
+    "thread_affinity_required": true,
+    "correctness_gate_required": true
+  },
+  "ci_contract_datasets": [
+    {
+      "name": "ca-GrQc",
+      "family": "collaboration",
+      "kind": "real-world",
+      "role": "pull-request contract test",
+      "directed_representation": true
+    },
+    {
+      "name": "generated-grid",
+      "family": "infrastructure-road-like",
+      "kind": "generated",
+      "role": "pull-request contract test",
+      "directed_representation": true
+    }
+  ],
+  "expanded_campaign": [
+    {
+      "name": "web-Google",
+      "family": "web",
+      "kind": "real-world",
+      "execution": "hosted-or-dedicated"
+    },
+    {
+      "name": "com-LiveJournal",
+      "family": "social",
+      "kind": "real-world",
+      "execution": "dedicated-or-manual",
+      "cache_scale_target": true
+    },
+    {
+      "name": "GAP-twitter",
+      "family": "social",
+      "kind": "real-world",
+      "execution": "dedicated-or-manual",
+      "cache_scale_target": true
+    },
+    {
+      "name": "sk-2005",
+      "family": "web",
+      "kind": "real-world",
+      "execution": "dedicated-or-manual",
+      "cache_scale_target": true
+    },
+    {
+      "name": "kron-27",
+      "family": "synthetic-kron",
+      "kind": "generated",
+      "execution": "dedicated-or-manual",
+      "cache_scale_target": true
+    },
+    {
+      "name": "urand-27",
+      "family": "synthetic-uniform-random",
+      "kind": "generated",
+      "execution": "dedicated-or-manual",
+      "cache_scale_target": true
+    },
+    {
+      "name": "generated-grid-large",
+      "family": "infrastructure-road-like",
+      "kind": "generated",
+      "execution": "dedicated-or-manual"
+    }
+  ],
+  "claim_policy": {
+    "hosted_ci_is_engineering_evidence_only": true,
+    "publication_claim_requires_controlled_hardware": true,
+    "do_not_call_guidance_an_endorsement": true,
+    "do_not_publish_unrun_large_dataset_results": true
+  }
+}
