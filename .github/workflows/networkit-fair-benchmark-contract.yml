@@ -44,7 +44,7 @@ jobs:
       - name: Build VeloGraphX in matched Release mode
         run: |
           cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
-          cmake --build build/vx --target velographx_static_benchmark -j 2
+          cmake --build build/vx --target velographx_benchmark -j 2
 
       - name: Build pinned NetworKit C++ core
         run: |
