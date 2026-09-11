@@ -1,0 +1,128 @@
+name: Issue 61 One-sided Warm-up Validation
+
+on:
+  push:
+    branches:
+      - 'fix/issue-61-one-sided-warmup'
+    paths:
+      - '.github/workflows/issue61-warmup-validation.yml'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Build baseline and candidate harnesses
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
+          git show origin/main:benchmarks/adaptive_policy_bfs.cpp > build/adaptive_policy_bfs_baseline.cpp
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude build/adaptive_policy_bfs_baseline.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_baseline
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_candidate
+      - name: Prepare pinned datasets
+        run: |
+          mkdir -p build/issue61/datasets build/issue61/runs
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/issue61/datasets --dataset web-Google
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/issue61/datasets --dataset ca-GrQc
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/issue61/datasets --dataset soc-Epinions1
+          python tools/prepare_pinned_edge_stream.py --input build/issue61/datasets/web-Google.txt --output build/issue61/web-Google.txt --report build/issue61/web-normalization.json --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 --expected-vertices 875713 --expected-edges 5105039
+          python tools/prepare_symmetric_pinned_edge_stream.py --input build/issue61/datasets/ca-GrQc.txt --output build/issue61/ca-GrQc.txt --report build/issue61/ca-normalization.json --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484
+          gzip -dc build/issue61/datasets/soc-Epinions1.gz > build/issue61/epinions-source.txt
+          python tools/prepare_pinned_edge_stream.py --input build/issue61/epinions-source.txt --output build/issue61/soc-Epinions1.txt --report build/issue61/epinions-normalization.json --expected-sha256 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1 --expected-vertices 75879 --expected-edges 508837
+      - name: Reproduce Issue 61 exactly and compare candidate
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          for variant in ('baseline','candidate'):
+              exe=f'build/adaptive_policy_bfs_{variant}'
+              for rep in range(1,4):
+                  out=Path(f'build/issue61/runs/issue61__{variant}__{rep}.json')
+                  with out.open('w') as f:
+                      subprocess.run([exe,'build/issue61/web-Google.txt','771121','0.99','32768','0.05'],stdout=f,check=True)
+                  d=json.load(out.open())
+                  assert d['all_policies_exact']
+          PY
+      - name: Run before-after multiroot multidataset campaign
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          configs=[
+            ('ca-GrQc',0.75,[4282,2465,1974],[96,384,1536]),
+            ('soc-Epinions1',0.90,[763,634,71391],[384,1536,6144]),
+            ('web-Google',0.99,[481807,771121,391806],[1536,6144,24576]),
+          ]
+          for variant in ('baseline','candidate'):
+            exe=f'build/adaptive_policy_bfs_{variant}'
+            for dataset,rate,roots,batches in configs:
+              for root in roots:
+                for batch in batches:
+                  for rep in range(1,4):
+                    out=Path(f'build/issue61/runs/campaign__{variant}__{dataset}__r{root}__b{batch}__{rep}.json')
+                    with out.open('w') as f:
+                      subprocess.run([exe,f'build/issue61/{dataset}.txt',str(root),str(rate),str(batch),'0.01'],stdout=f,check=True)
+                    d=json.load(out.open())
+                    assert d['all_policies_exact']
+          PY
+      - name: Produce before-after report and regression gate
+        run: |
+          python - <<'PY'
+          import json, statistics
+          from pathlib import Path
+          root=Path('build/issue61/runs')
+          def adaptive(d): return next(p for p in d['policies'] if p['name']=='adaptive')
+          issue={}
+          for variant in ('baseline','candidate'):
+            rows=[]
+            for p in sorted(root.glob(f'issue61__{variant}__*.json')):
+              d=json.load(p.open()); a=adaptive(d); full=next(x for x in d['policies'] if x['name']=='always_full')
+              rows.append({'adaptive_us':a['total_us'],'full_us':full['total_us'],'trace':a.get('trace',[])})
+            issue[variant]={
+              'adaptive_median_us':statistics.median(r['adaptive_us'] for r in rows),
+              'full_median_us':statistics.median(r['full_us'] for r in rows),
+              'adaptive_over_full':statistics.median(r['adaptive_us']/r['full_us'] for r in rows),
+              'second_batch_reasons':[r['trace'][1]['reason'] if len(r['trace'])>1 else None for r in rows],
+            }
+          campaign={}
+          for variant in ('baseline','candidate'):
+            ratios=[]; exact=True
+            for p in root.glob(f'campaign__{variant}__*.json'):
+              d=json.load(p.open()); exact &= d['all_policies_exact']; a=adaptive(d)
+              best=min(x['total_us'] for x in d['policies'])
+              ratios.append(a['total_us']/best)
+            campaign[variant]={
+              'runs':len(ratios),'all_exact':exact,
+              'mean_adaptive_to_run_best':sum(ratios)/len(ratios),
+              'median_adaptive_to_run_best':statistics.median(ratios),
+              'worst_adaptive_to_run_best':max(ratios),
+            }
+          report={'issue61':issue,'campaign':campaign}
+          Path('build/issue61/report.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          assert issue['candidate']['adaptive_over_full'] <= issue['baseline']['adaptive_over_full'], 'Issue #61 candidate did not improve target case'
+          assert campaign['candidate']['all_exact']
+          # Shared runners are noisy: allow <=5% mean relative degradation before rejecting.
+          assert campaign['candidate']['mean_adaptive_to_run_best'] <= campaign['baseline']['mean_adaptive_to_run_best'] * 1.05, 'candidate regressed campaign mean >5%'
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue61-one-sided-warmup-validation
+          path: build/issue61/
+          retention-days: 90

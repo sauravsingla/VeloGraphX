@@ -42,7 +42,7 @@ def main() -> None:
 
     text = replace_once(
         text,
-        "        } else if (shallow_cold_start) {\n          choose_full = true;\n          trace.reason = \"large_shallow_cold_start\";\n        } else if (!have_incremental) {",
+        "        } else if (shallow_cold_start) {\n          choose_full = true;\n          trace.reason = \"large_shallow_cold_start\";\n        } else if (!have_incremental && have_full && !one_sided_full_warmup_used) {",
         "        } else if (shallow_cold_start) {\n"
         "          choose_full = true;\n"
         "          trace.reason = \"large_shallow_cold_start\";\n"
@@ -50,14 +50,14 @@ def main() -> None:
         "                   update_fraction >= kLargeGraphUpdateGuard) {\n"
         "          choose_full = true;\n"
         "          trace.reason = \"large_root_locality_update_guard\";\n"
-        "        } else if (!have_incremental) {"
+        "        } else if (!have_incremental && have_full && !one_sided_full_warmup_used) {"
     )
 
     text = replace_once(
         text,
-        "          trace.reason = choose_full ? \"large_warmup_full\" : \"large_warmup_incremental\";",
+        "          trace.reason = choose_full ? \"large_warmup_full\" : \"large_one_sided_probe_incremental\";",
         "          trace.reason = choose_full ? \"large_warmup_full\" :\n"
-        "              (guarded_root ? \"large_root_locality_guarded_incremental\" : \"large_warmup_incremental\");"
+        "              (guarded_root ? \"large_root_locality_guarded_incremental\" : \"large_one_sided_probe_incremental\");"
     )
 
     text = replace_once(
@@ -74,7 +74,7 @@ def main() -> None:
 
     text = replace_once(
         text,
-        "\"schema_version\\\":6,\\\"selector\\\":\\\"scale-conditioned-selector-owned-v3\\\"",
+        "\"schema_version\\\":7,\\\"selector\\\":\\\"bounded-one-sided-warmup-v5\\\"",
         "\"schema_version\\\":8,\\\"selector\\\":\\\"root-locality-affected-work-v5\\\""
     )
 

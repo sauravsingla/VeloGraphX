@@ -194,6 +194,7 @@ PolicyResult run_policy(const std::string& policy,
   std::size_t incremental_age = kFreshAge + 1;
   std::size_t full_age = large_scale ? 0 : kFreshAge + 1;
   bool first_batch = true;
+  bool one_sided_full_warmup_used = false;
 
   for (std::size_t begin = imported_edges; begin < edges.size(); begin += batch_size) {
     const auto end = std::min(begin + batch_size, edges.size());
@@ -246,9 +247,15 @@ PolicyResult run_policy(const std::string& policy,
         } else if (shallow_cold_start) {
           choose_full = true;
           trace.reason = "large_shallow_cold_start";
+        } else if (!have_incremental && have_full && !one_sided_full_warmup_used) {
+          // Full cost is measured while incremental cost is unknown. Keep the measured
+          // baseline for one warm-up decision, then allow an incremental calibration probe.
+          choose_full = true;
+          one_sided_full_warmup_used = true;
+          trace.reason = "large_one_sided_full";
         } else if (!have_incremental) {
           choose_full = update_fraction >= simple_update_fraction;
-          trace.reason = choose_full ? "large_warmup_full" : "large_warmup_incremental";
+          trace.reason = choose_full ? "large_warmup_full" : "large_one_sided_probe_incremental";
         } else if (inc_lower > full_upper) {
           choose_full = true;
           trace.reason = "large_uncertainty_confident_full";
@@ -416,7 +423,7 @@ int main(int argc, char** argv) {
   }
 
   bool all_exact = true;
-  std::cout << "{\"schema_version\":6,\"selector\":\"scale-conditioned-selector-owned-v3\""
+  std::cout << "{\"schema_version\":7,\"selector\":\"bounded-one-sided-warmup-v5\""
             << ",\"root\":" << root64
             << ",\"vertices\":" << vertices
             << ",\"batch_size\":" << batch_size
