@@ -28,13 +28,6 @@
 
 </div>
 
-## Updates
-
-- **[2026/09] 🔥 VeloGraphX v0.8.2** — production-ready Python packaging, PyPI distribution, and cross-platform wheels for CPython 3.9–3.14 ([release](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.2)).
-- **[2026/09] v0.8.1** — improved CI reliability and hardened release workflows while preserving algorithmic correctness gates ([release](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.1)).
-- **[2026/09] 🔥 v0.8.0** — redesigned dynamic storage with segmented CSR, packed delta arenas, reverse adjacency, adaptive repair/recompute execution, and expanded reproducible benchmarking ([release](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.0)).
-- **[2026/08]** — reproducible incremental crossover campaigns, competitor pinning, correctness gates, and controlled-hardware benchmark contracts ([changelog](CHANGELOG.md)).
-
 ## About
 
 VeloGraphX is a **high-performance C++20 engine for graph analytics on large, continuously evolving graphs**.
