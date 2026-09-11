@@ -46,36 +46,12 @@ if(VELOGRAPHX_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 set(VELOGRAPHX_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/VeloGraphX")
-
-install(TARGETS velographx
-  EXPORT VeloGraphXTargets
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+install(TARGETS velographx EXPORT VeloGraphXTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-configure_package_config_file(
-  cmake/VeloGraphXConfig.cmake.in
-  "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfig.cmake"
-  INSTALL_DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}"
-)
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfigVersion.cmake"
-  VERSION "${PROJECT_VERSION}"
-  COMPATIBILITY SameMajorVersion
-)
-install(FILES
-  "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfig.cmake"
-  "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfigVersion.cmake"
-  DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}"
-)
-install(EXPORT VeloGraphXTargets
-  FILE VeloGraphXTargets.cmake
-  NAMESPACE VeloGraphX::
-  DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}"
-)
+configure_package_config_file(cmake/VeloGraphXConfig.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfig.cmake" INSTALL_DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}")
+write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfigVersion.cmake" VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/VeloGraphXConfigVersion.cmake" DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}")
+install(EXPORT VeloGraphXTargets FILE VeloGraphXTargets.cmake NAMESPACE VeloGraphX:: DESTINATION "${VELOGRAPHX_CMAKE_INSTALL_DIR}")
 
 add_executable(velographx_example examples/basic.cpp)
 target_link_libraries(velographx_example PRIVATE velographx)
@@ -95,16 +71,8 @@ if(VELOGRAPHX_BUILD_TESTS)
     add_test(NAME ${test_name} COMMAND velographx_test_${test_name})
     set_tests_properties(${test_name} PROPERTIES TIMEOUT 60)
   endforeach()
-
-  configure_file(
-    tests/package_consumer/run_consumer_test.cmake.in
-    "${CMAKE_CURRENT_BINARY_DIR}/run_package_consumer_test.cmake"
-    @ONLY
-  )
-  add_test(
-    NAME package_consumer
-    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_BINARY_DIR}/run_package_consumer_test.cmake"
-  )
+  configure_file(tests/package_consumer/run_consumer_test.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/run_package_consumer_test.cmake" @ONLY)
+  add_test(NAME package_consumer COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_BINARY_DIR}/run_package_consumer_test.cmake")
   set_tests_properties(package_consumer PROPERTIES TIMEOUT 120)
 endif()
 
@@ -127,7 +95,8 @@ if(VELOGRAPHX_BUILD_BENCHMARKS)
   set(adaptive_policy_bfs_source "${PROJECT_SOURCE_DIR}/benchmarks/adaptive_policy_bfs.cpp")
   set(native_baseline_benchmark_source "${PROJECT_SOURCE_DIR}/benchmarks/native_baseline_benchmark.cpp")
   set(graphbolt_contract_bfs_source "${PROJECT_SOURCE_DIR}/benchmarks/graphbolt_contract_bfs.cpp")
-  foreach(benchmark_source IN ITEMS "${static_benchmark_source}" "${dynamic_benchmark_source}" "${intersection_benchmark_source}" "${update_fraction_benchmark_source}" "${compression_benchmark_source}" "${public_dataset_benchmark_source}" "${public_update_fraction_benchmark_source}" "${large_scale_triangle_benchmark_source}" "${thread_scaling_benchmark_source}" "${storage_ab_benchmark_source}" "${backend_bfs_benchmark_source}" "${row_patch_accumulation_source}" "${steady_state_storage_source}" "${external_risgraph_bfs_source}" "${adaptive_policy_bfs_source}" "${native_baseline_benchmark_source}" "${graphbolt_contract_bfs_source}")
+  set(fair_static_benchmark_source "${PROJECT_SOURCE_DIR}/benchmarks/velographx_fair_static.cpp")
+  foreach(benchmark_source IN ITEMS "${static_benchmark_source}" "${dynamic_benchmark_source}" "${intersection_benchmark_source}" "${update_fraction_benchmark_source}" "${compression_benchmark_source}" "${public_dataset_benchmark_source}" "${public_update_fraction_benchmark_source}" "${large_scale_triangle_benchmark_source}" "${thread_scaling_benchmark_source}" "${storage_ab_benchmark_source}" "${backend_bfs_benchmark_source}" "${row_patch_accumulation_source}" "${steady_state_storage_source}" "${external_risgraph_bfs_source}" "${adaptive_policy_bfs_source}" "${native_baseline_benchmark_source}" "${graphbolt_contract_bfs_source}" "${fair_static_benchmark_source}")
     if(NOT EXISTS "${benchmark_source}")
       message(FATAL_ERROR "Configured benchmark source does not exist: ${benchmark_source}")
     endif()
@@ -166,6 +135,8 @@ if(VELOGRAPHX_BUILD_BENCHMARKS)
   target_link_libraries(velographx_native_baseline_benchmark PRIVATE velographx)
   add_executable(velographx_graphbolt_contract_bfs ${graphbolt_contract_bfs_source})
   target_link_libraries(velographx_graphbolt_contract_bfs PRIVATE velographx)
+  add_executable(velographx_fair_static_benchmark ${fair_static_benchmark_source})
+  target_link_libraries(velographx_fair_static_benchmark PRIVATE velographx)
 endif()
 
 if(VELOGRAPHX_BUILD_PYTHON)
