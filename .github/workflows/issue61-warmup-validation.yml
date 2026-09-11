@@ -6,7 +6,6 @@ on:
       - 'fix/issue-61-one-sided-warmup'
     paths:
       - '.github/workflows/issue61-warmup-validation.yml'
-      - 'tools/issue61_one_sided_warmup.py'
       - 'benchmarks/adaptive_policy_bfs.cpp'
   workflow_dispatch:
 
@@ -19,6 +18,8 @@ jobs:
       OMP_PROC_BIND: 'true'
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -30,9 +31,9 @@ jobs:
         run: |
           cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
           cmake --build build/vx --target velographx_external_risgraph_bfs -j 2
-          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_baseline
-          python tools/issue61_one_sided_warmup.py --input benchmarks/adaptive_policy_bfs.cpp --output build/adaptive_policy_bfs_issue61.cpp
-          c++ -O3 -DNDEBUG -std=c++20 -Iinclude build/adaptive_policy_bfs_issue61.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_candidate
+          git show origin/main:benchmarks/adaptive_policy_bfs.cpp > build/adaptive_policy_bfs_baseline.cpp
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude build/adaptive_policy_bfs_baseline.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_baseline
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude benchmarks/adaptive_policy_bfs.cpp build/vx/libvelographx.a -pthread -o build/adaptive_policy_bfs_candidate
       - name: Prepare pinned datasets
         run: |
           mkdir -p build/issue61/datasets build/issue61/runs
