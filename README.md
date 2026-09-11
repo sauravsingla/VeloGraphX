@@ -58,6 +58,9 @@ This makes VeloGraphX useful for workloads where graph structure changes continu
 | --- | --- |
 | Dynamic exactness stress | **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches** |
 | Adaptive BFS selector | **108/108 exact · 1.66% mean overhead from regime-best** |
+| Exact dynamic triangles vs published reference | **15/15 exact** · **40.95× / 6.94× / 3.48× lower answer-ready latency** at 1% / 5% / 10% update batches |
+| Native repair/recompute crossover | Exact BFS repair was **1.83× / 1.24× faster than full recomputation** at 0.1% / 1% updates; at 5%, full recomputation was **2.45× faster** |
+| Native static BFS / SSSP vs GAP + LAGraph | BFS: **VeloGraphX fastest at 1/2/4T** — **1.60×–2.04× vs GAP** and **9.4×–11.8× vs LAGraph**. SSSP: **GAP fastest**; VeloGraphX **2.6×–3.0× faster than LAGraph** but **7.0×–8.5× slower than GAP** |
 | GraphBolt / DZiG comparison | **15.35× / 4.28× / 2.33× faster** on tested tiny / medium / large hosted update regimes |
 | Three-system dynamic BFS campaign | **91/91 exact** evaluated VeloGraphX results |
 | Dynamic BFS vs NetworKit | `web-Google`: **~1.38× faster VeloGraphX** · `ca-GrQc`: **~1.35× faster NetworKit** |
@@ -65,9 +68,9 @@ This makes VeloGraphX useful for workloads where graph structure changes continu
 | Compression | **3.25×–3.78× smaller**, with a documented traversal-performance trade-off |
 | Epinions multi-root BFS | **~1.74× faster** than NetworKit by aggregate mean batch latency in the hosted 1T campaign |
 
-The benchmark record deliberately includes cases where competitors win. GAP is substantially faster on the tested static SSSP workload, NetworKit wins some dynamic regimes, CSR remains preferable for some full-recomputation paths, and compression currently exchanges traversal speed for lower memory use.
+The benchmark record deliberately includes cases where competitors win. GAP is substantially faster on the tested static SSSP workload, NetworKit wins some dynamic regimes, full recomputation wins when repair scope becomes too large, CSR remains preferable for some full-recomputation paths, and compression currently exchanges traversal speed for lower memory use.
 
-See the [benchmark methodology](docs/benchmark-methodology.md), [competitor benchmarking](docs/competitor-benchmarking.md), and [limitations](docs/limitations.md) for claim boundaries and reproduction details.
+See the [benchmark methodology](docs/benchmark-methodology.md), [hosted native competitor evidence](docs/hosted-native-competitors.md), [published exact triangle baseline](docs/same-run-published-baseline.md), [competitor benchmarking](docs/competitor-benchmarking.md), and [limitations](docs/limitations.md) for claim boundaries and reproduction details.
 
 ## Getting Started
 
@@ -166,6 +169,8 @@ The repository includes deterministic update streams and correctness validation,
 Useful references:
 
 - [Benchmark methodology](docs/benchmark-methodology.md)
+- [Hosted native competitor evidence](docs/hosted-native-competitors.md)
+- [Published exact triangle baseline](docs/same-run-published-baseline.md)
 - [Ablation study](docs/ablation-study.md)
 - [GraphBolt / DZiG + GAPBS benchmark contract](docs/graphbolt-dzig-gap-benchmark-contract.md)
 - [Three-system dynamic BFS campaign](docs/three-system-dynamic-bfs-campaign.md)
