@@ -1,0 +1,145 @@
+name: NetworKit Fair Benchmark Contract
+
+on:
+  push:
+    paths:
+      - '.github/workflows/networkit-fair-benchmark-contract.yml'
+      - 'benchmarks/external_networkit_fair_static.cpp'
+      - 'datasets/networkit-fair-benchmark-plan.json'
+      - 'tools/validate_networkit_fair_plan.py'
+      - 'docs/networkit-fair-benchmark-contract.md'
+  pull_request:
+    paths:
+      - '.github/workflows/networkit-fair-benchmark-contract.yml'
+      - 'benchmarks/external_networkit_fair_static.cpp'
+      - 'datasets/networkit-fair-benchmark-plan.json'
+      - 'tools/validate_networkit_fair_plan.py'
+      - 'docs/networkit-fair-benchmark-contract.md'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      NETWORKIT_SHA: 359f3fbf09b6d3fe214db24dd01bc8bfc1c2653c
+      NETWORKIT_VERSION: 11.2.1
+      OMP_NUM_THREADS: '1'
+      OMP_PROC_BIND: 'true'
+      OMP_PLACES: 'cores'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate machine-readable Issue 63 plan
+        run: python tools/validate_networkit_fair_plan.py
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libomp-dev
+
+      - name: Build VeloGraphX in matched Release mode
+        run: |
+          cmake -S . -B build/vx -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELOGRAPHX_BUILD_TESTS=OFF -DVELOGRAPHX_BUILD_BENCHMARKS=ON
+          cmake --build build/vx --target velographx_static_benchmark -j 2
+
+      - name: Build pinned NetworKit C++ core
+        run: |
+          git clone --filter=blob:none https://github.com/networkit/networkit.git build/networkit
+          git -C build/networkit checkout --detach "$NETWORKIT_SHA"
+          test "$(git -C build/networkit rev-parse HEAD)" = "$NETWORKIT_SHA"
+          git -C build/networkit submodule update --init --recursive
+          cmake -S build/networkit -B build/networkit-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/build/networkit-install" \
+            -DNETWORKIT_BUILD_TESTS=OFF
+          cmake --build build/networkit-build -j 2
+          cmake --install build/networkit-build
+          LIB=$(find build/networkit-install -type f \( -name 'libnetworkit.so' -o -name 'libnetworkit.a' \) | head -1)
+          test -n "$LIB"
+          echo "NETWORKIT_LIBDIR=$(dirname "$LIB")" >> "$GITHUB_ENV"
+
+      - name: Compile maintainer-aligned native C++ harness
+        run: |
+          c++ -O3 -DNDEBUG -std=c++20 -fopenmp \
+            -Ibuild/networkit-install/include \
+            benchmarks/external_networkit_fair_static.cpp \
+            -L"$NETWORKIT_LIBDIR" -Wl,-rpath,"$NETWORKIT_LIBDIR" -lnetworkit \
+            -o build/networkit_fair_static
+
+      - name: Generate deterministic road-like contract graph
+        run: |
+          mkdir -p build/issue63
+          python - <<'PY'
+          from pathlib import Path
+          side=128
+          p=Path('build/issue63/grid.txt')
+          with p.open('w') as f:
+              for r in range(side):
+                  for c in range(side):
+                      u=r*side+c
+                      if c+1 < side:
+                          v=u+1
+                          f.write(f'{u} {v}\n')
+                          f.write(f'{v} {u}\n')
+                      if r+1 < side:
+                          v=u+side
+                          f.write(f'{u} {v}\n')
+                          f.write(f'{v} {u}\n')
+          PY
+
+      - name: Capture affinity and compiler contract
+        run: |
+          mkdir -p build/issue63
+          lscpu > build/issue63/lscpu.txt
+          c++ --version > build/issue63/compiler.txt
+          taskset -pc $$ > build/issue63/affinity-before.txt
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "networkit_sha=$NETWORKIT_SHA"
+            echo "networkit_version=$NETWORKIT_VERSION"
+            echo "build_type=Release"
+            echo "compile_flags=-O3 -DNDEBUG -std=c++20 -fopenmp"
+            echo "OMP_NUM_THREADS=$OMP_NUM_THREADS"
+            echo "OMP_PROC_BIND=$OMP_PROC_BIND"
+            echo "OMP_PLACES=$OMP_PLACES"
+          } > build/issue63/pins.txt
+
+      - name: Run pinned single-CPU BFS and Dijkstra contract
+        run: |
+          CPU=$(awk '/Cpus_allowed_list/ {print $2}' /proc/self/status | cut -d, -f1 | cut -d- -f1)
+          test -n "$CPU"
+          taskset -c "$CPU" build/networkit_fair_static build/issue63/grid.txt 0 5 > build/issue63/result.json
+          echo "pinned_cpu=$CPU" >> build/issue63/pins.txt
+          python - <<'PY'
+          import json
+          r=json.load(open('build/issue63/result.json'))
+          assert r['native_cpp'] is True
+          assert r['graph_builder'] == 'NetworKit::GraphBuilder'
+          assert 'Traversal::BFSfrom' in r['bfs_api']
+          assert 'Traversal::DijkstraFrom' in r['dijkstra_api']
+          assert r['path_storage'] is False
+          assert r['warmup_runs_per_algorithm'] == 1
+          assert r['repetitions'] == 5
+          assert r['bfs_equals_unit_weight_dijkstra'] is True
+          assert r['visited_vertices'] == 128*128
+          assert r['graph_build_us'] > 0
+          assert len(r['bfs_samples_us']) == 5 and len(r['dijkstra_samples_us']) == 5
+          assert r['bfs_build_plus_algorithm_median_us'] >= r['bfs_algorithm_median_us']
+          assert r['networkit_endorsement'] is False
+          assert r['research_claim'] is False
+          PY
+
+      - name: Verify dynamic baseline remains native DynBFS
+        run: |
+          grep -F 'NetworKit::DynBFS dyn(graph, root, false);' benchmarks/external_networkit_native_bfs.cpp
+          grep -F 'all_batches_correct_against_fresh_full_bfs' benchmarks/external_networkit_native_bfs.cpp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue63-networkit-fair-contract
+          path: build/issue63/
+          retention-days: 90
