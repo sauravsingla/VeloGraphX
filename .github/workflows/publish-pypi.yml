@@ -95,7 +95,7 @@ jobs:
       id-token: write
     steps:
       - name: Download release distributions
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: pypi-*
           path: dist
