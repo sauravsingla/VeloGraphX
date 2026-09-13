@@ -55,6 +55,14 @@ class BasicIncrementalPageRank {
     }
 
     const auto previous_n = rank_.size();
+    bool had_dangling_before = false;
+    for (VertexId u = 0; u < vertex_count(g_); ++u) {
+      if (neighbor_count(g_, u) == 0) {
+        had_dangling_before = true;
+        break;
+      }
+    }
+
     apply_updates(g_, batch);
     const auto n = vertex_count(g_);
     if (n == 0) {
@@ -67,10 +75,11 @@ class BasicIncrementalPageRank {
       return;
     }
 
-    // A vertex-count change alters teleportation globally. Likewise, any
-    // dangling vertex contributes a globally redistributed mass term. Both
-    // effects invalidate a strictly local repair, so fall back conservatively.
-    if (n != previous_n) {
+    // A vertex-count change alters teleportation globally. Likewise, dangling
+    // mass is globally redistributed. If it exists on either side of the
+    // structural update, the old and/or new fixed-point equation has a global
+    // term, so a strictly local repair is not exact.
+    if (n != previous_n || had_dangling_before) {
       recompute();
       return;
     }
