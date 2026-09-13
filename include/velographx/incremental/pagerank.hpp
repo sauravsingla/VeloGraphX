@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include "velographx/graph_access.hpp"
@@ -30,6 +31,9 @@ class BasicIncrementalPageRank {
  public:
   explicit BasicIncrementalPageRank(Graph& g, double damping = 0.85)
       : g_(g), damping_(damping) {
+    if (!(damping_ >= 0.0 && damping_ <= 1.0)) {
+      throw std::invalid_argument("PageRank damping must be in [0, 1]");
+    }
     recompute();
   }
 
@@ -50,20 +54,7 @@ class BasicIncrementalPageRank {
       return;
     }
 
-    std::vector<std::pair<VertexId, bool>> dangling_before;
-    dangling_before.reserve(batch.updates.size() * (is_directed(g_) ? 1 : 2));
-    auto remember_dangling = [&](VertexId v) {
-      if (v >= vertex_count(g_)) {
-        dangling_before.emplace_back(v, true);
-        return;
-      }
-      dangling_before.emplace_back(v, neighbor_count(g_, v) == 0);
-    };
-    for (const auto& e : batch.updates) {
-      remember_dangling(e.src);
-      if (!is_directed(g_) && e.dst != e.src) remember_dangling(e.dst);
-    }
-
+    const auto previous_n = rank_.size();
     apply_updates(g_, batch);
     const auto n = vertex_count(g_);
     if (n == 0) {
@@ -76,11 +67,15 @@ class BasicIncrementalPageRank {
       return;
     }
 
-    if (rank_.size() != n) rank_.resize(n, 1.0 / static_cast<double>(n));
-
-    for (const auto& [v, was_dangling] : dangling_before) {
-      const bool now_dangling = v >= n || neighbor_count(g_, v) == 0;
-      if (was_dangling != now_dangling) {
+    // A vertex-count change alters teleportation globally. Likewise, any
+    // dangling vertex contributes a globally redistributed mass term. Both
+    // effects invalidate a strictly local repair, so fall back conservatively.
+    if (n != previous_n) {
+      recompute();
+      return;
+    }
+    for (VertexId u = 0; u < n; ++u) {
+      if (neighbor_count(g_, u) == 0) {
         recompute();
         return;
       }
@@ -131,7 +126,6 @@ class BasicIncrementalPageRank {
       std::size_t next_count = 0;
       double iter_l1 = 0.0;
       double iter_linf = 0.0;
-      bool changed_dangling_rank = false;
 
       auto activate_next = [&](VertexId v) {
         if (v < n && !next_active[v]) {
@@ -156,18 +150,7 @@ class BasicIncrementalPageRank {
         iter_l1 += delta;
         iter_linf = std::max(iter_linf, delta);
 
-        if (delta > tol) {
-          if (neighbor_count(g_, v) == 0) {
-            changed_dangling_rank = true;
-            break;
-          }
-          for_each_neighbor(g_, v, activate_next);
-        }
-      }
-
-      if (changed_dangling_rank) {
-        recompute();
-        return;
+        if (delta > tol) for_each_neighbor(g_, v, activate_next);
       }
 
       rank_.swap(next_rank);
