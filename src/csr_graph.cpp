@@ -10,8 +10,11 @@ CsrGraph::CsrGraph(std::vector<Edge> edges, bool directed) : directed_(directed)
   VertexId max_vertex = 0;
   bool has_vertex = false;
   for (const auto& [u, v] : edges) {
+    // Keep the static representation consistent with DynamicGraph bulk-load:
+    // VeloGraphX models simple graphs and ignores self-loops.
+    if (u == v) continue;
     expanded.emplace_back(u, v);
-    if (!directed && u != v) expanded.emplace_back(v, u);
+    if (!directed) expanded.emplace_back(v, u);
     max_vertex = std::max({max_vertex, u, v});
     has_vertex = true;
   }
