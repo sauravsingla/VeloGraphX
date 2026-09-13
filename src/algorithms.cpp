@@ -27,6 +27,11 @@ std::vector<std::uint32_t> bfs_distances(const CsrGraph& graph, VertexId source)
 }
 
 std::vector<VertexId> connected_components(const CsrGraph& graph) {
+  if (graph.directed()) {
+    throw std::invalid_argument(
+        "connected_components requires an undirected graph; choose weak or strong connectivity explicitly for directed graphs");
+  }
+
   std::vector<VertexId> component(graph.vertex_count(), std::numeric_limits<VertexId>::max());
   VertexId cid = 0;
   std::queue<VertexId> q;
@@ -49,6 +54,9 @@ std::vector<VertexId> connected_components(const CsrGraph& graph) {
 }
 
 std::vector<double> pagerank(const CsrGraph& graph, double damping, std::size_t max_iterations, double tolerance) {
+  if (!(damping >= 0.0 && damping <= 1.0)) {
+    throw std::invalid_argument("PageRank damping must be in [0, 1]");
+  }
   const auto n = graph.vertex_count();
   if (n == 0) return {};
   std::vector<double> rank(n, 1.0 / static_cast<double>(n));
