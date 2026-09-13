@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <queue>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "velographx/graph_access.hpp"
@@ -14,7 +17,13 @@ namespace velographx {
 template <class Graph>
 class BasicIncrementalKCore {
  public:
-  explicit BasicIncrementalKCore(Graph& g) : g_(g) { recompute(); }
+  explicit BasicIncrementalKCore(Graph& g) : g_(g) {
+    if (is_directed(g_)) {
+      throw std::invalid_argument(
+          "IncrementalKCore requires an undirected graph; directed k-core semantics must be selected explicitly");
+    }
+    recompute();
+  }
 
   [[nodiscard]] const std::vector<std::uint32_t>& core() const noexcept { return core_; }
   [[nodiscard]] std::size_t last_repaired_vertices() const noexcept { return last_repaired_vertices_; }
@@ -22,12 +31,6 @@ class BasicIncrementalKCore {
   void apply(const UpdateBatch& batch) {
     if (batch.updates.empty()) {
       last_repaired_vertices_ = 0;
-      return;
-    }
-
-    if (is_directed(g_)) {
-      apply_updates(g_, batch);
-      recompute();
       return;
     }
 
@@ -41,6 +44,9 @@ class BasicIncrementalKCore {
     if (core_.size() < vertex_count(g_)) core_.resize(vertex_count(g_), 0);
     affected.resize(vertex_count(g_), 0);
 
+    // Include the post-update components too. Insertions can merge components,
+    // while deletions can split them; the union of pre/post components is a
+    // correctness-preserving repair region for undirected k-core.
     for (const auto& e : batch.updates) {
       if (e.src < vertex_count(g_)) mark_component(e.src, affected);
       if (e.dst < vertex_count(g_)) mark_component(e.dst, affected);
@@ -79,8 +85,11 @@ class BasicIncrementalKCore {
     if (core_.size() < n) core_.resize(n, 0);
 
     std::vector<std::uint32_t> degree(n, 0);
-    std::uint32_t max_degree = 0;
+    std::vector<std::uint8_t> removed(n, 0);
     last_repaired_vertices_ = 0;
+
+    using Item = std::pair<std::uint32_t, VertexId>;
+    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> heap;
 
     for (VertexId u = 0; u < n; ++u) {
       if (u >= affected.size() || !affected[u]) continue;
@@ -88,37 +97,25 @@ class BasicIncrementalKCore {
       for_each_neighbor(g_, u, [&](VertexId v) {
         if (v < affected.size() && affected[v]) ++degree[u];
       });
-      max_degree = std::max(max_degree, degree[u]);
       core_[u] = 0;
+      heap.push({degree[u], u});
     }
 
-    if (last_repaired_vertices_ == 0) return;
+    std::uint32_t current_core = 0;
+    while (!heap.empty()) {
+      const auto [queued_degree, u] = heap.top();
+      heap.pop();
+      if (u >= n || removed[u] || queued_degree != degree[u]) continue;
 
-    std::vector<std::vector<VertexId>> bins(max_degree + 1);
-    for (VertexId u = 0; u < n; ++u) {
-      if (u < affected.size() && affected[u]) bins[degree[u]].push_back(u);
-    }
+      removed[u] = 1;
+      current_core = std::max(current_core, queued_degree);
+      core_[u] = current_core;
 
-    std::vector<std::uint8_t> removed(n, 0);
-    for (std::uint32_t k = 0; k <= max_degree; ++k) {
-      std::queue<VertexId> q;
-      for (auto u : bins[k]) {
-        if (!removed[u] && degree[u] <= k) q.push(u);
-      }
-      while (!q.empty()) {
-        const auto u = q.front();
-        q.pop();
-        if (removed[u]) continue;
-        removed[u] = 1;
-        core_[u] = k;
-        for_each_neighbor(g_, u, [&](VertexId v) {
-          if (v >= affected.size() || !affected[v] || removed[v]) return;
-          if (degree[v] > k) {
-            --degree[v];
-            if (degree[v] <= k) q.push(v);
-          }
-        });
-      }
+      for_each_neighbor(g_, u, [&](VertexId v) {
+        if (v >= n || v >= affected.size() || !affected[v] || removed[v]) return;
+        if (degree[v] != 0) --degree[v];
+        heap.push({degree[v], v});
+      });
     }
   }
 
