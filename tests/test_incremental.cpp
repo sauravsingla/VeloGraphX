@@ -17,7 +17,6 @@
 int main() {
   using namespace velographx;
 
-  // Existing smoke coverage.
   DynamicGraph g(5, false);
   UpdateBatch b;
   b.add(0, 1);
@@ -37,7 +36,6 @@ int main() {
   IncrementalPageRank pr(g);
   assert(pr.values().size() == 5);
 
-  // Later additions in one batch must observe earlier additions.
   DynamicGraph tg(3, false);
   tg.add_edge(0, 1);
   IncrementalTriangleCount triangles(tg);
@@ -51,8 +49,6 @@ int main() {
   triangles.recompute();
   assert(triangles.value() == 1);
 
-  // k-core regression: a vertex whose degree drops from 3 to 2 during peeling
-  // belongs to the 2-core, not the 3-core.
   {
     DynamicGraph graph(4, false);
     graph.bulk_load_edges({{0, 1}, {0, 2}, {0, 3}, {1, 2}});
@@ -61,8 +57,6 @@ int main() {
     assert(kcore.core() == expected);
   }
 
-  // Connected-components regression: add then remove in one batch must not
-  // leave union-find connected when the final graph has no edge.
   {
     DynamicGraph graph(2, false);
     IncrementalComponents components(graph);
@@ -82,7 +76,6 @@ int main() {
     assert(out_of_range);
   }
 
-  // Reversed endpoints are the same logical undirected edge. Final add wins.
   {
     DynamicGraph graph(2, false);
     graph.add_edge(0, 1);
@@ -95,8 +88,6 @@ int main() {
     assert(components.component(0) == components.component(1));
   }
 
-  // Directed connectivity semantics are rejected until weak/strong semantics
-  // are requested explicitly.
   {
     bool static_rejected = false;
     try {
@@ -118,8 +109,6 @@ int main() {
     assert(incremental_rejected);
   }
 
-  // Directed triangle counting is rejected instead of returning an
-  // ID-order-dependent quantity.
   {
     bool rejected = false;
     try {
@@ -132,8 +121,6 @@ int main() {
     assert(rejected);
   }
 
-  // Multi-operation triangle maintenance must see earlier operations while the
-  // underlying graph still advances by one logical batch version.
   {
     DynamicGraph graph(3, false);
     graph.bulk_load_edges({{0, 1}, {1, 2}});
@@ -149,7 +136,6 @@ int main() {
     assert(!graph.has_edge(1, 2));
   }
 
-  // Weighted SSSP regression: 10 -> 5 -> 8 in one batch must use final weight 8.
   {
     WeightedDynamicGraph graph(2, true);
     WeightedUpdateBatch seed;
@@ -179,7 +165,6 @@ int main() {
     assert(graph.weight(0, 1).has_value() && *graph.weight(0, 1) == 8);
   }
 
-  // Weighted storage follows simple-graph semantics for self-loops.
   {
     WeightedDynamicGraph graph(2, false);
     WeightedUpdateBatch batch;
@@ -188,11 +173,9 @@ int main() {
     assert(!graph.weight(0, 0).has_value());
   }
 
-  // Pre-existing dangling PageRank mass is global, so any structural update
-  // takes the exact full-solve fallback.
   {
     DynamicGraph graph(5, true);
-    graph.bulk_load_edges({{0, 1}, {1, 0}, {2, 3}, {3, 2}});  // vertex 4 dangling
+    graph.bulk_load_edges({{0, 1}, {1, 0}, {2, 3}, {3, 2}});
     IncrementalPageRank pagerank(graph);
     UpdateBatch batch;
     batch.add(0, 2);
@@ -201,7 +184,6 @@ int main() {
     assert(pagerank.validate_against_full().within_tolerance);
   }
 
-  // Growing n changes teleportation globally even without dangling vertices.
   {
     DynamicGraph graph(2, false);
     graph.add_edge(0, 1);
@@ -214,11 +196,24 @@ int main() {
     assert(pagerank.validate_against_full().within_tolerance);
   }
 
-  // Static CSR construction follows simple-graph semantics for loops.
   {
     CsrGraph graph({{0, 0}, {0, 1}}, false);
     assert(!graph.has_edge(0, 0));
     assert(graph.has_edge(0, 1));
+  }
+
+  // Dynamic updates must match bulk-load/CSR simple-graph semantics. A loop on
+  // a new vertex is ignored before vertex growth and cannot survive compaction.
+  {
+    DynamicGraph graph(2, false);
+    const auto before_vertices = graph.vertex_count();
+    const auto before_edges = graph.edge_count_directed();
+    graph.add_edge(9, 9);
+    assert(graph.vertex_count() == before_vertices);
+    assert(graph.edge_count_directed() == before_edges);
+    assert(!graph.has_edge(9, 9));
+    graph.compact();
+    assert(!graph.has_edge(9, 9));
   }
 
   return 0;
