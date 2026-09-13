@@ -39,39 +39,60 @@ class BasicIncrementalComponents {
     }
 
     const auto canonical = canonicalize(batch);
-    bool effective_deletion = false;
+    std::unordered_set<VertexId> affected_roots;
+    affected_roots.reserve(canonical.updates.size() * 2 + 1);
+
+    // Only final, effective deletions can split a pre-batch component. Mark the
+    // complete pre-batch component so it can be rebuilt exactly after mutation.
     for (const auto& e : canonical.updates) {
-      if (!e.add && has_edge(g_, e.src, e.dst)) {
-        effective_deletion = true;
-        break;
+      if (!e.add && e.src < parent_.size() && e.dst < parent_.size() &&
+          has_edge(g_, e.src, e.dst)) {
+        affected_roots.insert(find(e.src));
+        affected_roots.insert(find(e.dst));
+      }
+    }
+
+    std::vector<std::uint8_t> affected(parent_.size(), 0);
+    last_repaired_vertices_ = 0;
+    if (!affected_roots.empty()) {
+      for (VertexId v = 0; v < parent_.size(); ++v) {
+        if (affected_roots.contains(find(v))) {
+          affected[v] = 1;
+          ++last_repaired_vertices_;
+        }
       }
     }
 
     apply_updates(g_, batch);
     ensure_capacity();
+    affected.resize(parent_.size(), 0);
 
-    // Deletions can split arbitrary parts of an existing component. Prefer an
-    // exact full rebuild until a formally bounded deletion-repair algorithm is
-    // used. This also makes add/remove conflicts within one batch exact.
-    if (effective_deletion) {
-      rebuild();
-      return;
+    if (!affected_roots.empty()) {
+      for (VertexId v = 0; v < affected.size(); ++v) {
+        if (affected[v]) {
+          parent_[v] = v;
+          rank_[v] = 0;
+        }
+      }
+
+      // Rebuild connectivity inside the old affected components using the
+      // final graph state. Additions that cross the old boundary are handled by
+      // the canonical-addition pass below.
+      for (VertexId u = 0; u < affected.size(); ++u) {
+        if (!affected[u]) continue;
+        for_each_neighbor(g_, u, [&](VertexId v) {
+          if (v < affected.size() && affected[v]) unite(u, v);
+        });
+      }
     }
 
-    last_repaired_vertices_ = 0;
-    std::vector<std::uint8_t> touched(parent_.size(), 0);
+    // Replay only the final operation for each logical undirected edge. This is
+    // the key correctness rule for add->remove / remove->add conflicts.
     for (const auto& e : canonical.updates) {
-      if (!e.add || e.src >= parent_.size() || e.dst >= parent_.size()) continue;
-      if (!has_edge(g_, e.src, e.dst)) continue;
-      if (!touched[e.src]) {
-        touched[e.src] = 1;
-        ++last_repaired_vertices_;
+      if (e.add && e.src < parent_.size() && e.dst < parent_.size() &&
+          has_edge(g_, e.src, e.dst)) {
+        unite(e.src, e.dst);
       }
-      if (!touched[e.dst]) {
-        touched[e.dst] = 1;
-        ++last_repaired_vertices_;
-      }
-      unite(e.src, e.dst);
     }
   }
 
