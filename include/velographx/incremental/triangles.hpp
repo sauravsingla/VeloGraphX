@@ -74,9 +74,8 @@ class BasicIncrementalTriangleCount {
 
 // DynamicGraph specialization computes the sequential triangle delta against a
 // lightweight in-memory edge overlay, then applies the complete batch once.
-// This preserves last-write/operation-order semantics while retaining the graph
-// contract that one UpdateBatch advances the version once and runs normal
-// storage maintenance.
+// This preserves operation-order semantics while retaining one graph version
+// increment and the normal DynamicGraph storage-maintenance path.
 class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGraph> {
  public:
   explicit IncrementalTriangleCount(DynamicGraph& graph)
@@ -100,12 +99,23 @@ class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGra
       return graph_.has_edge(u, v);
     };
 
+    auto override_count = [&](VertexId u) -> std::size_t {
+      const auto it = overrides.find(u);
+      return it == overrides.end() ? 0 : it->second.size();
+    };
+
     auto effective_common_neighbors = [&](VertexId a, VertexId b) {
+      VertexId scan = a;
+      VertexId probe = b;
+      const auto estimated_a = neighbor_count(graph_, a) + override_count(a);
+      const auto estimated_b = neighbor_count(graph_, b) + override_count(b);
+      if (estimated_b < estimated_a) std::swap(scan, probe);
+
       std::unordered_set<VertexId> candidates;
-      if (a < graph_.vertex_count()) {
-        graph_.for_each_neighbor(a, [&](VertexId v) { candidates.insert(v); });
+      if (scan < graph_.vertex_count()) {
+        graph_.for_each_neighbor(scan, [&](VertexId v) { candidates.insert(v); });
       }
-      const auto row_it = overrides.find(a);
+      const auto row_it = overrides.find(scan);
       if (row_it != overrides.end()) {
         for (const auto& [v, present] : row_it->second) {
           (void)present;
@@ -115,13 +125,11 @@ class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGra
 
       std::uint64_t common = 0;
       for (const auto v : candidates) {
-        if (effective_has_edge(a, v) && effective_has_edge(b, v)) ++common;
+        if (effective_has_edge(scan, v) && effective_has_edge(probe, v)) ++common;
       }
       return common;
     };
 
-    UpdateBatch simple_batch;
-    simple_batch.updates.reserve(batch.updates.size());
     for (const auto& op : batch.updates) {
       if (op.src == op.dst) continue;
       const bool exists = effective_has_edge(op.src, op.dst);
@@ -131,10 +139,11 @@ class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGra
 
       overrides[op.src][op.dst] = op.add;
       overrides[op.dst][op.src] = op.add;
-      simple_batch.updates.push_back(op);
     }
 
-    if (!simple_batch.empty()) graph_.apply(simple_batch);
+    // DynamicGraph now enforces simple-graph semantics itself, so applying the
+    // original batch is safe and preserves exact one-batch version semantics.
+    graph_.apply(batch);
   }
 };
 
