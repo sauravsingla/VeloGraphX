@@ -1,6 +1,12 @@
 #include <cassert>
+#include <cstdint>
+#include <functional>
+#include <limits>
 #include <map>
 #include <optional>
+#include <queue>
+#include <random>
+#include <utility>
 #include <vector>
 
 #include "velographx/incremental/weighted_sssp.hpp"
@@ -53,6 +59,36 @@ void vx_apply_updates(Graph& graph, const WeightedUpdateBatch& batch) {
 
 }  // namespace foreign_weighted
 
+namespace {
+
+std::vector<std::uint64_t> reference_dijkstra(const velographx::WeightedDynamicGraph& graph,
+                                              velographx::VertexId source) {
+  using namespace velographx;
+  constexpr auto inf = incremental_detail::kDijkstraInf;
+  std::vector<std::uint64_t> dist(graph.vertex_count(), inf);
+  if (source >= graph.vertex_count()) return dist;
+  using Item = std::pair<std::uint64_t, VertexId>;
+  std::priority_queue<Item, std::vector<Item>, std::greater<Item>> queue;
+  dist[source] = 0;
+  queue.push({0, source});
+  while (!queue.empty()) {
+    const auto [d, u] = queue.top();
+    queue.pop();
+    if (d != dist[u]) continue;
+    for (const auto& [v, w] : graph.neighbors(u)) {
+      if (w > inf - d) continue;
+      const auto candidate = d + w;
+      if (candidate < dist[v]) {
+        dist[v] = candidate;
+        queue.push({candidate, v});
+      }
+    }
+  }
+  return dist;
+}
+
+}  // namespace
+
 int main() {
   using namespace velographx;
 
@@ -104,6 +140,44 @@ int main() {
   foreign_sssp.apply(deletion);
   assert(sssp.distances()[3] == 12);
   assert(foreign_sssp.distances() == sssp.distances());
+
+  // Same-edge multi-update regression: final graph weight, not an obsolete
+  // intermediate weight, controls the maintained shortest path.
+  WeightedUpdateBatch repeated;
+  repeated.update(0, 1, 3);
+  repeated.update(0, 1, 7);
+  sssp.apply(repeated);
+  assert(graph.weight(0, 1).has_value() && *graph.weight(0, 1) == 7);
+  assert(sssp.distances() == reference_dijkstra(graph, 0));
+
+  // Random differential campaign with repeated edges and mixed batch sizes.
+  WeightedDynamicGraph random_graph(12, true);
+  IncrementalWeightedSSSP random_sssp(random_graph, 0);
+  std::mt19937 rng(20260913U);
+  std::uniform_int_distribution<std::uint32_t> vertex_dist(0, 11);
+  std::uniform_int_distribution<std::uint32_t> weight_dist(0, 50);
+  std::uniform_int_distribution<int> batch_size_dist(1, 6);
+  std::bernoulli_distribution add_dist(0.72);
+
+  for (std::size_t step = 0; step < 500; ++step) {
+    WeightedUpdateBatch batch;
+    const auto batch_size = batch_size_dist(rng);
+    for (int i = 0; i < batch_size; ++i) {
+      VertexId u = vertex_dist(rng);
+      VertexId v = vertex_dist(rng);
+      if (u == v) v = static_cast<VertexId>((v + 1) % 12);
+      if (add_dist(rng)) batch.update(u, v, weight_dist(rng));
+      else batch.remove(u, v);
+
+      // Periodically force another operation on the same edge so last-write
+      // semantics are exercised deliberately rather than by chance alone.
+      if ((step + static_cast<std::size_t>(i)) % 11 == 0) {
+        batch.update(u, v, weight_dist(rng));
+      }
+    }
+    random_sssp.apply(batch);
+    assert(random_sssp.distances() == reference_dijkstra(random_graph, 0));
+  }
 
   return 0;
 }
