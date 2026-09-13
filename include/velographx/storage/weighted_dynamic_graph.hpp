@@ -5,6 +5,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -13,6 +14,8 @@
 namespace velographx {
 
 using EdgeWeight = std::uint64_t;
+inline constexpr EdgeWeight kMaxFiniteWeightedDistance =
+    std::numeric_limits<EdgeWeight>::max() / 4 - 1;
 
 struct WeightedEdgeUpdate {
   VertexId src{};
@@ -55,10 +58,21 @@ class WeightedDynamicGraph {
   }
 
   void apply(const WeightedUpdateBatch& batch) {
+    // Validate the complete batch before mutation so an invalid weight cannot
+    // leave a partially applied graph.
     for (const auto& op : batch.updates) {
+      if (op.src == op.dst) continue;  // VeloGraphX uses simple-graph semantics.
+      if (op.add && op.weight > kMaxFiniteWeightedDistance) {
+        throw std::invalid_argument(
+            "edge weight exceeds the representable finite-distance domain");
+      }
+    }
+
+    for (const auto& op : batch.updates) {
+      if (op.src == op.dst) continue;
       ensure_vertex(std::max(op.src, op.dst));
       apply_one(op);
-      if (!directed_ && op.src != op.dst) {
+      if (!directed_) {
         WeightedEdgeUpdate reverse{op.dst, op.src, op.weight, op.add, op.timestamp};
         apply_one(reverse);
       }
@@ -83,8 +97,6 @@ class WeightedDynamicGraph {
     for (const auto& [v, w] : adjacency_[u]) fn(v, w);
   }
 
-  // Compatibility/materialisation API. Hot algorithm paths should prefer
-  // for_each_neighbor(), which traverses the map without allocating a vector.
   [[nodiscard]] std::vector<std::pair<VertexId, EdgeWeight>> neighbors(VertexId u) const {
     if (u >= adjacency_.size()) return {};
     std::vector<std::pair<VertexId, EdgeWeight>> out;

@@ -715,9 +715,12 @@ class DynamicGraph {
   }
 
   void apply_unversioned(const EdgeUpdate& op) {
+    // VeloGraphX uses simple-graph semantics consistently across static,
+    // bulk-load, dynamic, weighted, and consolidation paths.
+    if (op.src == op.dst) return;
     ensure_vertex(std::max(op.src, op.dst));
     apply_arc(op.src, op.dst, op.add);
-    if (!directed_ && op.src != op.dst) apply_arc(op.dst, op.src, op.add);
+    if (!directed_) apply_arc(op.dst, op.src, op.add);
   }
 
   void apply_arc(VertexId u, VertexId v, bool present) {

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include "velographx/graph_access.hpp"
@@ -30,6 +31,9 @@ class BasicIncrementalPageRank {
  public:
   explicit BasicIncrementalPageRank(Graph& g, double damping = 0.85)
       : g_(g), damping_(damping) {
+    if (!(damping_ >= 0.0 && damping_ <= 1.0)) {
+      throw std::invalid_argument("PageRank damping must be in [0, 1]");
+    }
     recompute();
   }
 
@@ -50,24 +54,28 @@ class BasicIncrementalPageRank {
       return;
     }
 
-    std::vector<std::pair<VertexId, bool>> dangling_before;
-    dangling_before.reserve(batch.updates.size() * (is_directed(g_) ? 1 : 2));
-    auto remember_dangling = [&](VertexId v) {
-      if (v >= vertex_count(g_)) {
-        dangling_before.emplace_back(v, true);
-        return;
-      }
-      dangling_before.emplace_back(v, neighbor_count(g_, v) == 0);
-    };
+    const auto previous_n = rank_.size();
+    const bool had_dangling_before = dangling_vertices_ != 0;
+
+    // Only these vertices can change outdegree in this batch. Tracking them
+    // keeps the ordinary local-repair path proportional to the update instead
+    // of introducing an O(V) dangling-status scan on every apply().
+    std::vector<VertexId> dangling_candidates;
+    dangling_candidates.reserve(batch.updates.size() * (is_directed(g_) ? 1 : 2));
     for (const auto& e : batch.updates) {
-      remember_dangling(e.src);
-      if (!is_directed(g_) && e.dst != e.src) remember_dangling(e.dst);
+      dangling_candidates.push_back(e.src);
+      if (!is_directed(g_) && e.dst != e.src) dangling_candidates.push_back(e.dst);
     }
+    std::sort(dangling_candidates.begin(), dangling_candidates.end());
+    dangling_candidates.erase(
+        std::unique(dangling_candidates.begin(), dangling_candidates.end()),
+        dangling_candidates.end());
 
     apply_updates(g_, batch);
     const auto n = vertex_count(g_);
     if (n == 0) {
       rank_.clear();
+      dangling_vertices_ = 0;
       last_repaired_vertices_ = 0;
       last_repair_iterations_ = 0;
       last_residual_l1_ = 0.0;
@@ -76,15 +84,21 @@ class BasicIncrementalPageRank {
       return;
     }
 
-    if (rank_.size() != n) rank_.resize(n, 1.0 / static_cast<double>(n));
-
-    for (const auto& [v, was_dangling] : dangling_before) {
-      const bool now_dangling = v >= n || neighbor_count(g_, v) == 0;
-      if (was_dangling != now_dangling) {
+    // A vertex-count change alters teleportation globally. Likewise, dangling
+    // mass is globally redistributed. If it existed before the update, or an
+    // outdegree-changing endpoint is dangling afterward, local repair is not
+    // an exact update of the PageRank fixed point.
+    if (n != previous_n || had_dangling_before) {
+      recompute();
+      return;
+    }
+    for (const auto v : dangling_candidates) {
+      if (v < n && neighbor_count(g_, v) == 0) {
         recompute();
         return;
       }
     }
+    dangling_vertices_ = 0;
 
     std::vector<std::uint8_t> active(n, 0);
     std::size_t active_count = 0;
@@ -131,7 +145,6 @@ class BasicIncrementalPageRank {
       std::size_t next_count = 0;
       double iter_l1 = 0.0;
       double iter_linf = 0.0;
-      bool changed_dangling_rank = false;
 
       auto activate_next = [&](VertexId v) {
         if (v < n && !next_active[v]) {
@@ -156,18 +169,7 @@ class BasicIncrementalPageRank {
         iter_l1 += delta;
         iter_linf = std::max(iter_linf, delta);
 
-        if (delta > tol) {
-          if (neighbor_count(g_, v) == 0) {
-            changed_dangling_rank = true;
-            break;
-          }
-          for_each_neighbor(g_, v, activate_next);
-        }
-      }
-
-      if (changed_dangling_rank) {
-        recompute();
-        return;
+        if (delta > tol) for_each_neighbor(g_, v, activate_next);
       }
 
       rank_.swap(next_rank);
@@ -191,6 +193,7 @@ class BasicIncrementalPageRank {
   void recompute(std::size_t max_iterations = 200, double tol = 1e-12) {
     const auto result = full_solve(max_iterations, tol);
     rank_ = result.values;
+    dangling_vertices_ = count_dangling_vertices();
     last_repaired_vertices_ = vertex_count(g_);
     last_repair_iterations_ = result.iterations;
     last_residual_l1_ = result.residual_l1;
@@ -243,6 +246,7 @@ class BasicIncrementalPageRank {
     if (!validation.within_tolerance) {
       const auto reference = full_solve(reference_max_iterations, reference_tol);
       rank_ = reference.values;
+      dangling_vertices_ = count_dangling_vertices();
       last_repaired_vertices_ = vertex_count(g_);
       last_repair_iterations_ = reference.iterations;
       last_residual_l1_ = reference.residual_l1;
@@ -261,6 +265,14 @@ class BasicIncrementalPageRank {
     double residual_linf{0.0};
     bool converged{false};
   };
+
+  [[nodiscard]] std::size_t count_dangling_vertices() const {
+    std::size_t count = 0;
+    for (VertexId u = 0; u < vertex_count(g_); ++u) {
+      count += neighbor_count(g_, u) == 0;
+    }
+    return count;
+  }
 
   [[nodiscard]] FullSolveResult full_solve(std::size_t max_iterations, double tol) const {
     FullSolveResult result;
@@ -311,6 +323,7 @@ class BasicIncrementalPageRank {
   Graph& g_;
   double damping_;
   std::vector<double> rank_;
+  std::size_t dangling_vertices_{0};
   std::size_t last_repaired_vertices_{0};
   std::size_t last_repair_iterations_{0};
   double last_residual_l1_{0.0};

@@ -1,8 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <numeric>
+#include <stdexcept>
 #include <unordered_set>
 #include <vector>
 
@@ -14,19 +16,37 @@ namespace velographx {
 template <class Graph>
 class BasicIncrementalComponents {
  public:
-  explicit BasicIncrementalComponents(Graph& g) : g_(g) { rebuild(); }
+  explicit BasicIncrementalComponents(Graph& g) : g_(g) {
+    if (is_directed(g_)) {
+      throw std::invalid_argument(
+          "IncrementalComponents requires an undirected graph; use an explicitly defined weak/strong connectivity algorithm for directed graphs");
+    }
+    rebuild();
+  }
 
-  [[nodiscard]] std::uint32_t component(VertexId v) { return find(v); }
+  [[nodiscard]] std::uint32_t component(VertexId v) {
+    if (v >= parent_.size()) throw std::out_of_range("vertex id outside graph");
+    return find(v);
+  }
   [[nodiscard]] std::size_t last_repaired_vertices() const noexcept {
     return last_repaired_vertices_;
   }
 
   void apply(const UpdateBatch& batch) {
-    std::unordered_set<VertexId> affected_roots;
-    affected_roots.reserve(batch.updates.size() * 2);
+    if (batch.empty()) {
+      last_repaired_vertices_ = 0;
+      return;
+    }
 
-    for (const auto& e : batch.updates) {
-      if (!e.add && e.src < parent_.size() && e.dst < parent_.size()) {
+    const auto canonical = canonicalize(batch);
+    std::unordered_set<VertexId> affected_roots;
+    affected_roots.reserve(canonical.updates.size() * 2 + 1);
+
+    // Only final, effective deletions can split a pre-batch component. Mark the
+    // complete pre-batch component so it can be rebuilt exactly after mutation.
+    for (const auto& e : canonical.updates) {
+      if (!e.add && e.src < parent_.size() && e.dst < parent_.size() &&
+          has_edge(g_, e.src, e.dst)) {
         affected_roots.insert(find(e.src));
         affected_roots.insert(find(e.dst));
       }
@@ -45,6 +65,7 @@ class BasicIncrementalComponents {
 
     apply_updates(g_, batch);
     ensure_capacity();
+    affected.resize(parent_.size(), 0);
 
     if (!affected_roots.empty()) {
       for (VertexId v = 0; v < affected.size(); ++v) {
@@ -54,6 +75,9 @@ class BasicIncrementalComponents {
         }
       }
 
+      // Rebuild connectivity inside the old affected components using the
+      // final graph state. Additions that cross the old boundary are handled by
+      // the canonical-addition pass below.
       for (VertexId u = 0; u < affected.size(); ++u) {
         if (!affected[u]) continue;
         for_each_neighbor(g_, u, [&](VertexId v) {
@@ -62,12 +86,38 @@ class BasicIncrementalComponents {
       }
     }
 
-    for (const auto& e : batch.updates) {
-      if (e.add) unite(e.src, e.dst);
+    // Replay only the final operation for each logical undirected edge. This is
+    // the key correctness rule for add->remove / remove->add conflicts.
+    for (const auto& e : canonical.updates) {
+      if (e.add && e.src < parent_.size() && e.dst < parent_.size() &&
+          has_edge(g_, e.src, e.dst)) {
+        unite(e.src, e.dst);
+      }
     }
   }
 
  private:
+  static std::uint64_t edge_key(VertexId u, VertexId v) noexcept {
+    if (v < u) std::swap(u, v);
+    return (static_cast<std::uint64_t>(u) << 32U) | static_cast<std::uint64_t>(v);
+  }
+
+  static UpdateBatch canonicalize(const UpdateBatch& batch) {
+    UpdateBatch out;
+    out.updates.reserve(batch.updates.size());
+    std::unordered_set<std::uint64_t> seen;
+    seen.reserve(batch.updates.size() * 2 + 1);
+
+    for (auto it = batch.updates.rbegin(); it != batch.updates.rend(); ++it) {
+      if (it->src == it->dst) continue;
+      auto op = *it;
+      if (op.dst < op.src) std::swap(op.src, op.dst);
+      if (seen.insert(edge_key(op.src, op.dst)).second) out.updates.push_back(op);
+    }
+    std::reverse(out.updates.begin(), out.updates.end());
+    return out;
+  }
+
   void ensure_capacity() {
     const auto old_size = parent_.size();
     if (old_size >= vertex_count(g_)) return;
