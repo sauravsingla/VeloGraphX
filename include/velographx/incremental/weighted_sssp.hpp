@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <queue>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -28,6 +29,15 @@ class BasicIncrementalWeightedSSSP {
 
   void apply(const WeightedUpdateBatch& batch) {
     if (batch.empty()) return;
+
+    // Validate before calling an arbitrary graph backend so a rejected weight
+    // cannot leave a partially applied foreign graph.
+    for (const auto& op : batch.updates) {
+      if (op.src != op.dst && op.add && op.weight >= kInf) {
+        throw std::invalid_argument(
+            "edge weight exceeds the representable finite-distance domain");
+      }
+    }
 
     const auto canonical = canonicalize(batch);
     bool requires_recompute = false;
@@ -91,8 +101,6 @@ class BasicIncrementalWeightedSSSP {
 
     for (const auto& op : batch.updates) {
       if (!op.add || op.src >= dist_.size() || op.dst >= dist_.size()) continue;
-      // Use the final graph weight, not an intermediate weight from the raw
-      // batch. This is essential for sequences such as 10 -> 5 -> 8.
       const auto final_weight = edge_weight(graph_, op.src, op.dst);
       if (!final_weight) continue;
       const auto weight = *final_weight;
