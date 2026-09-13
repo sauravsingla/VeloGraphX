@@ -1,6 +1,10 @@
 #pragma once
+
 #include <algorithm>
 #include <cstdint>
+#include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "velographx/graph_access.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
@@ -10,15 +14,21 @@ namespace velographx {
 template <class Graph>
 class BasicIncrementalTriangleCount {
  public:
-  explicit BasicIncrementalTriangleCount(Graph& graph) : graph_(graph) { recompute(); }
+  explicit BasicIncrementalTriangleCount(Graph& graph) : graph_(graph) {
+    validate_graph();
+    recompute();
+  }
   BasicIncrementalTriangleCount(Graph& graph, std::uint64_t trusted_initial_count)
-      : graph_(graph), triangles_(trusted_initial_count) {}
+      : graph_(graph), triangles_(trusted_initial_count) {
+    validate_graph();
+  }
 
   [[nodiscard]] std::uint64_t value() const noexcept { return triangles_; }
 
   void apply(const UpdateBatch& batch) {
     if (batch.empty()) return;
     for (const auto& op : batch.updates) {
+      if (op.src == op.dst) continue;
       const bool exists = has_edge(graph_, op.src, op.dst);
       const auto common = common_neighbors(op.src, op.dst);
       if (op.add && !exists) triangles_ += common;
@@ -36,10 +46,17 @@ class BasicIncrementalTriangleCount {
         if (u < v) triple += common_neighbors(u, v);
       });
     }
-    triangles_ = is_directed(graph_) ? triple : triple / 3;
+    triangles_ = triple / 3;
   }
 
  protected:
+  void validate_graph() const {
+    if (is_directed(graph_)) {
+      throw std::invalid_argument(
+          "IncrementalTriangleCount requires an undirected graph; directed motifs need an explicit definition");
+    }
+  }
+
   [[nodiscard]] std::uint64_t common_neighbors(VertexId a, VertexId b) const {
     VertexId scan = a;
     VertexId probe = b;
@@ -55,9 +72,11 @@ class BasicIncrementalTriangleCount {
   std::uint64_t triangles_{0};
 };
 
-// DynamicGraph forward-declares/friends this historical public type. Keep a
-// thin specialization wrapper so one logical UpdateBatch still advances the
-// graph version exactly once while later operations observe earlier updates.
+// DynamicGraph specialization computes the sequential triangle delta against a
+// lightweight in-memory edge overlay, then applies the complete batch once.
+// This preserves last-write/operation-order semantics while retaining the graph
+// contract that one UpdateBatch advances the version once and runs normal
+// storage maintenance.
 class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGraph> {
  public:
   explicit IncrementalTriangleCount(DynamicGraph& graph)
@@ -67,15 +86,56 @@ class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGra
 
   void apply(const UpdateBatch& batch) {
     if (batch.empty()) return;
+
+    using RowOverride = std::unordered_map<VertexId, bool>;
+    std::unordered_map<VertexId, RowOverride> overrides;
+    overrides.reserve(batch.updates.size() * 2 + 1);
+
+    auto effective_has_edge = [&](VertexId u, VertexId v) {
+      const auto row_it = overrides.find(u);
+      if (row_it != overrides.end()) {
+        const auto edge_it = row_it->second.find(v);
+        if (edge_it != row_it->second.end()) return edge_it->second;
+      }
+      return graph_.has_edge(u, v);
+    };
+
+    auto effective_common_neighbors = [&](VertexId a, VertexId b) {
+      std::unordered_set<VertexId> candidates;
+      if (a < graph_.vertex_count()) {
+        graph_.for_each_neighbor(a, [&](VertexId v) { candidates.insert(v); });
+      }
+      const auto row_it = overrides.find(a);
+      if (row_it != overrides.end()) {
+        for (const auto& [v, present] : row_it->second) {
+          (void)present;
+          candidates.insert(v);
+        }
+      }
+
+      std::uint64_t common = 0;
+      for (const auto v : candidates) {
+        if (effective_has_edge(a, v) && effective_has_edge(b, v)) ++common;
+      }
+      return common;
+    };
+
+    UpdateBatch simple_batch;
+    simple_batch.updates.reserve(batch.updates.size());
     for (const auto& op : batch.updates) {
-      const bool exists = graph_.has_edge(op.src, op.dst);
-      const auto common = common_neighbors(op.src, op.dst);
+      if (op.src == op.dst) continue;
+      const bool exists = effective_has_edge(op.src, op.dst);
+      const auto common = effective_common_neighbors(op.src, op.dst);
       if (op.add && !exists) triangles_ += common;
       if (!op.add && exists) triangles_ -= std::min<std::uint64_t>(triangles_, common);
-      graph_.apply_unversioned(op);
+
+      overrides[op.src][op.dst] = op.add;
+      overrides[op.dst][op.src] = op.add;
+      simple_batch.updates.push_back(op);
     }
-    ++graph_.version_;
+
+    if (!simple_batch.empty()) graph_.apply(simple_batch);
   }
 };
 
-} // namespace velographx
+}  // namespace velographx
