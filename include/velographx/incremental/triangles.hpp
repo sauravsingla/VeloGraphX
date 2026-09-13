@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <stdexcept>
-#include <unordered_map>
-#include <unordered_set>
 
 #include "velographx/graph_access.hpp"
 #include "velographx/storage/dynamic_graph.hpp"
@@ -72,10 +70,10 @@ class BasicIncrementalTriangleCount {
   std::uint64_t triangles_{0};
 };
 
-// DynamicGraph specialization computes the sequential triangle delta against a
-// lightweight in-memory edge overlay, then applies the complete batch once.
-// This preserves operation-order semantics while retaining one graph version
-// increment and the normal DynamicGraph storage-maintenance path.
+// DynamicGraph forward-declares/friends this public specialization. Process
+// operations sequentially so later operations observe earlier updates, while a
+// logical UpdateBatch advances the graph version exactly once. Unlike the old
+// path, batch finalization also runs the graph's normal storage maintenance.
 class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGraph> {
  public:
   explicit IncrementalTriangleCount(DynamicGraph& graph)
@@ -85,65 +83,16 @@ class IncrementalTriangleCount : public BasicIncrementalTriangleCount<DynamicGra
 
   void apply(const UpdateBatch& batch) {
     if (batch.empty()) return;
-
-    using RowOverride = std::unordered_map<VertexId, bool>;
-    std::unordered_map<VertexId, RowOverride> overrides;
-    overrides.reserve(batch.updates.size() * 2 + 1);
-
-    auto effective_has_edge = [&](VertexId u, VertexId v) {
-      const auto row_it = overrides.find(u);
-      if (row_it != overrides.end()) {
-        const auto edge_it = row_it->second.find(v);
-        if (edge_it != row_it->second.end()) return edge_it->second;
-      }
-      return graph_.has_edge(u, v);
-    };
-
-    auto override_count = [&](VertexId u) -> std::size_t {
-      const auto it = overrides.find(u);
-      return it == overrides.end() ? 0 : it->second.size();
-    };
-
-    auto effective_common_neighbors = [&](VertexId a, VertexId b) {
-      VertexId scan = a;
-      VertexId probe = b;
-      const auto estimated_a = neighbor_count(graph_, a) + override_count(a);
-      const auto estimated_b = neighbor_count(graph_, b) + override_count(b);
-      if (estimated_b < estimated_a) std::swap(scan, probe);
-
-      std::unordered_set<VertexId> candidates;
-      if (scan < graph_.vertex_count()) {
-        graph_.for_each_neighbor(scan, [&](VertexId v) { candidates.insert(v); });
-      }
-      const auto row_it = overrides.find(scan);
-      if (row_it != overrides.end()) {
-        for (const auto& [v, present] : row_it->second) {
-          (void)present;
-          candidates.insert(v);
-        }
-      }
-
-      std::uint64_t common = 0;
-      for (const auto v : candidates) {
-        if (effective_has_edge(scan, v) && effective_has_edge(probe, v)) ++common;
-      }
-      return common;
-    };
-
     for (const auto& op : batch.updates) {
       if (op.src == op.dst) continue;
-      const bool exists = effective_has_edge(op.src, op.dst);
-      const auto common = effective_common_neighbors(op.src, op.dst);
+      const bool exists = graph_.has_edge(op.src, op.dst);
+      const auto common = common_neighbors(op.src, op.dst);
       if (op.add && !exists) triangles_ += common;
       if (!op.add && exists) triangles_ -= std::min<std::uint64_t>(triangles_, common);
-
-      overrides[op.src][op.dst] = op.add;
-      overrides[op.dst][op.src] = op.add;
+      graph_.apply_unversioned(op);
     }
-
-    // DynamicGraph now enforces simple-graph semantics itself, so applying the
-    // original batch is safe and preserves exact one-batch version semantics.
-    graph_.apply(batch);
+    ++graph_.version_;
+    graph_.automatic_storage_maintenance();
   }
 };
 
