@@ -100,6 +100,22 @@ int main() {
   assert(dangling.last_residual_linf() <= 1e-12);
   assert(std::abs(sum(dangling.values()) - 1.0) < 1e-10);
 
+  // The same fallback is required when the update eliminates the final
+  // dangling vertex. The pre-update rank vector still contains globally
+  // redistributed dangling mass even though the post-update graph does not.
+  DynamicGraph last_dangling_graph(3, true);
+  UpdateBatch last_dangling_initial;
+  last_dangling_initial.add(0, 1);
+  last_dangling_initial.add(1, 0);  // vertex 2 is the only dangling vertex
+  last_dangling_graph.apply(last_dangling_initial);
+  IncrementalPageRank last_dangling(last_dangling_graph);
+  UpdateBatch eliminate_last_dangling;
+  eliminate_last_dangling.add(2, 0);
+  last_dangling.apply(eliminate_last_dangling, 128, 1e-13, 0.95);
+  assert(last_dangling.last_repaired_vertices() == last_dangling_graph.vertex_count());
+  assert(last_dangling.last_full_recompute_converged());
+  assert(last_dangling.validate_against_full(1000, 1e-13, 1e-8, 1e-9).within_tolerance);
+
   // Validation mode guarantees a result satisfying the requested error
   // contract. If localized repair misses it, apply_validated installs the full
   // reference and reports fallback_applied.
