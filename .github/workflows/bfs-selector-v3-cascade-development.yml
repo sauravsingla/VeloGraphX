@@ -6,7 +6,8 @@ on:
       - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
       - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/prepare_bfs_selector_v3_candidate.py'
-      - 'tools/prepare_bfs_selector_v3_cascade.py'
+      - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
+      - 'tools/prepare_bfs_reusable_preflight_header.py'
       - 'tools/summarize_bfs_selector_runs.py'
       - 'tools/generate_reviewer_holdout.py'
       - 'tools/generate_selector_v2_holdout.py'
@@ -19,7 +20,8 @@ on:
       - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
       - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/prepare_bfs_selector_v3_candidate.py'
-      - 'tools/prepare_bfs_selector_v3_cascade.py'
+      - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
+      - 'tools/prepare_bfs_reusable_preflight_header.py'
       - 'tools/summarize_bfs_selector_runs.py'
       - 'tools/generate_reviewer_holdout.py'
       - 'tools/generate_selector_v2_holdout.py'
@@ -51,18 +53,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build
 
-      - name: Prepare bounded cascade-risk candidate
+      - name: Prepare reusable bounded cascade-risk candidate
         run: |
-          mkdir -p build/v3
-          python tools/prepare_bfs_selector_v3_candidate.py \
+          mkdir -p build/v3/include/velographx/incremental
+          python tools/prepare_bfs_reusable_preflight_header.py \
+            include/velographx/incremental/bfs.hpp \
+            build/v3/include/velographx/incremental/bfs.hpp
+          python tools/prepare_bfs_selector_v3_reuse_candidate.py \
             benchmarks/publication_policy_bfs_v3_light3.cpp \
-            build/v3/publication_policy_bfs_v3_cascade1.cpp
-          grep -q 'publication-preflight-bfs-v3-cascade1' \
-            build/v3/publication_policy_bfs_v3_cascade1.cpp
-          grep -q 'v3_cascade_preflight_full' \
-            build/v3/publication_policy_bfs_v3_cascade1.cpp
+            build/v3/publication_policy_bfs_v3_cascade_reuse1.cpp
+          grep -q 'preflight_deletion_cascade' \
+            build/v3/include/velographx/incremental/bfs.hpp
+          grep -q 'apply_preflighted' \
+            build/v3/include/velographx/incremental/bfs.hpp
+          grep -q 'publication-preflight-bfs-v3-cascade-reuse1' \
+            build/v3/publication_policy_bfs_v3_cascade_reuse1.cpp
+          grep -q 'v3_reuse_cascade_preflight_full' \
+            build/v3/publication_policy_bfs_v3_cascade_reuse1.cpp
 
-      - name: Build and test reachable-count invariant
+      - name: Build and test original reachable-count invariant
         run: |
           cmake -S . -B build/vx -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -71,13 +80,14 @@ jobs:
           cmake --build build/vx --target velographx_test_incremental_bfs_deletion -j 2
           ./build/vx/velographx_test_incremental_bfs_deletion
 
-      - name: Build cascade-risk selector candidate
+      - name: Build reusable cascade-risk selector candidate
         run: |
           cmake --build build/vx --target velographx -j 2
-          c++ -O3 -DNDEBUG -std=c++20 -Iinclude -Ibenchmarks \
-            build/v3/publication_policy_bfs_v3_cascade1.cpp \
+          c++ -O3 -DNDEBUG -std=c++20 \
+            -Ibuild/v3/include -Iinclude -Ibenchmarks \
+            build/v3/publication_policy_bfs_v3_cascade_reuse1.cpp \
             build/vx/libvelographx.a -pthread \
-            -o build/publication_policy_bfs_v3_cascade1
+            -o build/publication_policy_bfs_v3_cascade_reuse1
 
       - name: Generate seen development graph families
         run: |
@@ -104,12 +114,12 @@ jobs:
                       out = Path(f'build/v3/road/road-rep{rep}-r{root}__{batch}.json')
                       with out.open('w') as f:
                           subprocess.run([
-                              'build/publication_policy_bfs_v3_cascade1',
+                              'build/publication_policy_bfs_v3_cascade_reuse1',
                               'build/v3/graphs/road.txt', str(root), '0.95', str(batch),
                               os.environ['SIMPLE_UPDATE_FRACTION']
                           ], stdout=f, check=True)
                       d = json.load(out.open())
-                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade1'
+                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade-reuse1'
                       assert d['research_claim'] is False
                       assert d['all_policies_exact']
           PY
@@ -125,12 +135,12 @@ jobs:
                       out = Path(f'build/v3/h4/h4-rep{rep}-r{root}__{batch}.json')
                       with out.open('w') as f:
                           subprocess.run([
-                              'build/publication_policy_bfs_v3_cascade1',
+                              'build/publication_policy_bfs_v3_cascade_reuse1',
                               'build/v3/graphs/h4.txt', str(root), '0.95', str(batch),
                               os.environ['SIMPLE_UPDATE_FRACTION']
                           ], stdout=f, check=True)
                       d = json.load(out.open())
-                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade1'
+                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade-reuse1'
                       assert d['research_claim'] is False
                       assert d['all_policies_exact']
           PY
@@ -155,6 +165,7 @@ jobs:
 
           preview_evaluated = 0
           preview_exceeded = 0
+          preflight_reused = 0
           cascade_full = 0
           for folder in ('road', 'h4'):
               for path in Path(f'build/v3/{folder}').glob('*.json'):
@@ -163,7 +174,8 @@ jobs:
                   for trace in adaptive['trace']:
                       preview_evaluated += int(trace.get('cascade_preview_evaluated', False))
                       preview_exceeded += int(trace.get('cascade_preview_exceeded', False))
-                      cascade_full += int(trace.get('reason') == 'v3_cascade_preflight_full')
+                      preflight_reused += int(trace.get('cascade_preflight_reused', False))
+                      cascade_full += int(trace.get('reason') == 'v3_reuse_cascade_preflight_full')
           print('ROAD mean=', road['mean_regret'], 'p95=', road['p95_regret'],
                 'max=', road['max_regret'], 'wrong=', road['wrong_arm_rate'],
                 'decision_us=', road['mean_decision_us'])
@@ -171,7 +183,8 @@ jobs:
                 'max=', h4['max_regret'], 'wrong=', h4['wrong_arm_rate'],
                 'decision_us=', h4['mean_decision_us'])
           print('cascade_preview_evaluated=', preview_evaluated,
-                'exceeded=', preview_exceeded, 'cascade_full=', cascade_full)
+                'exceeded=', preview_exceeded, 'reused=', preflight_reused,
+                'cascade_full=', cascade_full)
 
           # Preserve the existing development gates exactly. No threshold is weakened.
           assert road['mean_regret'] <= 0.08, road
@@ -180,15 +193,16 @@ jobs:
           assert h4['mean_regret'] <= 0.10, h4
           assert h4['p95_regret'] <= 0.50, h4
           assert h4['wrong_arm_rate'] <= 0.12, h4
-          # Ensure the new mechanism is exercised on the seen development campaign.
+          # Ensure the mechanism is exercised and prepared work is actually reused.
           assert preview_evaluated > 0
           assert preview_exceeded > 0
+          assert preflight_reused > 0
           assert cascade_full > 0
           PY
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bfs-selector-v3-cascade1-development
+          name: bfs-selector-v3-cascade-reuse1-development
           path: build/v3/
           retention-days: 90
