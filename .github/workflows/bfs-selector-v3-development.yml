@@ -55,8 +55,8 @@ jobs:
           source = Path('benchmarks/publication_policy_bfs_v3_light3.cpp')
           src = source.read_text()
 
-          # Keep the road-safe confirmation behavior already established on the
-          # seen development sets: a cheap confirmation clears the prior tail.
+          # Preserve the road-safe confirmation behavior already established on
+          # the seen development sets. This is the only retained prior patch.
           anchor = 'if (confirmation_batch) {'
           terminator = '} else if (normalized_tail >= kLearnedFullMargin) {'
           reset_needle = '        incremental_tail_ratio = std::max(decayed_tail, normalized_tail);'
@@ -71,58 +71,46 @@ jobs:
           assert out.count(reset_replacement) == 1, 'confirmation reset was not uniquely applied'
           assert out[end:].count(reset_needle) >= 1, 'new-tail persistence path must remain intact'
 
-          # Replace the O(V), initialization-only reachability snapshot with the
-          # engine's exact O(1) maintained count and retain the count at the last
-          # directly measured full recomputation.
-          setup_needle = '''  const auto setup_begin = Clock::now();
-          const double reachable_fraction =
-              static_cast<double>(reachable_vertices(bfs.distances())) /
-              static_cast<double>(std::max<std::size_t>(1, vertices));
-          const auto setup_end = Clock::now();'''
-          setup_replacement = '''  const auto setup_begin = Clock::now();
-          const std::size_t initial_reachable_count = bfs.reachable_count();
-          const auto setup_end = Clock::now();'''
-          assert out.count(setup_needle) == 1, 'initial reachability setup changed unexpectedly'
-          out = out.replace(setup_needle, setup_replacement)
+          # Use the engine's exact maintained O(1) reachability count instead of
+          # rescanning the distance vector. Keep the initial snapshot only as the
+          # state attached to the initial measured full-BFS cost.
+          scan_needle = 'reachable_vertices(bfs.distances())'
+          assert out.count(scan_needle) == 1, 'adaptive reachability scan changed unexpectedly'
+          out = out.replace(scan_needle, 'bfs.reachable_count()')
 
           state_needle = '  double latest_full_us = initial_full_us;\n'
           state_replacement = ('  double latest_full_us = initial_full_us;\n'
-                               '  std::size_t last_full_reachable_count = initial_reachable_count;\n')
+                               '  std::size_t last_full_reachable_count = bfs.reachable_count();\n')
           assert out.count(state_needle) == 1, 'full-cost state anchor changed unexpectedly'
           out = out.replace(state_needle, state_replacement)
 
-          trace_needle = '''    L3Trace t;
-              t.reachable_fraction = reachable_fraction;'''
-          trace_replacement = '''    const std::size_t current_reachable_count = bfs.reachable_count();
-              L3Trace t;
-              t.reachable_fraction = static_cast<double>(current_reachable_count) /
-                  static_cast<double>(std::max<std::size_t>(1, vertices));'''
-          assert out.count(trace_needle) == 1, 'per-batch trace anchor changed unexpectedly'
+          trace_needle = '    t.reachable_fraction = reachable_fraction;'
+          trace_replacement = ('    const std::size_t current_reachable_count = bfs.reachable_count();\n'
+                               '    t.reachable_fraction = static_cast<double>(current_reachable_count) /\n'
+                               '        static_cast<double>(std::max<std::size_t>(1, vertices));')
+          assert out.count(trace_needle) == 1, 'per-batch reachability trace anchor changed unexpectedly'
           out = out.replace(trace_needle, trace_replacement)
 
-          # Full BFS work tracks the currently reachable region. Scale the last
-          # directly observed full cost by the exact current/observed reach ratio.
-          # This introduces no H4-specific threshold and uses no H6 evidence.
+          # Full BFS cost is scaled by the exact reachable work since the last
+          # directly measured full recomputation. No graph-family threshold is
+          # introduced and no unseen H6 evidence is consumed.
           full_needle = '      t.predicted_full_us = latest_full_us;'
-          full_replacement = '''      const double reachable_work_ratio =
-                  static_cast<double>(current_reachable_count) /
-                  static_cast<double>(std::max<std::size_t>(1, last_full_reachable_count));
-              t.predicted_full_us = latest_full_us * reachable_work_ratio;'''
+          full_replacement = ('      const double reachable_work_ratio =\n'
+                              '          static_cast<double>(current_reachable_count) /\n'
+                              '          static_cast<double>(std::max<std::size_t>(1, last_full_reachable_count));\n'
+                              '      t.predicted_full_us = latest_full_us * reachable_work_ratio;')
           assert out.count(full_needle) == 1, 'full prediction anchor changed unexpectedly'
           out = out.replace(full_needle, full_replacement)
 
-          observed_needle = '''    if (observed_full) {
-              latest_full_us = execution_us;
-              full_age = 0;'''
-          observed_replacement = '''    if (observed_full) {
-              latest_full_us = execution_us;
-              last_full_reachable_count = bfs.reachable_count();
-              full_age = 0;'''
+          observed_needle = '      latest_full_us = execution_us;\n'
+          observed_replacement = ('      latest_full_us = execution_us;\n'
+                                  '      last_full_reachable_count = bfs.reachable_count();\n')
           assert out.count(observed_needle) == 1, 'full observation anchor changed unexpectedly'
           out = out.replace(observed_needle, observed_replacement)
 
-          assert 'reachable_vertices(bfs.distances())' not in out[out.index('L3Result run_adaptive_l3'):], \
-              'adaptive selector must not rescan the distance vector for reachability'
+          adaptive = out[out.index('L3Result run_adaptive_l3'):]
+          assert 'reachable_vertices(bfs.distances())' not in adaptive
+          assert adaptive.count('bfs.reachable_count()') >= 4
           Path('build/v3/publication_policy_bfs_v3_light3_reachfix.cpp').write_text(out)
           PY
 
