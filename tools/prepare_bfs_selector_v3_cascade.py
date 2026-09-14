@@ -59,7 +59,7 @@ L3CascadePreview l3_cascade_preview(const velographx::DynamicGraph& graph,
   const std::size_t vertices = graph.vertex_count();
   const std::size_t stop_vertices = std::max<std::size_t>(
       1, static_cast<std::size_t>(std::ceil(
-             stop_fraction * static_cast<double>(std::max<std::size_t>(1, vertices))))));
+             stop_fraction * static_cast<double>(std::max<std::size_t>(1, vertices)))));
 
   auto edge_key = [](velographx::VertexId u, velographx::VertexId v) {
     return (static_cast<std::uint64_t>(u) << 32) | static_cast<std::uint64_t>(v);
