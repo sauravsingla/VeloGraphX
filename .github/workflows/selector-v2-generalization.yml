@@ -1,0 +1,212 @@
+name: Selector V2 Generalization
+
+on:
+  push:
+    paths:
+      - 'benchmarks/publication_policy_bfs_v2.cpp'
+      - 'benchmarks/publication_policy_triangles_v2.cpp'
+      - 'tools/generate_selector_v2_holdout.py'
+      - 'tools/summarize_selector_v2.py'
+      - 'docs/research/selector-v2-generalization-preregistration.md'
+      - '.github/workflows/selector-v2-generalization.yml'
+  pull_request:
+    paths:
+      - 'benchmarks/publication_policy_bfs_v2.cpp'
+      - 'benchmarks/publication_policy_triangles_v2.cpp'
+      - 'tools/generate_selector_v2_holdout.py'
+      - 'tools/summarize_selector_v2.py'
+      - 'docs/research/selector-v2-generalization-preregistration.md'
+      - '.github/workflows/selector-v2-generalization.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+
+jobs:
+  selector-v2-generalization:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Verify preregistration precedes measurements
+        run: |
+          grep -q 'd6ed5b02e910864efaab41ba338b87fb9a414585' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'publication-preflight-v2' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'chain-hubs-directed' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'block-community-undirected' docs/research/selector-v2-generalization-preregistration.md
+          grep -q '2026091501' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'research_claim=false' docs/research/selector-v2-generalization-preregistration.md
+
+      - name: Build selector v2 harnesses
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_bfs_v2.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs_v2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_triangles_v2.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_triangles_v2
+
+      - name: Generate seen development diagnostics
+        run: |
+          mkdir -p build/v2/{graphs,development-bfs,development-triangles,holdout-bfs,holdout-triangles,summary}
+          python tools/generate_reviewer_holdout.py \
+            --mode road-smallworld --seed 20260914 \
+            --width 192 --height 192 \
+            --output build/v2/graphs/dev-road.txt \
+            --metadata build/v2/graphs/dev-road.json
+          python tools/generate_reviewer_holdout.py \
+            --mode clustered-undirected --seed 20260914 \
+            --vertices 8192 \
+            --output build/v2/graphs/dev-triangles.txt \
+            --metadata build/v2/graphs/dev-triangles.json
+
+      - name: Run seen development diagnostics
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for root in (0, 18528, 36863):
+              for batch in (128, 512, 2048):
+                  out = Path(f'build/v2/development-bfs/road-r{root}__{batch}.json')
+                  with out.open('w') as f:
+                      subprocess.run([
+                          'build/publication_policy_bfs_v2', 'build/v2/graphs/dev-road.txt',
+                          str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                      ], stdout=f, check=True)
+                  d = json.load(out.open())
+                  assert d['selector'] == 'publication-preflight-v2'
+                  assert d['all_policies_exact']
+          for batch in (64, 256, 1024):
+              out = Path(f'build/v2/development-triangles/clustered__{batch}.json')
+              with out.open('w') as f:
+                  subprocess.run([
+                      'build/publication_policy_triangles_v2', 'build/v2/graphs/dev-triangles.txt',
+                      '0.90', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                  ], stdout=f, check=True)
+              d = json.load(out.open())
+              assert d['selector'] == 'publication-preflight-triangle-v2'
+              assert d['all_policies_exact']
+          PY
+
+      - name: Generate fresh preregistered holdout
+        run: |
+          python tools/generate_selector_v2_holdout.py \
+            --mode chain-hubs-directed --seed 2026091501 --vertices 32768 \
+            --output build/v2/graphs/holdout-bfs.txt \
+            --metadata build/v2/graphs/holdout-bfs.json
+          python tools/generate_selector_v2_holdout.py \
+            --mode block-community-undirected --seed 2026091501 --vertices 8192 \
+            --output build/v2/graphs/holdout-triangles.txt \
+            --metadata build/v2/graphs/holdout-triangles.json
+
+      - name: Run fresh BFS holdout
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for root in (0, 16384, 32767):
+              for batch in (128, 512, 2048):
+                  for rep in (1, 2):
+                      out = Path(f'build/v2/holdout-bfs/chain-r{root}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs_v2', 'build/v2/graphs/holdout-bfs.txt',
+                              str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d = json.load(out.open())
+                      assert d['selector'] == 'publication-preflight-v2'
+                      assert d['all_policies_exact']
+          PY
+
+      - name: Run fresh triangle holdout
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for batch in (64, 256, 1024):
+              for rep in (1, 2):
+                  out = Path(f'build/v2/holdout-triangles/block__{batch}__{rep}.json')
+                  with out.open('w') as f:
+                      subprocess.run([
+                          'build/publication_policy_triangles_v2', 'build/v2/graphs/holdout-triangles.txt',
+                          '0.90', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                      ], stdout=f, check=True)
+                  d = json.load(out.open())
+                  assert d['selector'] == 'publication-preflight-triangle-v2'
+                  assert d['all_policies_exact']
+          PY
+
+      - name: Summarize and enforce preregistered hosted gates
+        run: |
+          python tools/summarize_selector_v2.py \
+            --development-bfs build/v2/development-bfs \
+            --development-triangles build/v2/development-triangles \
+            --holdout-bfs build/v2/holdout-bfs \
+            --holdout-triangles build/v2/holdout-triangles \
+            --output build/v2/summary/summary.json \
+            | tee build/v2/summary/stdout.json
+          python - <<'PY'
+          import json
+          d = json.load(open('build/v2/summary/summary.json'))
+          assert d['all_exact']
+          b = d['holdout_bfs']
+          t = d['holdout_triangles']
+          assert b['internal_fallback_fraction'] == 0.0
+          assert b['mean_regret'] <= 0.08, b
+          assert b['p95_regret'] <= 0.40, b
+          assert b['max_regret'] <= 1.00, b
+          assert b['wrong_arm_rate'] <= 0.08, b
+          assert t['internal_fallback_fraction'] == 0.0
+          assert t['mean_regret'] <= 0.20, t
+          assert t['p95_regret'] <= 0.75, t
+          assert t['max_regret'] <= 2.00, t
+          assert t['wrong_arm_rate'] <= 0.10, t
+          print('holdout_bfs_mean_regret=', b['mean_regret'])
+          print('holdout_bfs_p95_regret=', b['p95_regret'])
+          print('holdout_bfs_wrong_arm=', b['wrong_arm_rate'])
+          print('holdout_triangle_mean_regret=', t['mean_regret'])
+          print('holdout_triangle_p95_regret=', t['p95_regret'])
+          print('holdout_triangle_wrong_arm=', t['wrong_arm_rate'])
+          PY
+
+      - name: Capture immutable campaign pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "parent_main=d6ed5b02e910864efaab41ba338b87fb9a414585"
+            echo "bfs_selector=publication-preflight-v2"
+            echo "triangle_selector=publication-preflight-triangle-v2"
+            echo "holdout_generator=selector-v2-holdout-v1"
+            echo "holdout_seed=2026091501"
+            echo "bfs_holdout_sha256=$(python -c 'import json; print(json.load(open("build/v2/graphs/holdout-bfs.json"))["sha256"])')"
+            echo "triangle_holdout_sha256=$(python -c 'import json; print(json.load(open("build/v2/graphs/holdout-triangles.json"))["sha256"])')"
+            echo "research_claim=false"
+            echo "dedicated_hardware_required=true"
+          } > build/v2/pins.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selector-v2-generalization
+          path: build/v2/
+          retention-days: 90
