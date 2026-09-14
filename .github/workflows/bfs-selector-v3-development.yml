@@ -52,11 +52,20 @@ jobs:
           from pathlib import Path
           source = Path('benchmarks/publication_policy_bfs_v3_light3.cpp')
           src = source.read_text()
+          anchor = 'if (confirmation_batch) {'
+          terminator = '} else if (normalized_tail >= kLearnedFullMargin) {'
           needle = '        incremental_tail_ratio = std::max(decayed_tail, normalized_tail);'
           replacement = '        incremental_tail_ratio = normalized_tail;'
-          assert src.count(needle) == 1, 'confirmation assignment changed unexpectedly'
-          assert 'if (confirmation_batch)' in src, 'confirmation block missing'
-          Path('build/v3/publication_policy_bfs_v3_light3_confirmfix.cpp').write_text(src.replace(needle, replacement))
+          assert src.count(anchor) == 1, 'confirmation branch count changed unexpectedly'
+          start = src.index(anchor)
+          end = src.index(terminator, start)
+          block = src[start:end]
+          assert block.count(needle) == 1, 'confirmation assignment missing or ambiguous'
+          patched = block.replace(needle, replacement)
+          out = src[:start] + patched + src[end:]
+          assert out.count(replacement) == 1, 'confirmation reset was not uniquely applied'
+          assert out[end:].count(needle) >= 1, 'new-tail persistence path must remain intact'
+          Path('build/v3/publication_policy_bfs_v3_light3_confirmfix.cpp').write_text(out)
           PY
 
       - name: Build confirmation-reset BFS selector candidate
