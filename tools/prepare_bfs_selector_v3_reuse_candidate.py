@@ -91,7 +91,16 @@ def add_reusable_cascade(src: str) -> str:
       r.affected_vertices += bfs.last_affected_vertices();
       fallback = bfs.last_used_full_recompute();
 '''
-    src = replace_once(src, exec_anchor, exec_replacement, "reuse prepared execution")
+    adaptive_start = src.index("L3Result run_adaptive_l3")
+    prefix = src[:adaptive_start]
+    adaptive = src[adaptive_start:]
+    adaptive = replace_once(
+        adaptive,
+        exec_anchor,
+        exec_replacement,
+        "reuse prepared adaptive execution",
+    )
+    src = prefix + adaptive
 
     serial_anchor = '              << ",\\\"normalized_tail_ratio\\\":" << t.normalized_tail_ratio\n'
     serial_replacement = (
