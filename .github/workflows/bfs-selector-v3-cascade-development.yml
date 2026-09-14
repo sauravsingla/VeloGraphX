@@ -6,6 +6,7 @@ on:
       - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
       - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/prepare_bfs_selector_v3_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_cascade.py'
       - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
       - 'tools/prepare_bfs_selector_v3_reuse2_candidate.py'
       - 'tools/prepare_bfs_reusable_preflight_header.py'
@@ -21,6 +22,7 @@ on:
       - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
       - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/prepare_bfs_selector_v3_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_cascade.py'
       - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
       - 'tools/prepare_bfs_selector_v3_reuse2_candidate.py'
       - 'tools/prepare_bfs_reusable_preflight_header.py'
@@ -57,6 +59,8 @@ jobs:
 
       - name: Prepare reusable bounded cascade-risk candidate
         run: |
+          test "$(git rev-parse HEAD:tools/prepare_bfs_selector_v3_cascade.py)" = \
+            '702237519114b5f193f76bff6f11c47173126758'
           mkdir -p build/v3/include/velographx/incremental
           python tools/prepare_bfs_reusable_preflight_header.py \
             include/velographx/incremental/bfs.hpp \
