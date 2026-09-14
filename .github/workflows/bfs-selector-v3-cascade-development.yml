@@ -7,6 +7,7 @@ on:
       - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/prepare_bfs_selector_v3_candidate.py'
       - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_reuse2_candidate.py'
       - 'tools/prepare_bfs_reusable_preflight_header.py'
       - 'tools/summarize_bfs_selector_runs.py'
       - 'tools/generate_reviewer_holdout.py'
@@ -21,6 +22,7 @@ on:
       - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/prepare_bfs_selector_v3_candidate.py'
       - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_reuse2_candidate.py'
       - 'tools/prepare_bfs_reusable_preflight_header.py'
       - 'tools/summarize_bfs_selector_runs.py'
       - 'tools/generate_reviewer_holdout.py'
@@ -59,17 +61,19 @@ jobs:
           python tools/prepare_bfs_reusable_preflight_header.py \
             include/velographx/incremental/bfs.hpp \
             build/v3/include/velographx/incremental/bfs.hpp
-          python tools/prepare_bfs_selector_v3_reuse_candidate.py \
+          python tools/prepare_bfs_selector_v3_reuse2_candidate.py \
             benchmarks/publication_policy_bfs_v3_light3.cpp \
-            build/v3/publication_policy_bfs_v3_cascade_reuse1.cpp
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp
           grep -q 'preflight_deletion_cascade' \
             build/v3/include/velographx/incremental/bfs.hpp
           grep -q 'apply_preflighted' \
             build/v3/include/velographx/incremental/bfs.hpp
-          grep -q 'publication-preflight-bfs-v3-cascade-reuse1' \
-            build/v3/publication_policy_bfs_v3_cascade_reuse1.cpp
-          grep -q 'v3_reuse_cascade_preflight_full' \
-            build/v3/publication_policy_bfs_v3_cascade_reuse1.cpp
+          grep -q 'publication-preflight-bfs-v3-cascade-reuse2' \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'v3_reuse2_cascade_preflight_full' \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'const bool fresh_expected_full = false;' \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp
 
       - name: Build and test original reachable-count invariant
         run: |
@@ -85,9 +89,9 @@ jobs:
           cmake --build build/vx --target velographx -j 2
           c++ -O3 -DNDEBUG -std=c++20 \
             -Ibuild/v3/include -Iinclude -Ibenchmarks \
-            build/v3/publication_policy_bfs_v3_cascade_reuse1.cpp \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp \
             build/vx/libvelographx.a -pthread \
-            -o build/publication_policy_bfs_v3_cascade_reuse1
+            -o build/publication_policy_bfs_v3_cascade_reuse2
 
       - name: Generate seen development graph families
         run: |
@@ -114,12 +118,12 @@ jobs:
                       out = Path(f'build/v3/road/road-rep{rep}-r{root}__{batch}.json')
                       with out.open('w') as f:
                           subprocess.run([
-                              'build/publication_policy_bfs_v3_cascade_reuse1',
+                              'build/publication_policy_bfs_v3_cascade_reuse2',
                               'build/v3/graphs/road.txt', str(root), '0.95', str(batch),
                               os.environ['SIMPLE_UPDATE_FRACTION']
                           ], stdout=f, check=True)
                       d = json.load(out.open())
-                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade-reuse1'
+                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade-reuse2'
                       assert d['research_claim'] is False
                       assert d['all_policies_exact']
           PY
@@ -135,12 +139,12 @@ jobs:
                       out = Path(f'build/v3/h4/h4-rep{rep}-r{root}__{batch}.json')
                       with out.open('w') as f:
                           subprocess.run([
-                              'build/publication_policy_bfs_v3_cascade_reuse1',
+                              'build/publication_policy_bfs_v3_cascade_reuse2',
                               'build/v3/graphs/h4.txt', str(root), '0.95', str(batch),
                               os.environ['SIMPLE_UPDATE_FRACTION']
                           ], stdout=f, check=True)
                       d = json.load(out.open())
-                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade-reuse1'
+                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade-reuse2'
                       assert d['research_claim'] is False
                       assert d['all_policies_exact']
           PY
@@ -175,7 +179,7 @@ jobs:
                       preview_evaluated += int(trace.get('cascade_preview_evaluated', False))
                       preview_exceeded += int(trace.get('cascade_preview_exceeded', False))
                       preflight_reused += int(trace.get('cascade_preflight_reused', False))
-                      cascade_full += int(trace.get('reason') == 'v3_reuse_cascade_preflight_full')
+                      cascade_full += int(trace.get('reason') == 'v3_reuse2_cascade_preflight_full')
           print('ROAD mean=', road['mean_regret'], 'p95=', road['p95_regret'],
                 'max=', road['max_regret'], 'wrong=', road['wrong_arm_rate'],
                 'decision_us=', road['mean_decision_us'])
@@ -203,6 +207,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bfs-selector-v3-cascade-reuse1-development
+          name: bfs-selector-v3-cascade-reuse2-development
           path: build/v3/
           retention-days: 90
