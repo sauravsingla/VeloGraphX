@@ -21,6 +21,10 @@ Status: **post-observation retained result**. The preregistration in `bfs-select
 
 The workflow verified all preregistered candidate Git-blob identities and the expected graph SHA256 before any benchmark measurement.
 
+### Post-observation reproducibility audit
+
+A cleanup review after H6 found one transitive Python import dependency that was present in the H6 execution commit but was not separately enumerated in the preregistration's blob checklist: `tools/prepare_bfs_selector_v3_candidate.py` imports `tools/prepare_bfs_selector_v3_cascade.py` at module load time. The H6/reuse2 path calls `add_reachfix()` from that module and does **not** invoke the legacy cascade transform, but the import must resolve for deterministic replay. The exact dependency present during H6 has Git blob `702237519114b5f193f76bff6f11c47173126758`; it is retained unchanged. This post-observation audit does not modify the frozen candidate, generator, H6 measurements or acceptance gates.
+
 ## Frozen-gate outcome
 
 **H6 passes every preregistered hosted generalization gate.**
