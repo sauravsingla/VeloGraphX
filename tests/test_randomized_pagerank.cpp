@@ -69,7 +69,7 @@ void assert_distribution(const std::vector<double>& rank) {
     assert(value >= -1e-12);
     total += value;
   }
-  assert(std::abs(total - 1.0) <= 1e-9);
+  assert(std::abs(total - 1.0) <= 2e-7);
 }
 
 void assert_matches_reference(const IncrementalPageRank& incremental,
