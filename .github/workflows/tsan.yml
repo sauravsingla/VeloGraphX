@@ -1,0 +1,59 @@
+name: ThreadSanitizer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tsan-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  thread-sanitizer:
+    name: Clang TSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CC: clang
+      CXX: clang++
+      TSAN_OPTIONS: halt_on_error=1:history_size=7:second_deadlock_stack=1
+      VELOGRAPHX_RANDOMIZED_OPS: 200
+      VELOGRAPHX_RANDOMIZED_SEEDS: 2
+      VELOGRAPHX_PAGERANK_RANDOMIZED_OPS: 120
+      VELOGRAPHX_PAGERANK_RANDOMIZED_SEEDS: 2
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure ThreadSanitizer build
+        run: >-
+          cmake -S . -B build-tsan
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DVELOGRAPHX_BUILD_TESTS=ON
+          -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          -DVELOGRAPHX_BUILD_PYTHON=OFF
+          -DCMAKE_CXX_FLAGS='-fsanitize=thread -fno-omit-frame-pointer -O1 -g'
+          -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=thread'
+
+      - name: Build concurrency and randomized targets
+        run: >-
+          cmake --build build-tsan -j 2 --target
+          velographx_test_work_stealing
+          velographx_test_work_stealing_stress
+          velographx_test_numa_scheduler
+          velographx_test_degree_frontier_scheduler
+          velographx_test_randomized_dynamic
+          velographx_test_randomized_pagerank
+
+      - name: Run ThreadSanitizer coverage
+        run: |
+          ./build-tsan/velographx_test_work_stealing
+          ./build-tsan/velographx_test_work_stealing_stress
+          ./build-tsan/velographx_test_numa_scheduler
+          ./build-tsan/velographx_test_degree_frontier_scheduler
+          ./build-tsan/velographx_test_randomized_dynamic
+          ./build-tsan/velographx_test_randomized_pagerank
