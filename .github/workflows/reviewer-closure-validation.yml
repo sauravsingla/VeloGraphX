@@ -9,6 +9,7 @@ on:
       - 'tools/generate_reviewer_holdout.py'
       - 'tools/summarize_reviewer_closure.py'
       - 'docs/research/post-pr71-reviewer-closure.md'
+      - 'docs/research/post-pr71-reviewer-closure-results.md'
       - '.github/workflows/reviewer-closure-validation.yml'
   pull_request:
     paths:
@@ -18,6 +19,7 @@ on:
       - 'tools/generate_reviewer_holdout.py'
       - 'tools/summarize_reviewer_closure.py'
       - 'docs/research/post-pr71-reviewer-closure.md'
+      - 'docs/research/post-pr71-reviewer-closure-results.md'
       - '.github/workflows/reviewer-closure-validation.yml'
   workflow_dispatch:
 
@@ -49,9 +51,11 @@ jobs:
         run: |
           grep -q 'publication-preflight-v1' benchmarks/publication_policy_bfs.cpp
           grep -q '559adc1c77f5deffcede9bc4aea1327bf53bc2a9' docs/research/post-pr71-reviewer-closure.md
-          grep -q 'research_claim=false' docs/research/post-pr71-reviewer-closure.md || true
+          grep -q 'research_claim=false' docs/research/post-pr71-reviewer-closure.md
           grep -q 'A0' docs/research/post-pr71-reviewer-closure.md
           grep -q 'cross-algorithm' docs/research/post-pr71-reviewer-closure.md
+          grep -q '34835332233' docs/research/post-pr71-reviewer-closure-results.md
+          grep -q 'mixed/negative generalization evidence' docs/research/post-pr71-reviewer-closure-results.md
 
       - name: Build reviewer-facing harnesses
         run: |
@@ -163,11 +167,15 @@ jobs:
           import json
           d = json.load(open('build/reviewer/summary/summary.json'))
           assert d['all_exact']
+          assert d['research_claim'] is False
+          assert d['hosted_runner_performance_gate'] is False
           assert d['heldout_bfs']['files'] == 18
+          assert d['heldout_bfs']['internal_fallback_fraction'] == 0.0
           assert d['clean_ablation']['files'] == 4
           assert len(d['clean_ablation']['stages']) == 8
-          assert d['cross_algorithm_triangles']['files'] == 3
           assert d['clean_ablation']['stages']['A7']['internal_fallback_batches'] == 0
+          assert d['cross_algorithm_triangles']['files'] == 3
+          assert d['cross_algorithm_triangles']['internal_fallback_fraction'] == 0.0
           print('heldout_mean_regret=', d['heldout_bfs']['mean_regret'])
           print('heldout_p95_regret=', d['heldout_bfs']['p95_regret'])
           print('heldout_max_regret=', d['heldout_bfs']['max_regret'])
