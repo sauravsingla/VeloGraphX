@@ -1,0 +1,147 @@
+name: BFS Selector V3 Light3 Development
+
+on:
+  push:
+    paths:
+      - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/summarize_bfs_selector_runs.py'
+      - 'tools/generate_reviewer_holdout.py'
+      - 'tools/generate_selector_v2_holdout.py'
+      - 'include/**'
+      - 'src/**'
+      - '.github/workflows/bfs-selector-v3-light3-development.yml'
+  pull_request:
+    paths:
+      - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/summarize_bfs_selector_runs.py'
+      - 'tools/generate_reviewer_holdout.py'
+      - 'tools/generate_selector_v2_holdout.py'
+      - 'include/**'
+      - 'src/**'
+      - '.github/workflows/bfs-selector-v3-light3-development.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+
+jobs:
+  seen-development:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Build robust tail-aware BFS selector v3 candidate
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_bfs_v3_light3.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs_v3_light3
+
+      - name: Generate seen development graph families
+        run: |
+          mkdir -p build/v3/{graphs,road,h4,summary}
+          python tools/generate_reviewer_holdout.py \
+            --mode road-smallworld --seed 20260914 --width 192 --height 192 \
+            --output build/v3/graphs/road.txt \
+            --metadata build/v3/graphs/road.json
+          python tools/generate_selector_v2_holdout.py \
+            --mode chain-hubs-directed --seed 2026091501 --vertices 32768 \
+            --output build/v3/graphs/h4.txt \
+            --metadata build/v3/graphs/h4.json
+          test "$(python -c 'import json; print(json.load(open("build/v3/graphs/h4.json"))["sha256"])')" = \
+            '4278e3cf0ba460fd485814e5e4133b09c66f87d76d931772b332625c921537cc'
+
+      - name: Run seen road development family
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for root in (0, 18528, 36863):
+              for batch in (128, 512, 2048):
+                  out = Path(f'build/v3/road/road-r{root}__{batch}.json')
+                  with out.open('w') as f:
+                      subprocess.run([
+                          'build/publication_policy_bfs_v3_light3', 'build/v3/graphs/road.txt',
+                          str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                      ], stdout=f, check=True)
+                  d = json.load(out.open())
+                  assert d['selector'] == 'publication-preflight-bfs-v3-light3'
+                  assert d['research_claim'] is False
+                  assert d['all_policies_exact']
+          PY
+
+      - name: Run seen H4 development family
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for root in (0, 16384, 32767):
+              for batch in (128, 512, 2048):
+                  out = Path(f'build/v3/h4/h4-r{root}__{batch}.json')
+                  with out.open('w') as f:
+                      subprocess.run([
+                          'build/publication_policy_bfs_v3_light3', 'build/v3/graphs/h4.txt',
+                          str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                      ], stdout=f, check=True)
+                  d = json.load(out.open())
+                  assert d['selector'] == 'publication-preflight-bfs-v3-light3'
+                  assert d['research_claim'] is False
+                  assert d['all_policies_exact']
+          PY
+
+      - name: Summarize seen-development evidence
+        run: |
+          python tools/summarize_bfs_selector_runs.py \
+            --input build/v3/road --output build/v3/summary/road.json \
+            | tee build/v3/summary/road.stdout.json
+          python tools/summarize_bfs_selector_runs.py \
+            --input build/v3/h4 --output build/v3/summary/h4.json \
+            | tee build/v3/summary/h4.stdout.json
+          python - <<'PY'
+          import json
+          road = json.load(open('build/v3/summary/road.json'))
+          h4 = json.load(open('build/v3/summary/h4.json'))
+          assert road['all_exact'] and h4['all_exact']
+          assert road['internal_fallback_fraction'] == 0.0
+          assert h4['internal_fallback_fraction'] == 0.0
+          print('ROAD mean=', road['mean_regret'], 'p95=', road['p95_regret'],
+                'max=', road['max_regret'], 'wrong=', road['wrong_arm_rate'],
+                'decision_us=', road['mean_decision_us'])
+          print('H4 mean=', h4['mean_regret'], 'p95=', h4['p95_regret'],
+                'max=', h4['max_regret'], 'wrong=', h4['wrong_arm_rate'],
+                'decision_us=', h4['mean_decision_us'])
+          # Unchanged development-only gates. H6 remains untouched unless this
+          # candidate passes and is frozen before any new holdout is generated.
+          assert road['mean_regret'] <= 0.08, road
+          assert road['p95_regret'] <= 0.40, road
+          assert road['wrong_arm_rate'] <= 0.10, road
+          assert h4['mean_regret'] <= 0.10, h4
+          assert h4['p95_regret'] <= 0.50, h4
+          assert h4['wrong_arm_rate'] <= 0.12, h4
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bfs-selector-v3-light3-development
+          path: build/v3/
+          retention-days: 90
