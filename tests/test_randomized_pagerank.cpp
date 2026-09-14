@@ -158,15 +158,16 @@ void run_seed(std::uint32_t seed, std::size_t operations) {
       if (v == u) v = static_cast<VertexId>(
           begin + ((v - begin + 2) % component_size));
 
+      const bool add = add_dist(rng);
       const auto backbone = static_cast<VertexId>(
           begin + ((u - begin + 1) % component_size));
-      if (!add_dist(rng) && v == backbone) {
+      if (!add && v == backbone) {
         v = static_cast<VertexId>(
             begin + ((v - begin + 1) % component_size));
       }
       if (v == u) continue;
 
-      if (add_dist(rng)) batch.add(u, v, step + 1);
+      if (add) batch.add(u, v, step + 1);
       else batch.remove(u, v, step + 1);
       repeated_u = u;
       repeated_v = v;
