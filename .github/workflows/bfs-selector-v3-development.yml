@@ -45,30 +45,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build
 
-      - name: Prepare confirmation-reset candidate
+      - name: Prepare affected-work tail-persistence candidate
         run: |
           mkdir -p build/v3
           python - <<'PY'
           from pathlib import Path
           source = Path('benchmarks/publication_policy_bfs_v3_light3.cpp')
           src = source.read_text()
+
           anchor = 'if (confirmation_batch) {'
           terminator = '} else if (normalized_tail >= kLearnedFullMargin) {'
-          needle = '        incremental_tail_ratio = std::max(decayed_tail, normalized_tail);'
-          replacement = '        incremental_tail_ratio = normalized_tail;'
+          reset_needle = '        incremental_tail_ratio = std::max(decayed_tail, normalized_tail);'
+          reset_replacement = '        incremental_tail_ratio = std::max(normalized_tail, 1.0 + (t.incoming_tail_ratio - 1.0) * std::sqrt(std::min(1.0, observed_affected_fraction / std::max(kAffectedBudget, std::numeric_limits<double>::epsilon()))));'
           assert src.count(anchor) == 1, 'confirmation branch count changed unexpectedly'
           start = src.index(anchor)
           end = src.index(terminator, start)
           block = src[start:end]
-          assert block.count(needle) == 1, 'confirmation assignment missing or ambiguous'
-          patched = block.replace(needle, replacement)
-          out = src[:start] + patched + src[end:]
-          assert out.count(replacement) == 1, 'confirmation reset was not uniquely applied'
-          assert out[end:].count(needle) >= 1, 'new-tail persistence path must remain intact'
-          Path('build/v3/publication_policy_bfs_v3_light3_confirmfix.cpp').write_text(out)
+          assert block.count(reset_needle) == 1, 'confirmation assignment missing or ambiguous'
+          block = block.replace(reset_needle, reset_replacement)
+          out = src[:start] + block + src[end:]
+          assert out.count(reset_replacement) == 1, 'tail persistence patch was not uniquely applied'
+          assert out[end:].count(reset_needle) >= 1, 'new-tail persistence path must remain intact'
+
+          tail_needle = '      t.tail_adjusted_incremental_us =\n          t.predicted_incremental_us * incremental_tail_ratio;'
+          tail_replacement = '      t.tail_adjusted_incremental_us = t.predicted_incremental_us * incremental_tail_ratio * (1.0 + previous_affected_fraction / std::max(kAffectedBudget, std::numeric_limits<double>::epsilon()));'
+          assert out.count(tail_needle) == 1, 'tail-adjusted prediction block changed unexpectedly'
+          out = out.replace(tail_needle, tail_replacement)
+          assert out.count(tail_replacement) == 1, 'affected-work tail adjustment was not uniquely applied'
+
+          Path('build/v3/publication_policy_bfs_v3_light3_phasefix.cpp').write_text(out)
           PY
 
-      - name: Build confirmation-reset BFS selector candidate
+      - name: Build affected-work tail-persistence BFS selector candidate
         run: |
           cmake -S . -B build/vx -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -76,9 +84,9 @@ jobs:
             -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
           cmake --build build/vx --target velographx -j 2
           c++ -O3 -DNDEBUG -std=c++20 -Iinclude -Ibenchmarks \
-            build/v3/publication_policy_bfs_v3_light3_confirmfix.cpp \
+            build/v3/publication_policy_bfs_v3_light3_phasefix.cpp \
             build/vx/libvelographx.a -pthread \
-            -o build/publication_policy_bfs_v3_light3_confirmfix
+            -o build/publication_policy_bfs_v3_light3_phasefix
 
       - name: Generate seen development graph families
         run: |
@@ -105,7 +113,7 @@ jobs:
                       out = Path(f'build/v3/road/road-rep{rep}-r{root}__{batch}.json')
                       with out.open('w') as f:
                           subprocess.run([
-                              'build/publication_policy_bfs_v3_light3_confirmfix',
+                              'build/publication_policy_bfs_v3_light3_phasefix',
                               'build/v3/graphs/road.txt', str(root), '0.95', str(batch),
                               os.environ['SIMPLE_UPDATE_FRACTION']
                           ], stdout=f, check=True)
@@ -126,7 +134,7 @@ jobs:
                       out = Path(f'build/v3/h4/h4-rep{rep}-r{root}__{batch}.json')
                       with out.open('w') as f:
                           subprocess.run([
-                              'build/publication_policy_bfs_v3_light3_confirmfix',
+                              'build/publication_policy_bfs_v3_light3_phasefix',
                               'build/v3/graphs/h4.txt', str(root), '0.95', str(batch),
                               os.environ['SIMPLE_UPDATE_FRACTION']
                           ], stdout=f, check=True)
@@ -157,8 +165,8 @@ jobs:
           print('H4 mean=', h4['mean_regret'], 'p95=', h4['p95_regret'],
                 'max=', h4['max_regret'], 'wrong=', h4['wrong_arm_rate'],
                 'decision_us=', h4['mean_decision_us'])
-          # Same development-only gates, now evaluated over three hosted
-          # repetitions to reduce single-run timing noise. H6 remains untouched.
+          # Same development-only gates, evaluated over three hosted
+          # repetitions. No gate is weakened and H6 remains untouched.
           assert road['mean_regret'] <= 0.08, road
           assert road['p95_regret'] <= 0.40, road
           assert road['wrong_arm_rate'] <= 0.10, road
@@ -170,6 +178,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bfs-selector-v3-light3-confirmfix-development
+          name: bfs-selector-v3-light3-phasefix-development
           path: build/v3/
           retention-days: 90
