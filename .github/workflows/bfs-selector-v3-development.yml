@@ -120,8 +120,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DVELOGRAPHX_BUILD_TESTS=ON \
             -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
-          cmake --build build/vx --target test_incremental_bfs_deletion -j 2
-          ./build/vx/test_incremental_bfs_deletion
+          cmake --build build/vx --target velographx_test_incremental_bfs_deletion -j 2
+          ./build/vx/velographx_test_incremental_bfs_deletion
 
       - name: Build current-reach BFS selector candidate
         run: |
