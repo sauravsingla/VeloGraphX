@@ -21,6 +21,7 @@ class BasicIncrementalBFS {
   }
 
   [[nodiscard]] const std::vector<std::uint32_t>& distances() const noexcept { return dist_; }
+  [[nodiscard]] std::size_t reachable_count() const noexcept { return reachable_count_; }
   [[nodiscard]] std::size_t last_deletion_candidates() const noexcept { return last_deletion_candidates_; }
   [[nodiscard]] std::size_t last_affected_vertices() const noexcept { return last_affected_vertices_; }
   [[nodiscard]] bool last_used_full_recompute() const noexcept { return last_used_full_recompute_; }
@@ -98,6 +99,7 @@ class BasicIncrementalBFS {
 
   void recompute() {
     dist_.assign(vertex_count(g_), unreachable);
+    reachable_count_ = 0;
     ensure_workspace(vertex_count(g_));
     if (source_ >= vertex_count(g_)) return;
     bfs_queue_.clear();
@@ -114,6 +116,7 @@ class BasicIncrementalBFS {
         }
       });
     }
+    reachable_count_ = bfs_queue_.size();
   }
 
  private:
@@ -267,7 +270,10 @@ class BasicIncrementalBFS {
 
   void repair_affected() {
     for (auto v : affected_vertices_) {
-      if (v < dist_.size()) dist_[v] = unreachable;
+      if (v < dist_.size() && dist_[v] != unreachable) {
+        dist_[v] = unreachable;
+        --reachable_count_;
+      }
     }
 
     using Item = std::pair<std::uint32_t, VertexId>;
@@ -279,6 +285,7 @@ class BasicIncrementalBFS {
     for (auto v : affected_vertices_) {
       const auto best = best_boundary_distance(v);
       if (best != unreachable) {
+        if (dist_[v] == unreachable) ++reachable_count_;
         dist_[v] = best;
         repair_heap_.emplace_back(best, v);
         std::push_heap(repair_heap_.begin(), repair_heap_.end(), compare);
@@ -294,6 +301,7 @@ class BasicIncrementalBFS {
         if (v >= affected_.size() || !affected_[v]) return;
         const auto candidate = du + 1;
         if (candidate < dist_[v]) {
+          if (dist_[v] == unreachable) ++reachable_count_;
           dist_[v] = candidate;
           repair_heap_.emplace_back(candidate, v);
           std::push_heap(repair_heap_.begin(), repair_heap_.end(), compare);
@@ -324,6 +332,7 @@ class BasicIncrementalBFS {
   void relax_edge(VertexId u, VertexId v, std::vector<VertexId>& q) {
     if (u >= dist_.size() || v >= dist_.size() || dist_[u] == unreachable) return;
     if (dist_[u] + 1 < dist_[v]) {
+      if (dist_[v] == unreachable) ++reachable_count_;
       dist_[v] = dist_[u] + 1;
       q.push_back(v);
     }
@@ -336,6 +345,7 @@ class BasicIncrementalBFS {
       if (dist_[u] == unreachable) continue;
       for_each_neighbor(g_, u, [&](VertexId v) {
         if (dist_[u] + 1 < dist_[v]) {
+          if (dist_[v] == unreachable) ++reachable_count_;
           dist_[v] = dist_[u] + 1;
           q.push_back(v);
         }
@@ -347,6 +357,7 @@ class BasicIncrementalBFS {
   VertexId source_;
   double deletion_fallback_fraction_{0.35};
   std::vector<std::uint32_t> dist_;
+  std::size_t reachable_count_{0};
   std::vector<std::uint8_t> affected_;
   std::vector<std::uint32_t> lost_parent_count_;
   std::vector<std::uint32_t> shortest_parent_count_;

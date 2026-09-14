@@ -1,5 +1,7 @@
+#include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <random>
 #include <set>
 #include <stdexcept>
@@ -19,9 +21,21 @@ static void require(bool condition, const std::string& message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+static std::size_t count_reachable(const std::vector<std::uint32_t>& distances) {
+  return static_cast<std::size_t>(std::count_if(
+      distances.begin(), distances.end(),
+      [](std::uint32_t d) { return d != IncrementalBFS::unreachable; }));
+}
+
 static void assert_matches_full(DynamicGraph& graph, IncrementalBFS& bfs,
                                 VertexId source, const std::string& context) {
   IncrementalBFS full(graph, source);
+  require(bfs.reachable_count() == count_reachable(bfs.distances()),
+          context + ": cached reachable count disagrees with incremental distances");
+  require(full.reachable_count() == count_reachable(full.distances()),
+          context + ": cached reachable count disagrees with full distances");
+  require(bfs.reachable_count() == full.reachable_count(),
+          context + ": reachable count disagrees with full BFS");
   if (bfs.distances() == full.distances()) return;
   const auto& got = bfs.distances();
   const auto& expected = full.distances();
@@ -44,6 +58,7 @@ int main() {
     DynamicGraph g(5, true);
     g.bulk_load_edges({{0,1},{0,2},{1,3},{2,3},{3,4}});
     IncrementalBFS bfs(g, 0, 0.75);
+    require(bfs.reachable_count() == 5, "alternate-parent: initial reachable count");
     UpdateBatch b;
     b.remove(1,3);
     bfs.apply(b);
@@ -67,6 +82,7 @@ int main() {
     require(bfs.distances()[2] == IncrementalBFS::unreachable, "support-fixpoint: distance(2)");
     require(bfs.distances()[3] == IncrementalBFS::unreachable, "support-fixpoint: distance(3)");
     require(bfs.distances()[4] == IncrementalBFS::unreachable, "support-fixpoint: distance(4)");
+    require(bfs.reachable_count() == 1, "support-fixpoint: reachable count");
     require(bfs.last_affected_vertices() == 4, "support-fixpoint: affected count");
     require(!bfs.last_used_full_recompute(), "support-fixpoint: unexpected fallback");
     assert_matches_full(g, bfs, 0, "support-fixpoint");
@@ -99,6 +115,7 @@ int main() {
     require(bfs.distances()[2] == IncrementalBFS::unreachable, "mixed: distance(2)");
     require(bfs.distances()[3] == 2, "mixed: distance(3)");
     require(bfs.distances()[4] == 3, "mixed: distance(4)");
+    require(bfs.reachable_count() == 5, "mixed: reachable count");
     require(!bfs.last_used_full_recompute(), "mixed: unexpected fallback");
     assert_matches_full(g, bfs, 0, "mixed");
   }
@@ -139,7 +156,16 @@ int main() {
     b.remove(0,1);
     bfs.apply(b);
     require(bfs.last_used_full_recompute(), "fallback: full recompute not used");
+    require(bfs.reachable_count() == 1, "fallback: reachable count after recompute");
     assert_matches_full(g, bfs, 0, "fallback");
+  }
+
+  {
+    DynamicGraph g(4, true);
+    g.bulk_load_edges({{0,1},{1,2}});
+    IncrementalBFS bfs(g, 7, 0.75);
+    require(bfs.reachable_count() == 0, "out-of-range source: reachable count");
+    assert_matches_full(g, bfs, 7, "out-of-range source");
   }
 
   {
@@ -155,6 +181,7 @@ int main() {
     std::vector<std::pair<VertexId,VertexId>> initial(live.begin(), live.end());
     g.bulk_load_edges(initial);
     IncrementalBFS bfs(g, 0, 0.75);
+    assert_matches_full(g, bfs, 0, "randomized initial state");
 
     for (int epoch=0; epoch<250; ++epoch) {
       UpdateBatch batch;

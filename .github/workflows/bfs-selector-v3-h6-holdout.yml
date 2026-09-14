@@ -1,0 +1,213 @@
+name: BFS Selector V3 H6 Holdout
+
+on:
+  push:
+    paths:
+      - '.github/workflows/bfs-selector-v3-h6-holdout.yml'
+      - 'docs/research/bfs-selector-v3-h6-preregistration.md'
+      - 'tools/generate_bfs_selector_v3_h6.py'
+      - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
+      - 'include/velographx/incremental/bfs.hpp'
+      - 'tools/prepare_bfs_reusable_preflight_header.py'
+      - 'tools/prepare_bfs_selector_v3_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_reuse2_candidate.py'
+      - 'tools/summarize_bfs_selector_runs.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+
+jobs:
+  h6-holdout:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify frozen preregistration and candidate identities
+        run: |
+          set -euo pipefail
+          grep -q 'frozen before any H6 selector measurement is observed' docs/research/bfs-selector-v3-h6-preregistration.md
+          grep -q 'publication-preflight-bfs-v3-cascade-reuse2' docs/research/bfs-selector-v3-h6-preregistration.md
+          test "$(git rev-parse HEAD:benchmarks/publication_policy_bfs_v3_light3.cpp)" = 'c2243113f43d12f4f0baeba547418caad4642f42'
+          test "$(git rev-parse HEAD:include/velographx/incremental/bfs.hpp)" = 'b726a6ef97733218d834c0106d6509f9714bebc1'
+          test "$(git rev-parse HEAD:tools/prepare_bfs_reusable_preflight_header.py)" = 'da322a06e73f979d45dceb93bfade016196f6ba0'
+          test "$(git rev-parse HEAD:tools/prepare_bfs_selector_v3_candidate.py)" = 'bddfe973208a16183b0c156b91164688ee109d17'
+          test "$(git rev-parse HEAD:tools/prepare_bfs_selector_v3_reuse_candidate.py)" = '19736945ae5791b798988916ae95437b14f7bfc7'
+          test "$(git rev-parse HEAD:tools/prepare_bfs_selector_v3_reuse2_candidate.py)" = 'cd51c4358bdfe531ba735bd640b3195d495eb454'
+          test "$(git rev-parse HEAD:tools/summarize_bfs_selector_runs.py)" = '484c263f55bcb3c0fb854cd372bb6df5a6e9ad47'
+          test "$(git rev-parse HEAD:tools/generate_bfs_selector_v3_h6.py)" = 'b6c57101595648bb338a770bd85ae0e13c5a3e13'
+
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Materialize frozen reuse2 candidate
+        run: |
+          set -euo pipefail
+          mkdir -p build/h6/include/velographx/incremental
+          python tools/prepare_bfs_reusable_preflight_header.py \
+            include/velographx/incremental/bfs.hpp \
+            build/h6/include/velographx/incremental/bfs.hpp
+          python tools/prepare_bfs_selector_v3_reuse2_candidate.py \
+            benchmarks/publication_policy_bfs_v3_light3.cpp \
+            build/h6/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'publication-preflight-bfs-v3-cascade-reuse2' build/h6/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'v3_reuse2_cascade_preflight_full' build/h6/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'const bool fresh_expected_full = false;' build/h6/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'preflight_deletion_cascade(updates, 2.0 \* kAffectedBudget)' build/h6/publication_policy_bfs_v3_cascade_reuse2.cpp
+
+      - name: Build correctness invariant and H6 candidate
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=ON \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx_test_incremental_bfs_deletion velographx -j 2
+          ./build/vx/velographx_test_incremental_bfs_deletion
+          c++ -O3 -DNDEBUG -std=c++20 \
+            -Ibuild/h6/include -Iinclude -Ibenchmarks \
+            build/h6/publication_policy_bfs_v3_cascade_reuse2.cpp \
+            build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs_v3_h6
+
+      - name: Generate and verify unseen H6 graph before measurement
+        run: |
+          set -euo pipefail
+          mkdir -p build/h6/{graph,runs,summary}
+          python tools/generate_bfs_selector_v3_h6.py \
+            --seed 2026091406 --vertices 49152 --width 256 \
+            --output build/h6/graph/h6.txt \
+            --metadata build/h6/graph/h6.json
+          python - <<'PY'
+          import hashlib, json
+          meta = json.load(open('build/h6/graph/h6.json'))
+          digest = hashlib.sha256(open('build/h6/graph/h6.txt', 'rb').read()).hexdigest()
+          assert meta['generator_version'] == 'bfs-selector-v3-h6-v1'
+          assert meta['mode'] == 'layered-diamond-directed'
+          assert meta['research_claim'] is False
+          assert meta['vertices'] == 49152
+          assert meta['edges'] == 164336
+          assert meta['layer_width'] == 256
+          assert meta['layers'] == 192
+          assert meta['roots'] == [0, 24661, 49151]
+          assert meta['seed'] == 2026091406
+          assert digest == meta['sha256']
+          assert digest == 'f97dbd6c0fa63ee608a063ab608e11276435ce5e4e1bd85c8ba2af713ba5b7d1'
+          print(json.dumps(meta, sort_keys=True))
+          PY
+
+      - name: Run preregistered H6 matrix
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          roots = (0, 24661, 49151)
+          batches = (128, 512, 2048)
+          for rep in range(3):
+              for root in roots:
+                  for batch in batches:
+                      out = Path(f'build/h6/runs/h6-rep{rep}-r{root}__{batch}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs_v3_h6',
+                              'build/h6/graph/h6.txt', str(root), '0.95', str(batch),
+                              os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      data = json.load(out.open())
+                      assert data['selector'] == 'publication-preflight-bfs-v3-cascade-reuse2'
+                      assert data['research_claim'] is False
+                      assert data['all_policies_exact']
+          PY
+
+      - name: Summarize and enforce frozen H6 gates
+        run: |
+          set -euo pipefail
+          python tools/summarize_bfs_selector_runs.py \
+            --input build/h6/runs --output build/h6/summary/h6.json \
+            | tee build/h6/summary/h6.stdout.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.load(open('build/h6/summary/h6.json'))
+          assert summary['files'] == 27
+          assert summary['all_exact']
+          assert summary['research_claim'] is False
+          assert summary['internal_fallback_fraction'] == 0.0
+
+          preview_evaluated = 0
+          preview_exceeded = 0
+          preflight_reused = 0
+          cascade_full = 0
+          for path in Path('build/h6/runs').glob('*.json'):
+              data = json.load(path.open())
+              adaptive = next(p for p in data['policies'] if p['name'] == 'adaptive')
+              for trace in adaptive['trace']:
+                  preview_evaluated += int(trace.get('cascade_preview_evaluated', False))
+                  preview_exceeded += int(trace.get('cascade_preview_exceeded', False))
+                  preflight_reused += int(trace.get('cascade_preflight_reused', False))
+                  cascade_full += int(trace.get('reason') == 'v3_reuse2_cascade_preflight_full')
+
+          audit = {
+              'artifact_type': 'velographx-bfs-selector-v3-h6-audit',
+              'schema_version': 1,
+              'research_claim': False,
+              'selector': 'publication-preflight-bfs-v3-cascade-reuse2',
+              'graph_sha256': 'f97dbd6c0fa63ee608a063ab608e11276435ce5e4e1bd85c8ba2af713ba5b7d1',
+              'preview_evaluated': preview_evaluated,
+              'preview_exceeded': preview_exceeded,
+              'preflight_reused': preflight_reused,
+              'cascade_full': cascade_full,
+              'frozen_gates': {
+                  'mean_regret_max': 0.10,
+                  'p95_regret_max': 0.50,
+                  'wrong_arm_rate_max': 0.12,
+                  'internal_fallback_fraction': 0.0,
+                  'all_exact': True,
+              },
+              'observed': {
+                  'mean_regret': summary['mean_regret'],
+                  'median_regret': summary['median_regret'],
+                  'p95_regret': summary['p95_regret'],
+                  'p99_regret': summary['p99_regret'],
+                  'max_regret': summary['max_regret'],
+                  'wrong_arm_rate': summary['wrong_arm_rate'],
+                  'full_choice_fraction': summary['full_choice_fraction'],
+                  'mean_decision_us': summary['mean_decision_us'],
+                  'internal_fallback_fraction': summary['internal_fallback_fraction'],
+              },
+          }
+          Path('build/h6/summary/h6-audit.json').write_text(
+              json.dumps(audit, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(audit, indent=2, sort_keys=True))
+
+          # Frozen before the first H6 measurement. Do not weaken after observation.
+          assert summary['mean_regret'] <= 0.10, summary
+          assert summary['p95_regret'] <= 0.50, summary
+          assert summary['wrong_arm_rate'] <= 0.12, summary
+          assert preview_evaluated > 0
+          assert preflight_reused > 0
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bfs-selector-v3-h6-holdout
+          path: build/h6/
+          retention-days: 90

@@ -1,0 +1,259 @@
+name: BFS Selector V3 Cascade Development
+
+on:
+  push:
+    paths:
+      - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/prepare_bfs_selector_v3_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_cascade.py'
+      - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_reuse2_candidate.py'
+      - 'tools/prepare_bfs_reusable_preflight_header.py'
+      - 'tools/summarize_bfs_selector_runs.py'
+      - 'tools/generate_reviewer_holdout.py'
+      - 'tools/generate_selector_v2_holdout.py'
+      - 'include/**'
+      - 'src/**'
+      - 'tests/test_incremental_bfs_deletion.cpp'
+      - '.github/workflows/bfs-selector-v3-cascade-development.yml'
+  pull_request:
+    paths:
+      - 'benchmarks/publication_policy_bfs_v3_light3.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/prepare_bfs_selector_v3_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_cascade.py'
+      - 'tools/prepare_bfs_selector_v3_reuse_candidate.py'
+      - 'tools/prepare_bfs_selector_v3_reuse2_candidate.py'
+      - 'tools/prepare_bfs_reusable_preflight_header.py'
+      - 'tools/summarize_bfs_selector_runs.py'
+      - 'tools/generate_reviewer_holdout.py'
+      - 'tools/generate_selector_v2_holdout.py'
+      - 'include/**'
+      - 'src/**'
+      - 'tests/test_incremental_bfs_deletion.cpp'
+      - '.github/workflows/bfs-selector-v3-cascade-development.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+
+jobs:
+  seen-development:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Prepare reusable bounded cascade-risk candidate
+        run: |
+          test "$(git rev-parse HEAD:tools/prepare_bfs_selector_v3_cascade.py)" = \
+            '702237519114b5f193f76bff6f11c47173126758'
+          mkdir -p build/v3/include/velographx/incremental
+          python tools/prepare_bfs_reusable_preflight_header.py \
+            include/velographx/incremental/bfs.hpp \
+            build/v3/include/velographx/incremental/bfs.hpp
+          python tools/prepare_bfs_selector_v3_reuse2_candidate.py \
+            benchmarks/publication_policy_bfs_v3_light3.cpp \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'preflight_deletion_cascade' \
+            build/v3/include/velographx/incremental/bfs.hpp
+          grep -q 'apply_preflighted' \
+            build/v3/include/velographx/incremental/bfs.hpp
+          grep -q 'publication-preflight-bfs-v3-cascade-reuse2' \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'v3_reuse2_cascade_preflight_full' \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp
+          grep -q 'const bool fresh_expected_full = false;' \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp
+
+      - name: Build and test original reachable-count invariant
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=ON \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx_test_incremental_bfs_deletion -j 2
+          ./build/vx/velographx_test_incremental_bfs_deletion
+
+      - name: Build reusable cascade-risk selector candidate
+        run: |
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 \
+            -Ibuild/v3/include -Iinclude -Ibenchmarks \
+            build/v3/publication_policy_bfs_v3_cascade_reuse2.cpp \
+            build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs_v3_cascade_reuse2
+
+      - name: Generate seen development graph families
+        run: |
+          mkdir -p build/v3/{graphs,road,h4,summary}
+          python tools/generate_reviewer_holdout.py \
+            --mode road-smallworld --seed 20260914 --width 192 --height 192 \
+            --output build/v3/graphs/road.txt \
+            --metadata build/v3/graphs/road.json
+          python tools/generate_selector_v2_holdout.py \
+            --mode chain-hubs-directed --seed 2026091501 --vertices 32768 \
+            --output build/v3/graphs/h4.txt \
+            --metadata build/v3/graphs/h4.json
+          test "$(python -c 'import json; print(json.load(open("build/v3/graphs/h4.json"))["sha256"])')" = \
+            '4278e3cf0ba460fd485814e5e4133b09c66f87d76d931772b332625c921537cc'
+
+      - name: Run seen road development family
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for rep in range(3):
+              for root in (0, 18528, 36863):
+                  for batch in (128, 512, 2048):
+                      out = Path(f'build/v3/road/road-rep{rep}-r{root}__{batch}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs_v3_cascade_reuse2',
+                              'build/v3/graphs/road.txt', str(root), '0.95', str(batch),
+                              os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d = json.load(out.open())
+                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade-reuse2'
+                      assert d['research_claim'] is False
+                      assert d['all_policies_exact']
+          PY
+
+      - name: Run seen H4 development family
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for rep in range(3):
+              for root in (0, 16384, 32767):
+                  for batch in (128, 512, 2048):
+                      out = Path(f'build/v3/h4/h4-rep{rep}-r{root}__{batch}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs_v3_cascade_reuse2',
+                              'build/v3/graphs/h4.txt', str(root), '0.95', str(batch),
+                              os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d = json.load(out.open())
+                      assert d['selector'] == 'publication-preflight-bfs-v3-cascade-reuse2'
+                      assert d['research_claim'] is False
+                      assert d['all_policies_exact']
+          PY
+
+      - name: Summarize seen-development evidence
+        run: |
+          python tools/summarize_bfs_selector_runs.py \
+            --input build/v3/road --output build/v3/summary/road.json \
+            | tee build/v3/summary/road.stdout.json
+          python tools/summarize_bfs_selector_runs.py \
+            --input build/v3/h4 --output build/v3/summary/h4.json \
+            | tee build/v3/summary/h4.stdout.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          road = json.load(open('build/v3/summary/road.json'))
+          h4 = json.load(open('build/v3/summary/h4.json'))
+
+          # Deterministic/correctness properties remain hard CI gates.
+          assert road['files'] == 27 and h4['files'] == 27
+          assert road['samples'] == 729 and h4['samples'] == 333
+          assert road['all_exact'] and h4['all_exact']
+          assert road['research_claim'] is False and h4['research_claim'] is False
+          assert road['internal_fallback_fraction'] == 0.0
+          assert h4['internal_fallback_fraction'] == 0.0
+
+          preview_evaluated = 0
+          preview_exceeded = 0
+          preflight_reused = 0
+          cascade_full = 0
+          for folder in ('road', 'h4'):
+              for path in Path(f'build/v3/{folder}').glob('*.json'):
+                  data = json.load(path.open())
+                  adaptive = next(p for p in data['policies'] if p['name'] == 'adaptive')
+                  for trace in adaptive['trace']:
+                      preview_evaluated += int(trace.get('cascade_preview_evaluated', False))
+                      preview_exceeded += int(trace.get('cascade_preview_exceeded', False))
+                      preflight_reused += int(trace.get('cascade_preflight_reused', False))
+                      cascade_full += int(trace.get('reason') == 'v3_reuse2_cascade_preflight_full')
+
+          # Preserve the exact reference thresholds. They classify hosted-run
+          # performance evidence but do not block merges because GitHub-hosted
+          # wall-clock regret varies materially between otherwise identical runs.
+          thresholds = {
+              'road_mean_regret_max': 0.08,
+              'road_p95_regret_max': 0.40,
+              'road_wrong_arm_rate_max': 0.10,
+              'h4_mean_regret_max': 0.10,
+              'h4_p95_regret_max': 0.50,
+              'h4_wrong_arm_rate_max': 0.12,
+          }
+          performance_gate_pass = (
+              road['mean_regret'] <= thresholds['road_mean_regret_max'] and
+              road['p95_regret'] <= thresholds['road_p95_regret_max'] and
+              road['wrong_arm_rate'] <= thresholds['road_wrong_arm_rate_max'] and
+              h4['mean_regret'] <= thresholds['h4_mean_regret_max'] and
+              h4['p95_regret'] <= thresholds['h4_p95_regret_max'] and
+              h4['wrong_arm_rate'] <= thresholds['h4_wrong_arm_rate_max']
+          )
+
+          audit = {
+              'artifact_type': 'velographx-bfs-selector-v3-development-gate-audit',
+              'schema_version': 1,
+              'research_claim': False,
+              'hosted_runner_performance_gate': False,
+              'selector': 'publication-preflight-bfs-v3-cascade-reuse2',
+              'reference_performance_thresholds': thresholds,
+              'performance_gate_pass': performance_gate_pass,
+              'road': {
+                  'mean_regret': road['mean_regret'],
+                  'p95_regret': road['p95_regret'],
+                  'max_regret': road['max_regret'],
+                  'wrong_arm_rate': road['wrong_arm_rate'],
+                  'mean_decision_us': road['mean_decision_us'],
+              },
+              'h4': {
+                  'mean_regret': h4['mean_regret'],
+                  'p95_regret': h4['p95_regret'],
+                  'max_regret': h4['max_regret'],
+                  'wrong_arm_rate': h4['wrong_arm_rate'],
+                  'mean_decision_us': h4['mean_decision_us'],
+              },
+              'mechanism': {
+                  'preview_evaluated': preview_evaluated,
+                  'preview_exceeded': preview_exceeded,
+                  'preflight_reused': preflight_reused,
+                  'cascade_full': cascade_full,
+              },
+          }
+          Path('build/v3/summary/development-gate-audit.json').write_text(
+              json.dumps(audit, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(audit, indent=2, sort_keys=True))
+
+          # Mechanism/contract checks remain hard gates.
+          assert preview_evaluated > 0
+          assert preview_exceeded > 0
+          assert preflight_reused > 0
+          assert cascade_full > 0
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bfs-selector-v3-cascade-reuse2-development
+          path: build/v3/
+          retention-days: 90
