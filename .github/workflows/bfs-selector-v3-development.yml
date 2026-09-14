@@ -34,7 +34,7 @@ env:
 jobs:
   seen-development:
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
@@ -45,16 +45,43 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build
 
-      - name: Build robust tail-aware BFS selector v3 candidate
+      - name: Prepare confirmation-reset candidate
+        run: |
+          mkdir -p build/v3
+          python - <<'PY'
+          from pathlib import Path
+          src = Path('benchmarks/publication_policy_bfs_v3_light3.cpp').read_text()
+          old = '''      if (confirmation_batch) {
+        // Confirmation consumes the pending probe. Persist only the decayed or
+        // newly observed tail magnitude; do not immediately schedule another
+        // confirmation for the same event.
+        tail_confirmation_due = false;
+        incremental_tail_ratio = std::max(decayed_tail, normalized_tail);
+'''
+          new = '''      if (confirmation_batch) {
+        // Confirmation is a fresh measured observation. If it is cheap, it
+        // disproves the stale tail alarm; if it remains expensive, preserve
+        // only the newly observed normalized tail. Do not carry the old tail
+        // magnitude through a successful confirmation.
+        tail_confirmation_due = false;
+        incremental_tail_ratio = normalized_tail;
+'''
+          assert src.count(old) == 1, 'confirmation block changed unexpectedly'
+          out = src.replace(old, new)
+          Path('build/v3/publication_policy_bfs_v3_light3_confirmfix.cpp').write_text(out)
+          PY
+
+      - name: Build confirmation-reset BFS selector candidate
         run: |
           cmake -S . -B build/vx -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DVELOGRAPHX_BUILD_TESTS=OFF \
             -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
           cmake --build build/vx --target velographx -j 2
-          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
-            benchmarks/publication_policy_bfs_v3_light3.cpp build/vx/libvelographx.a -pthread \
-            -o build/publication_policy_bfs_v3_light3
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude -Ibenchmarks \
+            build/v3/publication_policy_bfs_v3_light3_confirmfix.cpp \
+            build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs_v3_light3_confirmfix
 
       - name: Generate seen development graph families
         run: |
@@ -75,18 +102,20 @@ jobs:
           python - <<'PY'
           import json, os, subprocess
           from pathlib import Path
-          for root in (0, 18528, 36863):
-              for batch in (128, 512, 2048):
-                  out = Path(f'build/v3/road/road-r{root}__{batch}.json')
-                  with out.open('w') as f:
-                      subprocess.run([
-                          'build/publication_policy_bfs_v3_light3', 'build/v3/graphs/road.txt',
-                          str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
-                      ], stdout=f, check=True)
-                  d = json.load(out.open())
-                  assert d['selector'] == 'publication-preflight-bfs-v3-light3'
-                  assert d['research_claim'] is False
-                  assert d['all_policies_exact']
+          for rep in range(3):
+              for root in (0, 18528, 36863):
+                  for batch in (128, 512, 2048):
+                      out = Path(f'build/v3/road/road-rep{rep}-r{root}__{batch}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs_v3_light3_confirmfix',
+                              'build/v3/graphs/road.txt', str(root), '0.95', str(batch),
+                              os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d = json.load(out.open())
+                      assert d['selector'] == 'publication-preflight-bfs-v3-light3'
+                      assert d['research_claim'] is False
+                      assert d['all_policies_exact']
           PY
 
       - name: Run seen H4 development family
@@ -94,18 +123,20 @@ jobs:
           python - <<'PY'
           import json, os, subprocess
           from pathlib import Path
-          for root in (0, 16384, 32767):
-              for batch in (128, 512, 2048):
-                  out = Path(f'build/v3/h4/h4-r{root}__{batch}.json')
-                  with out.open('w') as f:
-                      subprocess.run([
-                          'build/publication_policy_bfs_v3_light3', 'build/v3/graphs/h4.txt',
-                          str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
-                      ], stdout=f, check=True)
-                  d = json.load(out.open())
-                  assert d['selector'] == 'publication-preflight-bfs-v3-light3'
-                  assert d['research_claim'] is False
-                  assert d['all_policies_exact']
+          for rep in range(3):
+              for root in (0, 16384, 32767):
+                  for batch in (128, 512, 2048):
+                      out = Path(f'build/v3/h4/h4-rep{rep}-r{root}__{batch}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs_v3_light3_confirmfix',
+                              'build/v3/graphs/h4.txt', str(root), '0.95', str(batch),
+                              os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d = json.load(out.open())
+                      assert d['selector'] == 'publication-preflight-bfs-v3-light3'
+                      assert d['research_claim'] is False
+                      assert d['all_policies_exact']
           PY
 
       - name: Summarize seen-development evidence
@@ -129,8 +160,9 @@ jobs:
           print('H4 mean=', h4['mean_regret'], 'p95=', h4['p95_regret'],
                 'max=', h4['max_regret'], 'wrong=', h4['wrong_arm_rate'],
                 'decision_us=', h4['mean_decision_us'])
-          # Development-only gates remain unchanged. H6 stays untouched until
-          # this candidate passes and is frozen.
+          # Same development-only gates, now evaluated over three independent
+          # hosted repetitions to reduce single-run timing noise. H6 remains
+          # untouched until a source-level candidate is frozen.
           assert road['mean_regret'] <= 0.08, road
           assert road['p95_regret'] <= 0.40, road
           assert road['wrong_arm_rate'] <= 0.10, road
@@ -142,6 +174,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bfs-selector-v3-light3-development
+          name: bfs-selector-v3-light3-confirmfix-development
           path: build/v3/
           retention-days: 90
