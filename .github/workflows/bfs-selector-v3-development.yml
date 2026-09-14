@@ -3,7 +3,7 @@ name: BFS Selector V3 Development
 on:
   push:
     paths:
-      - 'benchmarks/publication_policy_bfs_v3_probe.cpp'
+      - 'benchmarks/publication_policy_bfs_v3_light.cpp'
       - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/summarize_bfs_selector_runs.py'
       - 'tools/generate_reviewer_holdout.py'
@@ -13,7 +13,7 @@ on:
       - '.github/workflows/bfs-selector-v3-development.yml'
   pull_request:
     paths:
-      - 'benchmarks/publication_policy_bfs_v3_probe.cpp'
+      - 'benchmarks/publication_policy_bfs_v3_light.cpp'
       - 'benchmarks/adaptive_policy_bfs.cpp'
       - 'tools/summarize_bfs_selector_runs.py'
       - 'tools/generate_reviewer_holdout.py'
@@ -45,7 +45,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build
 
-      - name: Build bounded-probe BFS selector v3 candidate
+      - name: Build lightweight BFS selector v3 candidate
         run: |
           cmake -S . -B build/vx -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -53,8 +53,8 @@ jobs:
             -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
           cmake --build build/vx --target velographx -j 2
           c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
-            benchmarks/publication_policy_bfs_v3_probe.cpp build/vx/libvelographx.a -pthread \
-            -o build/publication_policy_bfs_v3_probe
+            benchmarks/publication_policy_bfs_v3_light.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs_v3_light
 
       - name: Generate seen development graph families
         run: |
@@ -80,11 +80,11 @@ jobs:
                   out = Path(f'build/v3/road/road-r{root}__{batch}.json')
                   with out.open('w') as f:
                       subprocess.run([
-                          'build/publication_policy_bfs_v3_probe', 'build/v3/graphs/road.txt',
+                          'build/publication_policy_bfs_v3_light', 'build/v3/graphs/road.txt',
                           str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
                       ], stdout=f, check=True)
                   d = json.load(out.open())
-                  assert d['selector'] == 'publication-preflight-bfs-v3-probe'
+                  assert d['selector'] == 'publication-preflight-bfs-v3-light'
                   assert d['research_claim'] is False
                   assert d['all_policies_exact']
           PY
@@ -99,11 +99,11 @@ jobs:
                   out = Path(f'build/v3/h4/h4-r{root}__{batch}.json')
                   with out.open('w') as f:
                       subprocess.run([
-                          'build/publication_policy_bfs_v3_probe', 'build/v3/graphs/h4.txt',
+                          'build/publication_policy_bfs_v3_light', 'build/v3/graphs/h4.txt',
                           str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
                       ], stdout=f, check=True)
                   d = json.load(out.open())
-                  assert d['selector'] == 'publication-preflight-bfs-v3-probe'
+                  assert d['selector'] == 'publication-preflight-bfs-v3-light'
                   assert d['research_claim'] is False
                   assert d['all_policies_exact']
           PY
@@ -124,11 +124,13 @@ jobs:
           assert road['internal_fallback_fraction'] == 0.0
           assert h4['internal_fallback_fraction'] == 0.0
           print('ROAD mean=', road['mean_regret'], 'p95=', road['p95_regret'],
-                'max=', road['max_regret'], 'wrong=', road['wrong_arm_rate'])
+                'max=', road['max_regret'], 'wrong=', road['wrong_arm_rate'],
+                'decision_us=', road['mean_decision_us'])
           print('H4 mean=', h4['mean_regret'], 'p95=', h4['p95_regret'],
-                'max=', h4['max_regret'], 'wrong=', h4['wrong_arm_rate'])
-          # These gates cover only already-seen development families. H6 remains
-          # untouched until this candidate passes and is frozen.
+                'max=', h4['max_regret'], 'wrong=', h4['wrong_arm_rate'],
+                'decision_us=', h4['mean_decision_us'])
+          # Development-only gates. H6 remains untouched until this candidate
+          # passes and is frozen.
           assert road['mean_regret'] <= 0.08, road
           assert road['p95_regret'] <= 0.40, road
           assert road['wrong_arm_rate'] <= 0.10, road
@@ -140,6 +142,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bfs-selector-v3-probe-development
+          name: bfs-selector-v3-light-development
           path: build/v3/
           retention-days: 90
