@@ -16,12 +16,27 @@ def mean(values):
     return sum(values) / len(values)
 
 
-def policy_regret(result, oracle_batch_us, path):
-    if "regret_vs_batch_oracle" in result:
-        return float(result["regret_vs_batch_oracle"])
+def percentile(values, q):
+    values = sorted(float(x) for x in values)
+    if not values:
+        raise ValueError("cannot compute percentile from an empty sequence")
+    if not 0.0 <= q <= 1.0:
+        raise ValueError(q)
+    if len(values) == 1:
+        return values[0]
+    position = (len(values) - 1) * q
+    lo = int(math.floor(position))
+    hi = int(math.ceil(position))
+    if lo == hi:
+        return values[lo]
+    weight = position - lo
+    return values[lo] * (1.0 - weight) + values[hi] * weight
+
+
+def per_batch_regrets(result, oracle_batch_us, path):
     batch_us = result.get("batch_us")
     if not isinstance(batch_us, list) or not isinstance(oracle_batch_us, list):
-        raise SystemExit(f"missing batch_us/oracle_batch_us needed for regret: {path}")
+        return None
     if len(batch_us) != len(oracle_batch_us) or not batch_us:
         raise SystemExit(f"mismatched or empty batch/oracle timings in {path}")
     regrets = []
@@ -29,11 +44,42 @@ def policy_regret(result, oracle_batch_us, path):
         observed, oracle = float(observed), float(oracle)
         if oracle < 0.0 or observed < 0.0:
             raise SystemExit(f"negative timing in {path}")
-        regret = 0.0 if oracle == 0.0 and observed == 0.0 else (math.inf if oracle == 0.0 else (observed - oracle) / oracle)
+        regret = 0.0 if oracle == 0.0 and observed == 0.0 else (
+            math.inf if oracle == 0.0 else (observed - oracle) / oracle
+        )
         if not math.isfinite(regret):
             raise SystemExit(f"non-finite oracle regret in {path}")
         regrets.append(max(0.0, regret))
-    return mean(regrets)
+    return regrets
+
+
+def policy_regret(result, oracle_batch_us, path):
+    regrets = per_batch_regrets(result, oracle_batch_us, path)
+    if regrets is not None:
+        return mean(regrets)
+    if "regret_vs_batch_oracle" in result:
+        value = float(result["regret_vs_batch_oracle"])
+        if not math.isfinite(value) or value < 0.0:
+            raise SystemExit(f"invalid scalar oracle regret in {path}")
+        return value
+    raise SystemExit(f"missing batch_us/oracle_batch_us needed for regret: {path}")
+
+
+def regret_distribution(values):
+    values = list(values)
+    if not values:
+        return {
+            "median": None,
+            "p95": None,
+            "p99": None,
+            "max": None,
+        }
+    return {
+        "median": percentile(values, 0.50),
+        "p95": percentile(values, 0.95),
+        "p99": percentile(values, 0.99),
+        "max": max(values),
+    }
 
 
 def is_policy_record(d):
@@ -87,12 +133,18 @@ def main():
     rows = []
     dataset_summary = defaultdict(list)
     expected_reps = list(range(1, repetitions + 1))
-    for (dataset, root, batch), reps in sorted(grouped.items(), key=lambda item: (item[0][0], -1 if item[0][1] is None else item[0][1], item[0][2])):
+    for (dataset, root, batch), reps in sorted(
+        grouped.items(),
+        key=lambda item: (item[0][0], -1 if item[0][1] is None else item[0][1], item[0][2]),
+    ):
         rep_ids = sorted(rep for rep, _, _ in reps)
         if rep_ids != expected_reps:
             label = f"{dataset}/root={root}/batch={batch}"
             raise SystemExit(f"expected repetitions {expected_reps} for {label}, got {rep_ids}")
-        metrics = {p: {"means": [], "regrets": [], "full": []} for p in POLICIES}
+        metrics = {
+            p: {"means": [], "regrets": [], "batch_regrets": [], "full": []}
+            for p in POLICIES
+        }
         for _, path, d in reps:
             by_name = {p.get("name"): p for p in d["policies"]}
             missing = [policy for policy in POLICIES if policy not in by_name]
@@ -110,12 +162,16 @@ def main():
                     raise SystemExit(f"missing mean/batch latency for {policy} in {path}")
                 metrics[policy]["means"].append(mean_batch_us)
                 metrics[policy]["regrets"].append(policy_regret(p, oracle_batch_us, path))
+                batch_regrets = per_batch_regrets(p, oracle_batch_us, path)
+                if batch_regrets is not None:
+                    metrics[policy]["batch_regrets"].extend(batch_regrets)
                 metrics[policy]["full"].append(float(p["full_recompute_batches"]))
 
         policy_means = {p: mean(metrics[p]["means"]) for p in POLICIES}
         best = min(policy_means, key=policy_means.get)
         for policy in POLICIES:
             mean_us = policy_means[policy]
+            dist = regret_distribution(metrics[policy]["batch_regrets"])
             row = {
                 "dataset": dataset,
                 "root": "" if root is None else root,
@@ -123,6 +179,11 @@ def main():
                 "policy": policy,
                 "mean_batch_us": mean_us,
                 "mean_regret_vs_batch_oracle": mean(metrics[policy]["regrets"]),
+                "median_regret_vs_batch_oracle": dist["median"],
+                "p95_regret_vs_batch_oracle": dist["p95"],
+                "p99_regret_vs_batch_oracle": dist["p99"],
+                "max_regret_vs_batch_oracle": dist["max"],
+                "regret_samples": len(metrics[policy]["batch_regrets"]),
                 "mean_full_recompute_batches": mean(metrics[policy]["full"]),
                 "fastest_policy_for_regime": best,
                 "relative_to_regime_best": mean_us / policy_means[best],
@@ -137,10 +198,11 @@ def main():
         writer.writerows(rows)
 
     summary = {
-        "schema_version": 4,
+        "schema_version": 5,
         "artifact_type": "velographx-adaptive-policy-crossover-summary",
-        "input_schema_compatibility": ["historical-tagged", "schema-v6", "rooted-schema-v6"],
-        "regret_definition": "mean per-batch max(0, (policy_us - oracle_us) / oracle_us)",
+        "input_schema_compatibility": ["historical-tagged", "schema-v6", "rooted-schema-v6", "schema-v7"],
+        "regret_definition": "per-batch max(0, (policy_us - oracle_us) / oracle_us)",
+        "regret_percentile_method": "linear interpolation over sorted per-batch regret samples",
         "repetitions_per_regime": repetitions,
         "all_results_exact": True,
         "rows": rows,
@@ -150,11 +212,28 @@ def main():
         adaptive = [r for r in dsrows if r["policy"] == "adaptive"]
         wins = sum(r["fastest_policy_for_regime"] == "adaptive" for r in adaptive)
         roots = sorted({r["root"] for r in adaptive if r["root"] != ""})
+        adaptive_batch_regret_rows = [r for r in adaptive if r["regret_samples"] > 0]
         summary["datasets"][dataset] = {
             "regimes": len(adaptive),
             "roots": roots,
             "adaptive_regime_wins": wins,
             "adaptive_mean_regret": mean(r["mean_regret_vs_batch_oracle"] for r in adaptive),
+            "adaptive_mean_median_regret": (
+                mean(r["median_regret_vs_batch_oracle"] for r in adaptive_batch_regret_rows)
+                if adaptive_batch_regret_rows else None
+            ),
+            "adaptive_worst_regime_p95_regret": (
+                max(r["p95_regret_vs_batch_oracle"] for r in adaptive_batch_regret_rows)
+                if adaptive_batch_regret_rows else None
+            ),
+            "adaptive_worst_regime_p99_regret": (
+                max(r["p99_regret_vs_batch_oracle"] for r in adaptive_batch_regret_rows)
+                if adaptive_batch_regret_rows else None
+            ),
+            "adaptive_max_batch_regret": (
+                max(r["max_regret_vs_batch_oracle"] for r in adaptive_batch_regret_rows)
+                if adaptive_batch_regret_rows else None
+            ),
             "adaptive_mean_relative_to_regime_best": mean(r["relative_to_regime_best"] for r in adaptive),
             "crossover": [
                 {
