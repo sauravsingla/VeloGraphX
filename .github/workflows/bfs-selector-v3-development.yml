@@ -50,25 +50,13 @@ jobs:
           mkdir -p build/v3
           python - <<'PY'
           from pathlib import Path
-          src = Path('benchmarks/publication_policy_bfs_v3_light3.cpp').read_text()
-          old = '''      if (confirmation_batch) {
-        // Confirmation consumes the pending probe. Persist only the decayed or
-        // newly observed tail magnitude; do not immediately schedule another
-        // confirmation for the same event.
-        tail_confirmation_due = false;
-        incremental_tail_ratio = std::max(decayed_tail, normalized_tail);
-'''
-          new = '''      if (confirmation_batch) {
-        // Confirmation is a fresh measured observation. If it is cheap, it
-        // disproves the stale tail alarm; if it remains expensive, preserve
-        // only the newly observed normalized tail. Do not carry the old tail
-        // magnitude through a successful confirmation.
-        tail_confirmation_due = false;
-        incremental_tail_ratio = normalized_tail;
-'''
-          assert src.count(old) == 1, 'confirmation block changed unexpectedly'
-          out = src.replace(old, new)
-          Path('build/v3/publication_policy_bfs_v3_light3_confirmfix.cpp').write_text(out)
+          source = Path('benchmarks/publication_policy_bfs_v3_light3.cpp')
+          src = source.read_text()
+          needle = '        incremental_tail_ratio = std::max(decayed_tail, normalized_tail);'
+          replacement = '        incremental_tail_ratio = normalized_tail;'
+          assert src.count(needle) == 1, 'confirmation assignment changed unexpectedly'
+          assert 'if (confirmation_batch)' in src, 'confirmation block missing'
+          Path('build/v3/publication_policy_bfs_v3_light3_confirmfix.cpp').write_text(src.replace(needle, replacement))
           PY
 
       - name: Build confirmation-reset BFS selector candidate
@@ -160,9 +148,8 @@ jobs:
           print('H4 mean=', h4['mean_regret'], 'p95=', h4['p95_regret'],
                 'max=', h4['max_regret'], 'wrong=', h4['wrong_arm_rate'],
                 'decision_us=', h4['mean_decision_us'])
-          # Same development-only gates, now evaluated over three independent
-          # hosted repetitions to reduce single-run timing noise. H6 remains
-          # untouched until a source-level candidate is frozen.
+          # Same development-only gates, now evaluated over three hosted
+          # repetitions to reduce single-run timing noise. H6 remains untouched.
           assert road['mean_regret'] <= 0.08, road
           assert road['p95_regret'] <= 0.40, road
           assert road['wrong_arm_rate'] <= 0.10, road
