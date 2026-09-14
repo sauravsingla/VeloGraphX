@@ -1,0 +1,234 @@
+name: Selector V2 Generalization
+
+on:
+  push:
+    paths:
+      - 'benchmarks/publication_policy_bfs_v2.cpp'
+      - 'benchmarks/publication_policy_triangles_v2.cpp'
+      - 'tools/generate_selector_v2_holdout.py'
+      - 'tools/summarize_selector_v2.py'
+      - 'docs/research/selector-v2-generalization-preregistration.md'
+      - 'docs/research/selector-v2-generalization-results.md'
+      - '.github/workflows/selector-v2-generalization.yml'
+  pull_request:
+    paths:
+      - 'benchmarks/publication_policy_bfs_v2.cpp'
+      - 'benchmarks/publication_policy_triangles_v2.cpp'
+      - 'tools/generate_selector_v2_holdout.py'
+      - 'tools/summarize_selector_v2.py'
+      - 'docs/research/selector-v2-generalization-preregistration.md'
+      - 'docs/research/selector-v2-generalization-results.md'
+      - '.github/workflows/selector-v2-generalization.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+
+jobs:
+  selector-v2-generalization:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Verify preregistration and retained post-observation record
+        run: |
+          grep -q 'd6ed5b02e910864efaab41ba338b87fb9a414585' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'publication-preflight-v2' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'chain-hubs-directed' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'block-community-undirected' docs/research/selector-v2-generalization-preregistration.md
+          grep -q '2026091501' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'research_claim=false' docs/research/selector-v2-generalization-preregistration.md
+          grep -q 'H4 must not be reused as unseen evidence' docs/research/selector-v2-generalization-results.md
+          grep -q 'publication-preflight-v2.*not accepted as a general BFS selector' docs/research/selector-v2-generalization-results.md
+          grep -q 'All preregistered H5 gates passed comfortably' docs/research/selector-v2-generalization-results.md
+
+      - name: Build selector v2 harnesses
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_bfs_v2.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs_v2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_triangles_v2.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_triangles_v2
+
+      - name: Generate seen development diagnostics
+        run: |
+          mkdir -p build/v2/{graphs,development-bfs,development-triangles,holdout-bfs,holdout-triangles,summary}
+          python tools/generate_reviewer_holdout.py \
+            --mode road-smallworld --seed 20260914 \
+            --width 192 --height 192 \
+            --output build/v2/graphs/dev-road.txt \
+            --metadata build/v2/graphs/dev-road.json
+          python tools/generate_reviewer_holdout.py \
+            --mode clustered-undirected --seed 20260914 \
+            --vertices 8192 \
+            --output build/v2/graphs/dev-triangles.txt \
+            --metadata build/v2/graphs/dev-triangles.json
+
+      - name: Run seen development diagnostics
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for root in (0, 18528, 36863):
+              for batch in (128, 512, 2048):
+                  out = Path(f'build/v2/development-bfs/road-r{root}__{batch}.json')
+                  with out.open('w') as f:
+                      subprocess.run([
+                          'build/publication_policy_bfs_v2', 'build/v2/graphs/dev-road.txt',
+                          str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                      ], stdout=f, check=True)
+                  d = json.load(out.open())
+                  assert d['selector'] == 'publication-preflight-v2'
+                  assert d['all_policies_exact']
+          for batch in (64, 256, 1024):
+              out = Path(f'build/v2/development-triangles/clustered__{batch}.json')
+              with out.open('w') as f:
+                  subprocess.run([
+                      'build/publication_policy_triangles_v2', 'build/v2/graphs/dev-triangles.txt',
+                      '0.90', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                  ], stdout=f, check=True)
+              d = json.load(out.open())
+              assert d['selector'] == 'publication-preflight-triangle-v2'
+              assert d['all_policies_exact']
+          PY
+
+      - name: Regenerate observed H4/H5 identities
+        run: |
+          python tools/generate_selector_v2_holdout.py \
+            --mode chain-hubs-directed --seed 2026091501 --vertices 32768 \
+            --output build/v2/graphs/holdout-bfs.txt \
+            --metadata build/v2/graphs/holdout-bfs.json
+          python tools/generate_selector_v2_holdout.py \
+            --mode block-community-undirected --seed 2026091501 --vertices 8192 \
+            --output build/v2/graphs/holdout-triangles.txt \
+            --metadata build/v2/graphs/holdout-triangles.json
+          test "$(python -c 'import json; print(json.load(open("build/v2/graphs/holdout-bfs.json"))["sha256"])')" = \
+            '4278e3cf0ba460fd485814e5e4133b09c66f87d76d931772b332625c921537cc'
+          test "$(python -c 'import json; print(json.load(open("build/v2/graphs/holdout-triangles.json"))["sha256"])')" = \
+            'b98a7a9caffe016f103ed1ad7294f213266b6c63422c4f7b87b72cc4363ab039'
+
+      - name: Rerun observed H4 BFS evidence
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for root in (0, 16384, 32767):
+              for batch in (128, 512, 2048):
+                  for rep in (1, 2):
+                      out = Path(f'build/v2/holdout-bfs/chain-r{root}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs_v2', 'build/v2/graphs/holdout-bfs.txt',
+                              str(root), '0.95', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d = json.load(out.open())
+                      assert d['selector'] == 'publication-preflight-v2'
+                      assert d['all_policies_exact']
+          PY
+
+      - name: Rerun observed H5 triangle evidence
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for batch in (64, 256, 1024):
+              for rep in (1, 2):
+                  out = Path(f'build/v2/holdout-triangles/block__{batch}__{rep}.json')
+                  with out.open('w') as f:
+                      subprocess.run([
+                          'build/publication_policy_triangles_v2', 'build/v2/graphs/holdout-triangles.txt',
+                          '0.90', str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                      ], stdout=f, check=True)
+                  d = json.load(out.open())
+                  assert d['selector'] == 'publication-preflight-triangle-v2'
+                  assert d['all_policies_exact']
+          PY
+
+      - name: Summarize and classify preregistered gate outcome
+        run: |
+          python tools/summarize_selector_v2.py \
+            --development-bfs build/v2/development-bfs \
+            --development-triangles build/v2/development-triangles \
+            --holdout-bfs build/v2/holdout-bfs \
+            --holdout-triangles build/v2/holdout-triangles \
+            --output build/v2/summary/summary.json \
+            | tee build/v2/summary/stdout.json
+          python - <<'PY'
+          import json
+          d = json.load(open('build/v2/summary/summary.json'))
+          assert d['all_exact']
+          b = d['holdout_bfs']
+          t = d['holdout_triangles']
+          assert b['internal_fallback_fraction'] == 0.0
+          assert t['internal_fallback_fraction'] == 0.0
+          bfs_gate = (
+              b['mean_regret'] <= 0.08 and
+              b['p95_regret'] <= 0.40 and
+              b['max_regret'] <= 1.00 and
+              b['wrong_arm_rate'] <= 0.08
+          )
+          triangle_gate = (
+              t['mean_regret'] <= 0.20 and
+              t['p95_regret'] <= 0.75 and
+              t['max_regret'] <= 2.00 and
+              t['wrong_arm_rate'] <= 0.10
+          )
+          gates = {
+              'research_claim': False,
+              'bfs_h4_gate_passed': bfs_gate,
+              'triangle_h5_gate_passed': triangle_gate,
+              'bfs_metrics': {k: b[k] for k in ('mean_regret','p95_regret','max_regret','wrong_arm_rate')},
+              'triangle_metrics': {k: t[k] for k in ('mean_regret','p95_regret','max_regret','wrong_arm_rate')},
+          }
+          open('build/v2/summary/gates.json','w').write(json.dumps(gates, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(gates, sort_keys=True))
+          # The first retained run is documented as H4 fail / H5 pass. Future
+          # hosted reruns may jitter; correctness/fallback are enforced while the
+          # performance classification is preserved as data rather than hidden by
+          # making the repository permanently red.
+          PY
+
+      - name: Capture immutable campaign pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "parent_main=d6ed5b02e910864efaab41ba338b87fb9a414585"
+            echo "bfs_selector=publication-preflight-v2"
+            echo "triangle_selector=publication-preflight-triangle-v2"
+            echo "holdout_generator=selector-v2-holdout-v1"
+            echo "holdout_seed=2026091501"
+            echo "bfs_holdout_sha256=4278e3cf0ba460fd485814e5e4133b09c66f87d76d931772b332625c921537cc"
+            echo "triangle_holdout_sha256=b98a7a9caffe016f103ed1ad7294f213266b6c63422c4f7b87b72cc4363ab039"
+            echo "first_retained_bfs_h4_gate_passed=false"
+            echo "first_retained_triangle_h5_gate_passed=true"
+            echo "research_claim=false"
+            echo "dedicated_hardware_required=true"
+          } > build/v2/pins.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selector-v2-generalization
+          path: build/v2/
+          retention-days: 90
