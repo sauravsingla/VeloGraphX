@@ -12,6 +12,9 @@
 
 namespace {
 
+constexpr std::size_t kHistoryMinIncrementalSamples = 3;
+constexpr std::size_t kHistoryMinFullSamples = 2;
+
 struct PublicationTrace {
   double update_fraction{0.0};
   double reachable_fraction{0.0};
@@ -73,7 +76,7 @@ PublicationResult run_publication_policy(
         std::chrono::duration<double, std::micro>(setup_end - setup_begin).count();
   }
 
-  // Adaptive state.
+  // Adaptive selector state.
   double previous_affected_fraction = 0.0;
   double ema_incremental_us = 0.0;
   double ema_full_us = initial_bfs_us;
@@ -83,18 +86,28 @@ PublicationResult run_publication_policy(
   bool have_incremental_error = false;
   bool have_full_error = false;
   bool have_incremental = false;
-  bool have_full = true;  // initial BFS already supplies a measured full-cost baseline
+  bool have_full = true;  // initial BFS is already a measured full-cost baseline
   std::size_t incremental_age = kFreshAge + 1;
   std::size_t full_age = 0;
   const bool large_scale = vertices >= 200000;
   bool first_batch = true;
 
-  // History-cost reconstruction state. It deliberately uses only observed arm
-  // costs and no VeloGraphX scale/root/uncertainty features.
-  double history_incremental_us = 0.0;
-  double history_full_us = initial_bfs_us;
-  bool history_have_incremental = false;
-  bool history_have_full = true;
+  // History-cost reconstruction inspired by Bok et al. 2022.
+  //
+  // Their model predicts incremental cost from historical affected vertices per
+  // update (NRV), detection cost per affected vertex (SDC), and processing cost
+  // per affected vertex (SPC), while static cost scales with graph size. The
+  // VeloGraphX harness cannot separately time detection and processing inside
+  // IncrementalBFS without perturbing the implementation, so this reconstruction
+  // uses their combined observed cost per affected vertex as SDC+SPC. It uses no
+  // VeloGraphX root/scale/uncertainty features. Calibration probes are online and
+  // remain inside measured answer-ready latency.
+  double history_sum_affected_per_update = 0.0;
+  double history_incremental_total_us = 0.0;
+  double history_incremental_total_affected = 0.0;
+  double history_full_total_us = initial_bfs_us;
+  std::size_t history_incremental_samples = 0;
+  std::size_t history_full_samples = 1;
 
   for (std::size_t begin = imported_edges; begin < edges.size(); begin += batch_size) {
     const auto end = std::min(begin + batch_size, edges.size());
@@ -123,16 +136,27 @@ PublicationResult run_publication_policy(
       choose_full = trace.update_fraction >= simple_update_fraction;
       trace.reason = choose_full ? "threshold_full" : "threshold_incremental";
     } else if (policy == "history_cost_model") {
-      trace.predicted_incremental_us = history_have_incremental
-          ? history_incremental_us : 0.0;
-      trace.predicted_full_us = history_have_full ? history_full_us : 0.0;
-      if (!history_have_incremental) {
-        // The initial BFS already gives a full-cost observation. Probe the
-        // missing incremental arm instead of redundantly paying another full run.
+      const double update_count =
+          static_cast<double>(std::max<std::size_t>(1, updates.updates.size()));
+      if (history_incremental_samples >= kHistoryMinIncrementalSamples) {
+        const double nrv = history_sum_affected_per_update /
+            static_cast<double>(history_incremental_samples);
+        const double combined_cost_per_affected = history_incremental_total_us /
+            std::max(1.0, history_incremental_total_affected);
+        trace.predicted_incremental_us =
+            nrv * update_count * combined_cost_per_affected;
+      }
+      trace.predicted_full_us = history_full_total_us /
+          static_cast<double>(std::max<std::size_t>(1, history_full_samples));
+
+      if (history_incremental_samples < kHistoryMinIncrementalSamples) {
         choose_full = false;
-        trace.reason = "history_initial_incremental_probe";
+        trace.reason = "history_calibrate_incremental";
+      } else if (history_full_samples < kHistoryMinFullSamples) {
+        choose_full = true;
+        trace.reason = "history_calibrate_full";
       } else {
-        choose_full = history_full_us < history_incremental_us;
+        choose_full = trace.predicted_full_us < trace.predicted_incremental_us;
         trace.reason = choose_full ? "history_cost_full" : "history_cost_incremental";
       }
     } else if (policy == "adaptive") {
@@ -165,9 +189,8 @@ PublicationResult run_publication_policy(
           choose_full = true;
           trace.reason = "large_shallow_cold_start";
         } else if (!have_incremental) {
-          // Tail-regret fix: the initial BFS is already a measured full-cost
-          // baseline. Do not force a redundant second full run merely to warm
-          // the model; calibrate the missing incremental arm directly.
+          // Tail-regret fix: initial BFS already measures the full arm. Probe
+          // the missing incremental arm instead of redundantly paying full again.
           choose_full = false;
           trace.reason = "large_initial_incremental_probe";
         } else if (inc_lower > full_upper) {
@@ -249,15 +272,17 @@ PublicationResult run_publication_policy(
 
     if (policy == "history_cost_model") {
       if (choose_full) {
-        history_full_us = history_have_full
-            ? (1.0 - kEmaAlpha) * history_full_us + kEmaAlpha * execution_us
-            : execution_us;
-        history_have_full = true;
+        history_full_total_us += execution_us;
+        ++history_full_samples;
       } else {
-        history_incremental_us = history_have_incremental
-            ? (1.0 - kEmaAlpha) * history_incremental_us + kEmaAlpha * execution_us
-            : execution_us;
-        history_have_incremental = true;
+        const double update_count =
+            static_cast<double>(std::max<std::size_t>(1, updates.updates.size()));
+        const double affected =
+            static_cast<double>(std::max<std::size_t>(1, bfs.last_affected_vertices()));
+        history_sum_affected_per_update += affected / update_count;
+        history_incremental_total_us += execution_us;
+        history_incremental_total_affected += affected;
+        ++history_incremental_samples;
       }
     }
 
@@ -378,11 +403,11 @@ int main(int argc, char** argv) {
   }
 
   bool all_exact = true;
-  std::cout << "{\"schema_version\":1"
+  std::cout << "{\"schema_version\":2"
             << ",\"artifact_type\":\"velographx-publication-repair-recompute-policy\""
             << ",\"selector\":\"publication-preflight-v1\""
             << ",\"frozen_historical_selector\":\"bounded-one-sided-warmup-v5\""
-            << ",\"history_baseline_disclosure\":\"methodological reconstruction; not authors' original implementation\""
+            << ",\"history_baseline_disclosure\":\"NRV-style methodological reconstruction inspired by Bok et al. 2022; aggregate detection+processing cost per affected vertex; online calibration included; not authors' original implementation\""
             << ",\"oracle_definition\":\"min(always_incremental,always_full); full wins ties\""
             << ",\"root\":" << root64
             << ",\"vertices\":" << vertices
