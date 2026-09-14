@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -45,10 +46,19 @@ struct Result {
   bool exact{true};
 };
 
+std::uint64_t edge_key(std::uint64_t u, std::uint64_t v) {
+  return (u << 32U) | v;
+}
+
 std::vector<Edge> read_edges(const std::string& path, std::size_t& vertices) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("cannot open edge list");
+
+  // Preserve the preregistered input order.  We normalize undirected endpoints
+  // and deduplicate first occurrence with a hash set instead of sorting the
+  // whole stream, because sorting would silently change the dynamic workload.
   std::vector<Edge> edges;
+  std::unordered_set<std::uint64_t> seen;
   std::string line;
   std::uint64_t max_vertex = 0;
   bool saw = false;
@@ -63,13 +73,12 @@ std::vector<Edge> read_edges(const std::string& path, std::size_t& vertices) {
       throw std::runtime_error("vertex id exceeds VertexId range");
     }
     if (u > v) std::swap(u, v);
+    if (!seen.insert(edge_key(u, v)).second) continue;
     edges.emplace_back(static_cast<velographx::VertexId>(u),
                        static_cast<velographx::VertexId>(v));
     max_vertex = std::max(max_vertex, std::max(u, v));
     saw = true;
   }
-  std::sort(edges.begin(), edges.end());
-  edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
   vertices = saw ? static_cast<std::size_t>(max_vertex + 1) : 0;
   return edges;
 }
@@ -80,7 +89,9 @@ velographx::UpdateBatch make_batch(const std::vector<Edge>& edges,
                                    std::size_t end) {
   velographx::UpdateBatch updates;
   updates.updates.reserve((end - begin) * 2);
-  for (std::size_t i = begin; i < end; ++i) updates.add(edges[i].first, edges[i].second);
+  for (std::size_t i = begin; i < end; ++i) {
+    updates.add(edges[i].first, edges[i].second);
+  }
   for (std::size_t i = begin; i < end; ++i) {
     const auto remove_index = i - imported_edges;
     updates.remove(edges[remove_index].first, edges[remove_index].second);
@@ -128,7 +139,8 @@ Result run_policy(const std::string& policy,
     const auto total_begin = Clock::now();
 
     Trace t;
-    const double logical_edges = std::max<double>(1.0, graph.edge_count_directed() / 2.0);
+    const double logical_edges =
+        std::max<double>(1.0, static_cast<double>(graph.edge_count_directed()) / 2.0);
     t.update_fraction = static_cast<double>(updates.updates.size()) / logical_edges;
     bool choose_full = false;
 
@@ -142,7 +154,8 @@ Result run_policy(const std::string& policy,
       choose_full = t.update_fraction >= simple_update_fraction;
       t.reason = choose_full ? "threshold_full" : "threshold_incremental";
     } else if (policy == "history_cost_model") {
-      const double update_count = static_cast<double>(std::max<std::size_t>(1, updates.updates.size()));
+      const double update_count =
+          static_cast<double>(std::max<std::size_t>(1, updates.updates.size()));
       if (history_incremental_samples >= kHistoryMinIncrementalSamples) {
         const double cost_per_update = history_incremental_total_us /
             std::max(1.0, history_incremental_total_updates);
@@ -164,8 +177,8 @@ Result run_policy(const std::string& policy,
         choose_full = true;
         t.reason = "preflight_large_update_full";
       } else if (!have_incremental) {
-        // Initial construction already provides a full-cost observation; probe
-        // the missing incremental arm rather than redundantly recomputing.
+        // Initial construction already supplies a full-arm cost observation, so
+        // probe the missing incremental arm rather than paying a redundant full.
         t.reason = "initial_incremental_probe";
       } else {
         const double scale = std::clamp(
@@ -180,7 +193,8 @@ Result run_policy(const std::string& policy,
         const double inc_lower = t.predicted_incremental_us * (1.0 - inc_uncertainty);
         const double full_upper = t.predicted_full_us * (1.0 + full_uncertainty);
         choose_full = inc_lower > full_upper;
-        t.reason = choose_full ? "uncertainty_confident_full" : "uncertainty_overlap_incremental";
+        t.reason = choose_full ? "uncertainty_confident_full"
+                               : "uncertainty_overlap_incremental";
       }
     } else {
       throw std::runtime_error("unknown policy");
@@ -204,8 +218,9 @@ Result run_policy(const std::string& policy,
     const double batch_us =
         std::chrono::duration<double, std::micro>(execution_end - total_begin).count();
 
+    // Correctness verification is deliberately outside the timed region.
     const auto produced = triangles.value();
-    triangles.recompute();  // independent full verification outside the timed region
+    triangles.recompute();
     if (produced != triangles.value()) result.exact = false;
 
     if (policy == "history_cost_model") {
@@ -288,13 +303,18 @@ int main(int argc, char** argv) {
   std::size_t vertices = 0;
   const auto edges = read_edges(path, vertices);
   const auto imported_edges = static_cast<std::size_t>(edges.size() * imported_rate);
-  if (edges.empty() || imported_edges == 0 || imported_edges >= edges.size() || batch_size == 0) return 2;
+  if (edges.empty() || imported_edges == 0 || imported_edges >= edges.size() ||
+      batch_size == 0) {
+    return 2;
+  }
 
   const std::vector<std::string> names = {
-      "always_incremental", "always_full", "simple_threshold", "history_cost_model", "adaptive"};
+      "always_incremental", "always_full", "simple_threshold",
+      "history_cost_model", "adaptive"};
   std::vector<Result> results;
   for (const auto& name : names) {
-    results.push_back(run_policy(name, edges, vertices, imported_edges, batch_size, simple_threshold));
+    results.push_back(run_policy(name, edges, vertices, imported_edges,
+                                 batch_size, simple_threshold));
   }
 
   const auto batches = results.front().batch_us.size();
@@ -312,6 +332,7 @@ int main(int argc, char** argv) {
             << ",\"selector\":\"publication-preflight-triangle-v1\""
             << ",\"framework_relation\":\"same pre-repair two-arm/oracle-regret framework; triangle-specific observable signals\""
             << ",\"oracle_definition\":\"min(always_incremental,always_full); full wins ties\""
+            << ",\"input_order_preserved\":true"
             << ",\"vertices\":" << vertices
             << ",\"logical_edges\":" << edges.size()
             << ",\"batch_size\":" << batch_size
@@ -324,18 +345,28 @@ int main(int argc, char** argv) {
     if (p) std::cout << ',';
     all_exact = all_exact && r.exact;
     const double total = std::accumulate(r.batch_us.begin(), r.batch_us.end(), 0.0);
-    const double decision_total = std::accumulate(r.decision_us.begin(), r.decision_us.end(), 0.0);
+    const double decision_total =
+        std::accumulate(r.decision_us.begin(), r.decision_us.end(), 0.0);
     std::cout << "{\"name\":\"" << r.name << "\""
               << ",\"exact\":" << (r.exact ? "true" : "false")
               << ",\"mean_batch_us\":" << total / std::max<std::size_t>(1, batches)
-              << ",\"mean_decision_us\":" << decision_total / std::max<std::size_t>(1, batches)
+              << ",\"mean_decision_us\":"
+              << decision_total / std::max<std::size_t>(1, batches)
               << ",\"full_recompute_batches\":" << r.full_recompute_batches
               << ",\"batch_us\":";
     print_double_array(r.batch_us);
+    std::cout << ",\"decision_us\":";
+    print_double_array(r.decision_us);
     std::cout << ",\"explicit_full\":";
     print_bool_array(r.explicit_full);
-    std::cout << '}';
+    std::cout << ",\"internal_full_fallback\":[";
+    for (std::size_t i = 0; i < batches; ++i) {
+      if (i) std::cout << ',';
+      std::cout << "false";
+    }
+    std::cout << "]}";
   }
+
   std::cout << "],\"oracle_batch_us\":";
   print_double_array(oracle);
   std::cout << ",\"oracle_full\":";
