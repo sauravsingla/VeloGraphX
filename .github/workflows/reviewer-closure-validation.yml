@@ -1,0 +1,203 @@
+name: Reviewer Closure Validation
+
+on:
+  push:
+    paths:
+      - 'benchmarks/publication_policy_bfs.cpp'
+      - 'benchmarks/publication_ablation_bfs.cpp'
+      - 'benchmarks/publication_policy_triangles.cpp'
+      - 'tools/generate_reviewer_holdout.py'
+      - 'tools/summarize_reviewer_closure.py'
+      - 'docs/research/post-pr71-reviewer-closure.md'
+      - '.github/workflows/reviewer-closure-validation.yml'
+  pull_request:
+    paths:
+      - 'benchmarks/publication_policy_bfs.cpp'
+      - 'benchmarks/publication_ablation_bfs.cpp'
+      - 'benchmarks/publication_policy_triangles.cpp'
+      - 'tools/generate_reviewer_holdout.py'
+      - 'tools/summarize_reviewer_closure.py'
+      - 'docs/research/post-pr71-reviewer-closure.md'
+      - '.github/workflows/reviewer-closure-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+
+jobs:
+  reviewer-closure:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Verify frozen selector and preregistration
+        run: |
+          grep -q 'publication-preflight-v1' benchmarks/publication_policy_bfs.cpp
+          grep -q '559adc1c77f5deffcede9bc4aea1327bf53bc2a9' docs/research/post-pr71-reviewer-closure.md
+          grep -q 'research_claim=false' docs/research/post-pr71-reviewer-closure.md || true
+          grep -q 'A0' docs/research/post-pr71-reviewer-closure.md
+          grep -q 'cross-algorithm' docs/research/post-pr71-reviewer-closure.md
+
+      - name: Build reviewer-facing harnesses
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_bfs.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_ablation_bfs.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_ablation_bfs
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_triangles.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_triangles
+
+      - name: Generate preregistered unseen graph families
+        run: |
+          mkdir -p build/reviewer/{graphs,heldout,ablation,triangles,summary}
+          python tools/generate_reviewer_holdout.py \
+            --mode road-smallworld \
+            --seed 20260914 \
+            --width 192 --height 192 \
+            --output build/reviewer/graphs/road-smallworld.txt \
+            --metadata build/reviewer/graphs/road-smallworld.json
+          python tools/generate_reviewer_holdout.py \
+            --mode clustered-undirected \
+            --seed 20260914 \
+            --vertices 8192 \
+            --output build/reviewer/graphs/clustered-undirected.txt \
+            --metadata build/reviewer/graphs/clustered-undirected.json
+
+      - name: Frozen-selector held-out BFS evaluation
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          roots = [0, 18528, 36863]
+          batches = [128, 512, 2048]
+          for root in roots:
+              for batch in batches:
+                  for rep in (1, 2):
+                      out = Path(f'build/reviewer/heldout/road-r{root}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs',
+                              'build/reviewer/graphs/road-smallworld.txt',
+                              str(root), '0.95', str(batch),
+                              os.environ['SIMPLE_UPDATE_FRACTION'],
+                          ], stdout=f, check=True)
+                      d = json.load(out.open())
+                      assert d['selector'] == 'publication-preflight-v1'
+                      assert d['all_policies_exact'], (root, batch, rep)
+          PY
+
+      - name: Clean A0-A7 same-stream causal ablation
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          for batch in (512, 2048):
+              for rep in (1, 2):
+                  out = Path(f'build/reviewer/ablation/road-r18528__{batch}__{rep}.json')
+                  with out.open('w') as f:
+                      subprocess.run([
+                          'build/publication_ablation_bfs',
+                          'build/reviewer/graphs/road-smallworld.txt',
+                          '18528', '0.95', str(batch),
+                      ], stdout=f, check=True)
+                  d = json.load(out.open())
+                  assert d['all_stages_exact'], (batch, rep)
+                  assert [s['stage'] for s in d['stages']] == [f'A{i}' for i in range(8)]
+                  a7 = next(s for s in d['stages'] if s['stage'] == 'A7')
+                  assert a7['internal_fallback_batches'] == 0, (batch, rep, a7)
+          PY
+
+      - name: Cross-algorithm exact triangle policy evaluation
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          for batch in (64, 256, 1024):
+              out = Path(f'build/reviewer/triangles/clustered__{batch}__1.json')
+              with out.open('w') as f:
+                  subprocess.run([
+                      'build/publication_policy_triangles',
+                      'build/reviewer/graphs/clustered-undirected.txt',
+                      '0.90', str(batch), os.environ['SIMPLE_UPDATE_FRACTION'],
+                  ], stdout=f, check=True)
+              d = json.load(out.open())
+              assert d['algorithm'] == 'exact_triangle_count'
+              assert d['all_policies_exact'], batch
+          PY
+
+      - name: Summarize reviewer-closure evidence
+        run: |
+          python tools/summarize_reviewer_closure.py \
+            --heldout-dir build/reviewer/heldout \
+            --ablation-dir build/reviewer/ablation \
+            --triangle-dir build/reviewer/triangles \
+            --output build/reviewer/summary/summary.json \
+            | tee build/reviewer/summary/stdout.json
+          python - <<'PY'
+          import json
+          d = json.load(open('build/reviewer/summary/summary.json'))
+          assert d['all_exact']
+          assert d['heldout_bfs']['files'] == 18
+          assert d['clean_ablation']['files'] == 4
+          assert len(d['clean_ablation']['stages']) == 8
+          assert d['cross_algorithm_triangles']['files'] == 3
+          assert d['clean_ablation']['stages']['A7']['internal_fallback_batches'] == 0
+          print('heldout_mean_regret=', d['heldout_bfs']['mean_regret'])
+          print('heldout_p95_regret=', d['heldout_bfs']['p95_regret'])
+          print('heldout_max_regret=', d['heldout_bfs']['max_regret'])
+          print('triangle_mean_regret=', d['cross_algorithm_triangles']['mean_regret'])
+          print('triangle_p95_regret=', d['cross_algorithm_triangles']['p95_regret'])
+          print('note=hosted-runner performance is retained evidence; no performance threshold is hard-failed')
+          PY
+
+      - name: Capture immutable pins and claim boundary
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "frozen_base_before_campaign=559adc1c77f5deffcede9bc4aea1327bf53bc2a9"
+            echo "bfs_selector=publication-preflight-v1"
+            echo "holdout_generator=reviewer-holdout-v1"
+            echo "holdout_seed=20260914"
+            echo "road_graph_sha256=$(python -c 'import json; print(json.load(open("build/reviewer/graphs/road-smallworld.json"))["sha256"])')"
+            echo "triangle_graph_sha256=$(python -c 'import json; print(json.load(open("build/reviewer/graphs/clustered-undirected.json"))["sha256"])')"
+            echo "heldout_roots=0,18528,36863"
+            echo "heldout_batches=128,512,2048"
+            echo "heldout_repetitions=2"
+            echo "ablation_stages=A0,A1,A2,A3,A4,A5,A6,A7"
+            echo "triangle_batches=64,256,1024"
+            echo "research_claim=false"
+            echo "dedicated_hardware_required=true"
+          } > build/reviewer/pins.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reviewer-closure-validation
+          path: build/reviewer/
+          retention-days: 90
