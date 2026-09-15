@@ -8,7 +8,7 @@ VeloGraphX studies a systems question that arises in continuously changing graph
 
 The repository implements both choices behind a common dynamic graph substrate and exposes an adaptive policy that can select between them while preserving the exactness contract of the underlying algorithm.
 
-This file is a reviewer-facing map of the research artifact. It is not a substitute for a submitted manuscript and it deliberately separates implemented capability from publication-grade performance evidence.
+This file is a reviewer-facing map of the research artifact. It is not a substitute for a submitted manuscript and it deliberately separates implemented capability from the evidence scope of each quantitative claim.
 
 ## Core contributions represented by the artifact
 
@@ -51,14 +51,15 @@ Primary references:
 
 ### C4. Reproducible evidence with explicit claim boundaries
 
-The project treats dataset identity, timing boundaries, competitor revisions, exactness, retained artifacts, and negative results as part of the experimental contract. Hosted CI results are intentionally described as engineering evidence rather than universal or publication-grade hardware claims.
+The project treats dataset identity, timing boundaries, competitor revisions, exactness, retained artifacts, and negative results as part of the experimental contract. Hosted same-run evidence can support **scoped relative manuscript claims** when systems or policies share the documented runner/timing envelope and correctness contract. It is not used as proof of universal peak performance, many-core scaling, or hardware-specific superiority.
 
 Primary references:
 
+- [Paper evidence index](docs/paper-evidence-index.md)
+- [Machine-readable paper evidence registry](benchmarks/paper-evidence.json)
 - [Benchmark methodology](docs/benchmark-methodology.md)
 - [Current limitations](docs/limitations.md)
 - [Hosted native competitor evidence](docs/hosted-native-competitors.md)
-- [Controlled-hardware execution](docs/controlled-hardware-execution.md)
 
 ## Minimal reviewer validation
 
@@ -72,6 +73,15 @@ The script builds a focused set of correctness tests, creates a deterministic sy
 
 See [REPRODUCIBILITY.md](REPRODUCIBILITY.md) for the exact contract and the larger evidence map.
 
+## Manuscript evidence map
+
+The authoritative manuscript-facing result registry is:
+
+- [docs/paper-evidence-index.md](docs/paper-evidence-index.md)
+- [`benchmarks/paper-evidence.json`](benchmarks/paper-evidence.json)
+
+These files record the accepted hosted campaigns, GitHub Actions run IDs, artifact IDs/hashes, repetition/exactness contracts, safe claims, and explicit overclaim boundaries. They also identify results that remain pending audit and therefore must not be promoted into headline manuscript numbers.
+
 ## Paper claim map
 
 A compact claim-to-implementation-to-evidence matrix is maintained in:
@@ -81,12 +91,15 @@ A compact claim-to-implementation-to-evidence matrix is maintained in:
 The purpose of that table is to make it easy to distinguish:
 
 - what is implemented,
-- what has hosted engineering evidence,
-- what has external baseline evidence, and
-- what still requires dedicated controlled hardware before being promoted as a publication-level performance claim.
+- what has accepted hosted same-run or paired evidence,
+- what has external baseline evidence,
+- what remains pending artifact audit, and
+- which hardware-specific claims would require a different experimental environment.
 
 ## Evidence boundary
 
 The repository should not be read as claiming that incremental execution always wins, that VeloGraphX is universally faster than competing systems, or that hosted CI establishes universal multicore/NUMA performance. The retained benchmark record includes regimes and workloads where recomputation or an external system wins.
+
+For this paper, dedicated hardware is **optional rather than blocking** unless the manuscript chooses to make many-core, multi-socket NUMA, hardware-counter, NVMe, or microarchitecture-specific peak-performance claims. The core paper can instead rely on exactness, repair/recompute crossover, oracle-relative policy quality, same-run relative comparisons, reproducibility, and scoped 1–4-thread hosted evidence.
 
 The intended research claim is narrower: **the preferred exact execution strategy changes with workload and graph regime, so a dynamic analytics engine should expose and adapt to that crossover rather than hard-code one execution mode.**

@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "purpose": "Machine-readable registry for manuscript-facing VeloGraphX evidence. Historical workflow publication_grade/research_claim flags are not modified by this registry.",
+  "evidence_policy": {
+    "tier_a": "Hosted same-run or paired comparative evidence with pinned revisions, explicit timing semantics, repetitions, and correctness gates; suitable for scoped relative manuscript claims.",
+    "tier_b": "Hosted supporting A/B or published-reference evidence with explicit provenance and correctness; suitable for narrow mechanism or algorithm claims.",
+    "tier_c": "Development or pending-audit evidence; not suitable for headline quantitative manuscript claims until the final retained artifact is audited/cross-referenced.",
+    "hosted_claim_exclusions": [
+      "8/16/32+ core scalability",
+      "multi-socket NUMA superiority",
+      "hardware-counter superiority",
+      "universal microarchitecture-specific speedups",
+      "research-scale NVMe peak throughput",
+      "universal fastest-system claims"
+    ]
+  },
+  "campaigns": [
+    {
+      "id": "hosted-native-gap-lagraph",
+      "tier": "A",
+      "status": "manuscript_ready_hosted_scoped",
+      "run_id": 33418520303,
+      "artifact_id": 9768499895,
+      "artifact_sha256": "a858749145ae2490f524672344358513daa68151471f83249601b2af62c7c6a7",
+      "artifact_name": "hosted-native-competitors",
+      "scope": "Native BFS/weighted-SSSP comparison against GAP and LAGraph at 1/2/4 threads with five repetitions per configuration.",
+      "correctness": "Independent engine correctness/self-check gates required before acceptance.",
+      "safe_claims": [
+        "Same-run hosted relative BFS/SSSP behavior on the evaluated workloads",
+        "VeloGraphX hosted BFS wins while GAP hosted weighted SSSP wins",
+        "1/2/4-thread behavior on the evaluated GitHub runner"
+      ],
+      "excluded_claims": [
+        "many-core scalability",
+        "universal peak throughput"
+      ],
+      "source_document": "docs/hosted-native-competitors.md"
+    },
+    {
+      "id": "networkit-dynamic-bfs",
+      "tier": "A",
+      "status": "manuscript_ready_hosted_scoped",
+      "run_id": 33542995289,
+      "artifact_id": 9814639042,
+      "artifact_sha256": "acf743bcac2542660fa050d70105e5e1e5f79d9e22ef1ec7324cf1e147ae5f12",
+      "artifact_name": "canonical-native-dynbfs-results",
+      "scope": "Native C++ VeloGraphX vs NetworKit DynBFS, one thread, three fixed roots, five paired repetitions per root on two datasets.",
+      "correctness": "30 paired executions accepted only after exact full-BFS validation and nontrivial reachability gates.",
+      "safe_claims": [
+        "VeloGraphX is faster on the evaluated web-Google campaign",
+        "NetworKit is faster on the evaluated ca-GrQc campaign",
+        "Workload-dependent winners support the non-universal crossover narrative"
+      ],
+      "excluded_claims": [
+        "universal dynamic-BFS superiority",
+        "multicore superiority"
+      ],
+      "source_document": "docs/external-dynamic-baselines.md"
+    },
+    {
+      "id": "risgraph-dynamic-bfs",
+      "tier": "A/B",
+      "status": "manuscript_ready_hosted_scoped",
+      "run_id": 33286241439,
+      "artifact_id": 9724535579,
+      "artifact_sha256": "ce0afc7e60dd0b0dc19f506324190745081215f4b7764f85b1ed2d3284d5d538",
+      "artifact_name": "risgraph-dynamic-result",
+      "scope": "VeloGraphX deletion-aware repair, VeloGraphX legacy full recomputation, and pinned RisGraph on the documented web-Google workload.",
+      "correctness": "13 update batches with exact final BFS and independent verification.",
+      "safe_claims": [
+        "VeloGraphX localized repair improves over its legacy full-recompute path on this workload",
+        "RisGraph remains faster than VeloGraphX on this documented hosted run"
+      ],
+      "excluded_claims": [
+        "combining absolute times with the separate NetworKit run",
+        "universal dynamic-BFS ranking"
+      ],
+      "source_document": "docs/external-dynamic-baselines.md"
+    },
+    {
+      "id": "published-goldencounter-triangles",
+      "tier": "B",
+      "status": "manuscript_ready_hosted_scoped",
+      "run_id": 33248107299,
+      "artifact_id": 9713495404,
+      "artifact_sha256": "f032beb3abb751f10deae0fe9a9db42ce823444990c9603ee354a59d0c1a6eb5",
+      "artifact_name": "published-baseline-triangle-results",
+      "scope": "Exact dynamic triangle comparison against the published GoldenCounter reference at 1%, 5%, and 10% update batches with five paired repetitions per configuration.",
+      "correctness": "15/15 paired executions exact.",
+      "safe_claims": [
+        "Documented answer-ready latency ratios versus the published exact GoldenCounter reference on the evaluated workload"
+      ],
+      "excluded_claims": [
+        "claiming reproduction of the complete DZiG/SWTC architecture",
+        "universal triangle-counting superiority"
+      ],
+      "source_document": "docs/same-run-published-baseline.md"
+    },
+    {
+      "id": "orkut-canonicalization-ab",
+      "tier": "B",
+      "status": "manuscript_ready_hosted_supporting",
+      "run_id": 33265264254,
+      "artifact_id": 9718634869,
+      "artifact_sha256": "f3d084ca2a0c28aaa84c3124498da63266169608371cd633f5390337c94dde74",
+      "artifact_name": "canonicalization-ab-publication-evidence",
+      "scope": "Scale-aware vs legacy canonicalization policy on com-Orkut (234,370,166 directed arcs), 60 epochs.",
+      "correctness": "Exactness gates pass every epoch.",
+      "safe_claims": [
+        "Storage-maintenance A/B trade-off on the documented hosted Orkut run"
+      ],
+      "excluded_claims": [
+        "universal throughput or memory improvement"
+      ],
+      "source_document": "docs/canonicalization-ab-evidence.md"
+    },
+    {
+      "id": "adaptive-selector-development",
+      "tier": "C",
+      "status": "artifact_cross_reference_pending",
+      "run_id": null,
+      "artifact_id": null,
+      "artifact_sha256": null,
+      "source_commit": "4381113005c221e6db2c19bac753a57d872e6374",
+      "source_blob": "c30f3459d22e61fb95abdb077aa2fd0eda445690",
+      "scope": "Frozen selector development ledger with always-full, always-incremental, simple-threshold, adaptive, oracle-relative metrics, and exactness checks.",
+      "documented_metrics": {
+        "exactness_percent": 100.0,
+        "mean_regret_percent": 3.148,
+        "p95_batch_regret_percent": 19.780,
+        "worst_regime_regret_percent": 18.253,
+        "mean_decision_us": 7.486,
+        "mean_selector_setup_us": 72.827
+      },
+      "safe_claims": [
+        "Describe the adaptive-policy design and documented development methodology"
+      ],
+      "excluded_claims": [
+        "Use the documented selector metrics as a headline manuscript result until the final retained run/artifact is cross-referenced"
+      ],
+      "source_document": "docs/ablation-study.md"
+    },
+    {
+      "id": "unified-three-system-dynamic-bfs",
+      "tier": "C",
+      "status": "pending_exactness_and_provenance_audit",
+      "run_id": null,
+      "artifact_id": null,
+      "artifact_sha256": null,
+      "scope": "One-runner VeloGraphX / NetworKit / RisGraph campaign across multiple graph families and seven update fractions.",
+      "safe_claims": [
+        "Describe the campaign contract as planned/executable evidence infrastructure"
+      ],
+      "excluded_claims": [
+        "Publish numerical results before all retained matrix artifacts pass audit"
+      ],
+      "source_document": "docs/three-system-dynamic-bfs-campaign.md"
+    }
+  ],
+  "manuscript_rules": [
+    "Do not combine absolute times from different hosted runner campaigns into one ranking.",
+    "Use paired same-run ratios where possible.",
+    "Preserve negative results and workload-specific winners.",
+    "State exact timing boundaries and machine class for every quantitative comparison.",
+    "Freeze selected raw results in a submission-era tagged/DOI-capable archive because GitHub Actions artifact retention is limited."
+  ]
+}
