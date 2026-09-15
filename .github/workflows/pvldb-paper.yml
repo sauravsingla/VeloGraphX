@@ -44,7 +44,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source <(sed 's/^/export /' paper/vldb/template.lock)
+          repository="$(sed -n 's/^repository=//p' paper/vldb/template.lock)"
+          commit="$(sed -n 's/^commit=//p' paper/vldb/template.lock)"
+          test -n "$repository"
+          test -n "$commit"
           git clone --filter=blob:none "$repository" paper/vldb/build/template
           git -C paper/vldb/build/template checkout --detach "$commit"
           test "$(git -C paper/vldb/build/template rev-parse HEAD)" = "$commit"
