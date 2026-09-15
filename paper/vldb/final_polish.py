@@ -145,12 +145,10 @@ Policy & Eq.-reg. mean regret & Weighted regret & Weighted wrong arm & Worst-reg
 
 
 def polish_body(body: str, derived: dict) -> str:
-    # Research question must match the arm-isolation experiment that is actually run.
     old_rq2 = "**RQ2 — Selector behavior.** When the policy makes a wrong choice, is the error frequent, expensive, or concentrated in particular regimes? Does it avoid repair-then-full double work?"
     new_rq2 = "**RQ2 — Selector behavior.** When the policy makes a wrong choice, is the error frequent, expensive, or concentrated in particular regimes, and how does the frozen adaptive policy compare with simpler policies under the same harness?"
     body = replace_once(body, old_rq2, new_rq2, "RQ2 scope")
 
-    # Correct the workload table to the exact frozen workflow contract.
     body = replace_once(
         body,
         "soc-Epinions1 & 75,879 & 508,837 & 71,391 & 99\\% & 384, 1,536, 6,144",
@@ -198,15 +196,19 @@ def polish_body(body: str, derived: dict) -> str:
     if n != 1:
         raise RuntimeError(f"selector figure replacement: expected 1 match, found {n}")
 
-    nk_anchor = "On ca-GrQc, the ratio is about 1.35, so NetworKit is approximately 1.35× faster."
-    body = replace_once(
-        body,
-        nk_anchor,
-        nk_anchor + " Across the three audited roots, mean paired VeloGraphX/NetworKit ratios range from 0.70–0.76 on web-Google and 1.30–1.41 on ca-GrQc, so the reversal is not driven by one selected root.",
-        "NetworKit dispersion",
+    # Match after citation and Markdown-emphasis injection, not a brittle exact sentence.
+    nk_pattern = re.compile(
+        r"On ca-GrQc, the ratio is about 1\.35, so \*\*NetworKit(?:\\cite\{staudt2016networkit\})? is approximately 1\.35× faster\*\*\."
     )
+    nk_note = (
+        " Across the three audited roots, mean paired VeloGraphX/NetworKit ratios range "
+        "from 0.70–0.76 on web-Google and 1.30–1.41 on ca-GrQc, so the reversal is not "
+        "driven by one selected root."
+    )
+    body, n = nk_pattern.subn(lambda m: m.group(0) + nk_note, body, count=1)
+    if n != 1:
+        raise RuntimeError(f"NetworKit dispersion: expected 1 sentence match, found {n}")
 
-    # Remove the cramped note under Table 5; the same trade-off remains in prose.
     storage_note = "\\\\[-1mm]\n\\footnotesize 2.25$\\times$ throughput with 6.6\\% higher peak RSS.\n"
     body = replace_once(body, storage_note, "", "storage table note cleanup")
 
