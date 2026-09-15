@@ -1,0 +1,152 @@
+name: Publication Selector Cross-Dataset Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+  EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+
+jobs:
+  cross-dataset:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Verify publication selector sources
+        run: |
+          grep -q 'bounded-one-sided-warmup-v5' benchmarks/adaptive_policy_bfs.cpp
+          grep -q 'large_initial_incremental_probe' benchmarks/publication_policy_bfs.cpp
+
+      - name: Build publication policy harness
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_bfs.cpp \
+            build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs
+
+      - name: Prepare checksum-pinned datasets
+        run: |
+          mkdir -p build/publication/datasets build/publication/runs build/publication/summary
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/publication/datasets --dataset web-Google > build/publication/web-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/publication/datasets --dataset ca-GrQc > build/publication/ca-source.json
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/publication/datasets --dataset soc-Epinions1 > build/publication/epinions-source.json
+
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/publication/datasets/web-Google.txt \
+            --output build/publication/web-Google.txt \
+            --report build/publication/web-normalization.json \
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 \
+            --expected-vertices 875713 --expected-edges 5105039
+
+          python tools/prepare_symmetric_pinned_edge_stream.py \
+            --input build/publication/datasets/ca-GrQc.txt \
+            --output build/publication/ca-GrQc.txt \
+            --report build/publication/ca-normalization.json \
+            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
+            --expected-vertices 5242 --expected-source-rows 28980 \
+            --expected-self-loops 12 --expected-nonloop-pair-multiplicity 2 \
+            --expected-unique-nonloop-pairs 14484
+
+          gzip -dc build/publication/datasets/soc-Epinions1.gz > build/publication/epinions-source.txt
+          test "$(sha256sum build/publication/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/publication/epinions-source.txt \
+            --output build/publication/soc-Epinions1.txt \
+            --report build/publication/epinions-normalization.json \
+            --expected-sha256 "$EPINIONS_TEXT_SHA256" \
+            --expected-vertices 75879 --expected-edges 508837
+
+      - name: Run publication policies across three graph families
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          configs = {
+              'ca-GrQc': ('ca-GrQc', 1974, 0.75, [96, 384, 1536]),
+              'soc-Epinions1': ('soc-Epinions1', 71391, 0.90, [384, 1536, 6144]),
+              'web-Google': ('web-Google', 391806, 0.99, [1536, 6144, 24576]),
+          }
+          for label, (dataset, root, rate, batches) in configs.items():
+              for batch in batches:
+                  for rep in range(1, 6):
+                      out = Path(f'build/publication/runs/{label}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs',
+                              f'build/publication/{dataset}.txt',
+                              str(root), str(rate), str(batch),
+                              os.environ['SIMPLE_UPDATE_FRACTION'],
+                          ], stdout=f, check=True)
+                      d = json.load(out.open())
+                      assert d['all_policies_exact'], (label, batch, rep)
+                      assert d['oracle_definition'].startswith('min(always_incremental,always_full)')
+                      adaptive = next(p for p in d['policies'] if p['name'] == 'adaptive')
+                      assert adaptive['exact']
+                      assert not any(t['reason'] == 'large_one_sided_full' for t in adaptive['trace'])
+          PY
+
+      - name: Summarize cross-dataset policy quality
+        run: |
+          python tools/summarize_publication_policy.py \
+            --input-dir build/publication/runs \
+            --output build/publication/summary/summary.json \
+            | tee build/publication/summary/stdout-summary.json
+          python - <<'PY'
+          import json
+          d=json.load(open('build/publication/summary/summary.json'))
+          assert d['all_results_exact']
+          assert d['adaptive_redundant_one_sided_full_count'] == 0
+          datasets=sorted(set(r['dataset'] for r in d['rows']))
+          assert datasets == ['ca-GrQc','soc-Epinions1','web-Google'], datasets
+          adaptive=[r for r in d['rows'] if r['policy']=='adaptive']
+          assert len(adaptive) == 9
+          assert all(r['repetitions'] == 5 for r in adaptive)
+          print('datasets=', datasets)
+          print('adaptive_mean_regret_across_regimes=', d['adaptive_mean_regret_across_regimes'])
+          print('adaptive_worst_regime_mean_regret=', d['adaptive_worst_regime_mean_regret'])
+          print('adaptive_worst_regime_p95_regret=', d['adaptive_worst_regime_p95_regret'])
+          print('adaptive_max_batch_regret=', d['adaptive_max_batch_regret'])
+          PY
+
+      - name: Capture immutable pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "historical_selector=bounded-one-sided-warmup-v5"
+            echo "publication_selector=publication-preflight-v1"
+            echo "datasets=ca-GrQc,soc-Epinions1,web-Google"
+            echo "roots=ca-GrQc:1974,soc-Epinions1:71391,web-Google:391806"
+            echo "imported_rates=ca-GrQc:0.75,soc-Epinions1:0.90,web-Google:0.99"
+            echo "batch_sizes=ca-GrQc:96,384,1536;soc-Epinions1:384,1536,6144;web-Google:1536,6144,24576"
+            echo "repetitions_per_regime=5"
+            echo "one_thread=true"
+            echo "research_claim=false"
+            echo "note=historical fixed graph/root program; not claimed as a new unseen holdout"
+          } > build/publication/pins.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: publication-selector-cross-dataset-validation
+          path: build/publication/
+          retention-days: 90
