@@ -1,20 +1,53 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "purpose": "Machine-readable registry for manuscript-facing VeloGraphX evidence. Historical workflow publication_grade/research_claim flags are not modified by this registry.",
   "evidence_policy": {
     "tier_a": "Hosted same-run or paired comparative evidence with pinned revisions, explicit timing semantics, repetitions, and correctness gates; suitable for scoped relative manuscript claims.",
     "tier_b": "Hosted supporting A/B or published-reference evidence with explicit provenance and correctness; suitable for narrow mechanism or algorithm claims.",
     "tier_c": "Development or pending-audit evidence; not suitable for headline quantitative manuscript claims until the final retained artifact is audited/cross-referenced.",
-    "hosted_claim_exclusions": [
-      "8/16/32+ core scalability",
-      "multi-socket NUMA superiority",
-      "hardware-counter superiority",
-      "universal microarchitecture-specific speedups",
-      "research-scale NVMe peak throughput",
-      "universal fastest-system claims"
-    ]
+    "hosted_claim_exclusions": ["8/16/32+ core scalability", "multi-socket NUMA superiority", "hardware-counter superiority", "universal microarchitecture-specific speedups", "research-scale NVMe peak throughput", "universal fastest-system claims"]
   },
   "campaigns": [
+    {
+      "id": "publication-selector-cross-dataset",
+      "tier": "A",
+      "status": "manuscript_ready_hosted_scoped",
+      "run_id": 34929398888,
+      "artifact_id": 10381490811,
+      "artifact_sha256": "a78a421663b08228a7bd26596f9ad0498e2ad4a0c1470c79471dcaef97885a7b",
+      "artifact_name": "publication-selector-cross-dataset-validation",
+      "scope": "Current publication-preflight-v1 policy on checksum-pinned ca-GrQc, soc-Epinions1 and web-Google; three regimes per graph, five repetitions, one thread.",
+      "correctness": "All policies exact against fresh BFS; 1,610 adaptive batch samples.",
+      "metrics": {
+        "mean_regret_across_regimes": 0.0393907053432059,
+        "sample_weighted_mean_regret": 0.02309179995701906,
+        "sample_weighted_wrong_arm_rate": 0.017391304347826087,
+        "sample_weighted_decision_us": 0.28608198757763975,
+        "internal_fallback_count": 0,
+        "redundant_one_sided_full_count": 0,
+        "worst_regime_mean_regret": 0.17476843938529293,
+        "worst_regime_p95_regret": 0.5442411968156547,
+        "max_single_batch_regret": 0.8661858974358977
+      },
+      "safe_claims": ["Current selector remains exact across the evaluated graph families", "Low average oracle regret on the evaluated fixed graph/root program", "Zero internal fallbacks and zero obsolete one-sided-full decisions in this run"],
+      "excluded_claims": ["new unseen holdout generalization", "uniformly near-oracle tail behavior", "universal selector optimality"],
+      "source_document": "paper/results-ledger.md"
+    },
+    {
+      "id": "publication-selector-web-tail",
+      "tier": "A/B",
+      "status": "manuscript_ready_hosted_supporting",
+      "run_id": 34928935983,
+      "artifact_id": 10381480310,
+      "artifact_sha256": "800d53a327900b4a579bb761d07adf86e3622b4e46a1a8ddea0fb25603bf3691",
+      "artifact_name": "publication-selector-tail-validation",
+      "scope": "Focused current-selector tail validation on pinned web-Google across four regimes with three repetitions each.",
+      "correctness": "All policies exact.",
+      "metrics": {"mean_regret_across_regimes": 0.024659584837658823, "worst_regime_p95_regret": 0.15670532, "max_single_batch_regret": 0.27716715, "internal_fallback_count": 0},
+      "safe_claims": ["Focused regression evidence for current publication selector and double-work avoidance"],
+      "excluded_claims": ["cross-dataset generalization from this run alone"],
+      "source_document": "paper/results-ledger.md"
+    },
     {
       "id": "hosted-native-gap-lagraph",
       "tier": "A",
@@ -25,15 +58,8 @@
       "artifact_name": "hosted-native-competitors",
       "scope": "Native BFS/weighted-SSSP comparison against GAP and LAGraph at 1/2/4 threads with five repetitions per configuration.",
       "correctness": "Independent engine correctness/self-check gates required before acceptance.",
-      "safe_claims": [
-        "Same-run hosted relative BFS/SSSP behavior on the evaluated workloads",
-        "VeloGraphX hosted BFS wins while GAP hosted weighted SSSP wins",
-        "1/2/4-thread behavior on the evaluated GitHub runner"
-      ],
-      "excluded_claims": [
-        "many-core scalability",
-        "universal peak throughput"
-      ],
+      "safe_claims": ["Same-run hosted relative BFS/SSSP behavior on the evaluated workloads", "VeloGraphX hosted BFS wins while GAP hosted weighted SSSP wins", "1/2/4-thread behavior on the evaluated GitHub runner"],
+      "excluded_claims": ["many-core scalability", "universal peak throughput"],
       "source_document": "docs/hosted-native-competitors.md"
     },
     {
@@ -46,15 +72,8 @@
       "artifact_name": "canonical-native-dynbfs-results",
       "scope": "Native C++ VeloGraphX vs NetworKit DynBFS, one thread, three fixed roots, five paired repetitions per root on two datasets.",
       "correctness": "30 paired executions accepted only after exact full-BFS validation and nontrivial reachability gates.",
-      "safe_claims": [
-        "VeloGraphX is faster on the evaluated web-Google campaign",
-        "NetworKit is faster on the evaluated ca-GrQc campaign",
-        "Workload-dependent winners support the non-universal crossover narrative"
-      ],
-      "excluded_claims": [
-        "universal dynamic-BFS superiority",
-        "multicore superiority"
-      ],
+      "safe_claims": ["VeloGraphX is faster on the evaluated web-Google campaign", "NetworKit is faster on the evaluated ca-GrQc campaign", "Workload-dependent winners support the non-universal crossover narrative"],
+      "excluded_claims": ["universal dynamic-BFS superiority", "multicore superiority"],
       "source_document": "docs/external-dynamic-baselines.md"
     },
     {
@@ -65,16 +84,10 @@
       "artifact_id": 9724535579,
       "artifact_sha256": "ce0afc7e60dd0b0dc19f506324190745081215f4b7764f85b1ed2d3284d5d538",
       "artifact_name": "risgraph-dynamic-result",
-      "scope": "VeloGraphX deletion-aware repair, VeloGraphX legacy full recomputation, and pinned RisGraph on the documented web-Google workload.",
+      "scope": "VeloGraphX deletion-aware repair, legacy full recomputation, and pinned RisGraph on the documented web-Google workload.",
       "correctness": "13 update batches with exact final BFS and independent verification.",
-      "safe_claims": [
-        "VeloGraphX localized repair improves over its legacy full-recompute path on this workload",
-        "RisGraph remains faster than VeloGraphX on this documented hosted run"
-      ],
-      "excluded_claims": [
-        "combining absolute times with the separate NetworKit run",
-        "universal dynamic-BFS ranking"
-      ],
+      "safe_claims": ["VeloGraphX localized repair improves over its legacy full-recompute path on this workload", "RisGraph remains faster than VeloGraphX on this documented hosted run"],
+      "excluded_claims": ["combining absolute times with the separate NetworKit run", "universal dynamic-BFS ranking"],
       "source_document": "docs/external-dynamic-baselines.md"
     },
     {
@@ -87,13 +100,8 @@
       "artifact_name": "published-baseline-triangle-results",
       "scope": "Exact dynamic triangle comparison against the published GoldenCounter reference at 1%, 5%, and 10% update batches with five paired repetitions per configuration.",
       "correctness": "15/15 paired executions exact.",
-      "safe_claims": [
-        "Documented answer-ready latency ratios versus the published exact GoldenCounter reference on the evaluated workload"
-      ],
-      "excluded_claims": [
-        "claiming reproduction of the complete DZiG/SWTC architecture",
-        "universal triangle-counting superiority"
-      ],
+      "safe_claims": ["Documented answer-ready latency ratios versus the published exact GoldenCounter reference on the evaluated workload"],
+      "excluded_claims": ["claiming reproduction of the complete DZiG/SWTC architecture", "universal triangle-counting superiority"],
       "source_document": "docs/same-run-published-baseline.md"
     },
     {
@@ -106,38 +114,23 @@
       "artifact_name": "canonicalization-ab-publication-evidence",
       "scope": "Scale-aware vs legacy canonicalization policy on com-Orkut (234,370,166 directed arcs), 60 epochs.",
       "correctness": "Exactness gates pass every epoch.",
-      "safe_claims": [
-        "Storage-maintenance A/B trade-off on the documented hosted Orkut run"
-      ],
-      "excluded_claims": [
-        "universal throughput or memory improvement"
-      ],
+      "safe_claims": ["Storage-maintenance A/B trade-off on the documented hosted Orkut run"],
+      "excluded_claims": ["universal throughput or memory improvement"],
       "source_document": "docs/canonicalization-ab-evidence.md"
     },
     {
-      "id": "adaptive-selector-development",
+      "id": "adaptive-selector-development-v3",
       "tier": "C",
-      "status": "artifact_cross_reference_pending",
+      "status": "historical_development_only",
       "run_id": null,
       "artifact_id": null,
       "artifact_sha256": null,
       "source_commit": "4381113005c221e6db2c19bac753a57d872e6374",
       "source_blob": "c30f3459d22e61fb95abdb077aa2fd0eda445690",
-      "scope": "Frozen selector development ledger with always-full, always-incremental, simple-threshold, adaptive, oracle-relative metrics, and exactness checks.",
-      "documented_metrics": {
-        "exactness_percent": 100.0,
-        "mean_regret_percent": 3.148,
-        "p95_batch_regret_percent": 19.780,
-        "worst_regime_regret_percent": 18.253,
-        "mean_decision_us": 7.486,
-        "mean_selector_setup_us": 72.827
-      },
-      "safe_claims": [
-        "Describe the adaptive-policy design and documented development methodology"
-      ],
-      "excluded_claims": [
-        "Use the documented selector metrics as a headline manuscript result until the final retained run/artifact is cross-referenced"
-      ],
+      "scope": "Historical frozen selector-development ledger.",
+      "documented_metrics": {"exactness_percent": 100.0, "mean_regret_percent": 3.148, "p95_batch_regret_percent": 19.780, "worst_regime_regret_percent": 18.253, "mean_decision_us": 7.486, "mean_selector_setup_us": 72.827},
+      "safe_claims": ["Describe historical adaptive-policy development methodology"],
+      "excluded_claims": ["Use historical v3 metrics as current selector headline results"],
       "source_document": "docs/ablation-study.md"
     },
     {
@@ -148,20 +141,10 @@
       "artifact_id": null,
       "artifact_sha256": null,
       "scope": "One-runner VeloGraphX / NetworKit / RisGraph campaign across multiple graph families and seven update fractions.",
-      "safe_claims": [
-        "Describe the campaign contract as planned/executable evidence infrastructure"
-      ],
-      "excluded_claims": [
-        "Publish numerical results before all retained matrix artifacts pass audit"
-      ],
+      "safe_claims": ["Describe the campaign contract as planned/executable evidence infrastructure"],
+      "excluded_claims": ["Publish numerical results before all retained matrix artifacts pass audit"],
       "source_document": "docs/three-system-dynamic-bfs-campaign.md"
     }
   ],
-  "manuscript_rules": [
-    "Do not combine absolute times from different hosted runner campaigns into one ranking.",
-    "Use paired same-run ratios where possible.",
-    "Preserve negative results and workload-specific winners.",
-    "State exact timing boundaries and machine class for every quantitative comparison.",
-    "Freeze selected raw results in a submission-era tagged/DOI-capable archive because GitHub Actions artifact retention is limited."
-  ]
+  "manuscript_rules": ["Do not combine absolute times from different hosted runner campaigns into one ranking.", "Use paired same-run ratios where possible.", "Preserve negative results, workload-specific winners, and selector tail failures.", "State exact timing boundaries and machine class for every quantitative comparison.", "Freeze selected raw results in a submission-era tagged/DOI-capable archive because GitHub Actions artifact retention is limited."]
 }
