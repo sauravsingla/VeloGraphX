@@ -41,6 +41,9 @@ jobs:
       - name: Prepare canonical manuscript inputs
         run: python paper/vldb/prepare_submission.py
 
+      - name: Apply final reviewer corrections
+        run: python paper/vldb/final_polish.py
+
       - name: Fetch pinned official PVLDB Volume 20 template
         shell: bash
         run: |

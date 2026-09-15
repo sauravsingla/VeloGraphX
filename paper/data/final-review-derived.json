@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "purpose": "Paper-facing derived statistics recomputed from already retained audited artifacts; no new benchmark measurements.",
+  "selector_plan_comparison": {
+    "source_run_id": 34929398888,
+    "source_artifact_id": 10381490811,
+    "source_artifact_sha256": "a78a421663b08228a7bd26596f9ad0498e2ad4a0c1470c79471dcaef97885a7b",
+    "definition": "For each graph/batch regime, median_incremental_over_full_ratio is the median of paired always_incremental batch_us / always_full batch_us over all sequential batches and five repetitions. Ratio < 1 favors localized repair; ratio > 1 favors full recomputation.",
+    "rows": [
+      {"dataset": "ca-GrQc", "batch_size": 96, "samples": 380, "median_incremental_over_full_ratio": 0.2168587269428716},
+      {"dataset": "ca-GrQc", "batch_size": 384, "samples": 95, "median_incremental_over_full_ratio": 0.6845424792036001},
+      {"dataset": "ca-GrQc", "batch_size": 1536, "samples": 25, "median_incremental_over_full_ratio": 1.3594716210023852},
+      {"dataset": "soc-Epinions1", "batch_size": 384, "samples": 665, "median_incremental_over_full_ratio": 0.07281357590352379},
+      {"dataset": "soc-Epinions1", "batch_size": 1536, "samples": 170, "median_incremental_over_full_ratio": 0.25369516086658267},
+      {"dataset": "soc-Epinions1", "batch_size": 6144, "samples": 45, "median_incremental_over_full_ratio": 0.7032406818470932},
+      {"dataset": "web-Google", "batch_size": 1536, "samples": 170, "median_incremental_over_full_ratio": 0.11933821520437998},
+      {"dataset": "web-Google", "batch_size": 6144, "samples": 45, "median_incremental_over_full_ratio": 0.44218881254442455},
+      {"dataset": "web-Google", "batch_size": 24576, "samples": 15, "median_incremental_over_full_ratio": 1.5548072658722394}
+    ],
+    "policy_aggregates": {
+      "always_incremental": {"equal_regime_mean_regret": 0.11194569997765644, "sample_weighted_mean_regret": 0.013624730221282553, "sample_weighted_wrong_arm_rate": 0.034161490683229816, "worst_regime_mean_regret": 0.5709730684187061},
+      "always_full": {"equal_regime_mean_regret": 6.202874096828168, "sample_weighted_mean_regret": 8.842248454700742, "sample_weighted_wrong_arm_rate": 0.9658385093167702, "worst_regime_mean_regret": 16.668841153840944},
+      "simple_threshold": {"equal_regime_mean_regret": 0.17839289936481845, "sample_weighted_mean_regret": 0.07863034518009784, "sample_weighted_wrong_arm_rate": 0.08385093167701864, "worst_regime_mean_regret": 0.5929352495043947},
+      "history_cost_model": {"equal_regime_mean_regret": 0.2020629594668111, "sample_weighted_mean_regret": 0.11517914215718278, "sample_weighted_wrong_arm_rate": 0.055900621118012424, "worst_regime_mean_regret": 0.5755926355292179},
+      "adaptive": {"equal_regime_mean_regret": 0.0393907053432059, "sample_weighted_mean_regret": 0.02309179995701906, "sample_weighted_wrong_arm_rate": 0.017391304347826087, "worst_regime_mean_regret": 0.17476843938529293}
+    }
+  },
+  "networkit_dispersion": {
+    "source_run_id": 33542995289,
+    "source_artifact_id": 9814639042,
+    "source_artifact_sha256": "acf743bcac2542660fa050d70105e5e1e5f79d9e22ef1ec7324cf1e147ae5f12",
+    "definition": "Range of per-root mean paired VeloGraphX/NetworKit latency ratios across the three audited roots for each dataset.",
+    "datasets": {
+      "ca-GrQc": {"min_root_mean_ratio": 1.3010037178882106, "max_root_mean_ratio": 1.408617148731737},
+      "web-Google": {"min_root_mean_ratio": 0.6965266918334609, "max_root_mean_ratio": 0.7621586793578997}
+    }
+  }
+}
