@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Apply final reviewer-facing PVLDB corrections after canonical preparation.
 
-This pass is deliberately narrow: it consumes only committed paper data and the
-already prepared Markdown body. It does not change benchmark measurements or
-selector behavior. The goal is to keep the final rendered paper internally
-consistent, explicit about policy constants, and visually centered on the
-repair/recompute crossover.
+This pass consumes only committed paper data and the already prepared Markdown
+body. It does not change benchmark measurements or selector behavior.
 """
 
 from __future__ import annotations
@@ -48,11 +45,8 @@ def generate_crossover_figure(derived: dict) -> None:
     for dataset in ("ca-GrQc", "soc-Epinions1", "web-Google"):
         order.extend(sorted((r for r in rows if r["dataset"] == dataset), key=lambda r: r["batch_size"]))
 
-    labels = []
     abbrev = {"ca-GrQc": "GrQc", "soc-Epinions1": "Epinions", "web-Google": "Google"}
-    ratios = []
-    means = []
-    p95s = []
+    labels, ratios, means, p95s = [], [], [], []
     for r in order:
         key = (r["dataset"], int(r["batch_size"]))
         labels.append(f"{abbrev[r['dataset']]}\n{int(r['batch_size']):,}")
@@ -65,7 +59,6 @@ def generate_crossover_figure(derived: dict) -> None:
         2, 1, figsize=(8.2, 5.8), sharex=True,
         gridspec_kw={"height_ratios": [1.0, 1.35]},
     )
-
     ax_ratio.bar(x, ratios, label="Median incremental/full latency ratio")
     ax_ratio.axhline(1.0, linestyle="--", linewidth=1.0, label="Crossover (1.0)")
     ax_ratio.set_ylabel("Inc. / full latency")
@@ -86,14 +79,9 @@ def generate_crossover_figure(derived: dict) -> None:
     ax_regret.legend(ncol=2, fontsize=8)
     worst = max(range(len(p95s)), key=lambda i: p95s[i])
     ax_regret.annotate(
-        "visible tail",
-        (worst + width / 2, p95s[worst]),
-        xytext=(-28, 10),
-        textcoords="offset points",
-        arrowprops={"arrowstyle": "->"},
-        fontsize=7,
+        "visible tail", (worst + width / 2, p95s[worst]), xytext=(-28, 10),
+        textcoords="offset points", arrowprops={"arrowstyle": "->"}, fontsize=7,
     )
-
     fig.suptitle("Repair/recompute crossover and current selector quality", fontsize=11)
     fig.tight_layout()
     FIGURES.mkdir(parents=True, exist_ok=True)
@@ -138,7 +126,7 @@ def policy_table(derived: dict) -> str:
             f"{label} & {pct(r['equal_regime_mean_regret'])} & "
             f"{pct(r['sample_weighted_mean_regret'])} & "
             f"{pct(r['sample_weighted_wrong_arm_rate'])} & "
-            f"{pct(r['worst_regime_mean_regret'])} \\\\" 
+            f"{pct(r['worst_regime_mean_regret'])} \\\\"
         )
     return r"""
 \begin{table*}[t]
@@ -157,15 +145,12 @@ Policy & Eq.-reg. mean regret & Weighted regret & Weighted wrong arm & Worst-reg
 
 
 def polish_body(body: str, derived: dict) -> str:
-    # RQ2 must match what the arm-isolation experiment actually measures.
-    body = replace_once(
-        body,
-        "RQ2 — Selector behavior. When the policy makes a wrong choice, is the error frequent, expensive, or concentrated in particular regimes? Does it avoid repair-then-full double work?",
-        "RQ2 — Selector behavior. When the policy makes a wrong choice, is the error frequent, expensive, or concentrated in particular regimes, and how does the frozen adaptive policy compare with simpler policies under the same harness?",
-        "RQ2 scope",
-    )
+    # Research question must match the arm-isolation experiment that is actually run.
+    old_rq2 = "**RQ2 — Selector behavior.** When the policy makes a wrong choice, is the error frequent, expensive, or concentrated in particular regimes? Does it avoid repair-then-full double work?"
+    new_rq2 = "**RQ2 — Selector behavior.** When the policy makes a wrong choice, is the error frequent, expensive, or concentrated in particular regimes, and how does the frozen adaptive policy compare with simpler policies under the same harness?"
+    body = replace_once(body, old_rq2, new_rq2, "RQ2 scope")
 
-    # Correct the workload table to the actual audited workflow contract.
+    # Correct the workload table to the exact frozen workflow contract.
     body = replace_once(
         body,
         "soc-Epinions1 & 75,879 & 508,837 & 71,391 & 99\\% & 384, 1,536, 6,144",
@@ -173,7 +158,6 @@ def polish_body(body: str, derived: dict) -> str:
         "Epinions import fraction",
     )
 
-    # Replace qualitative selector prose with an explicit frozen specification table.
     body = replace_once(
         body,
         "## Cost history and freshness",
@@ -181,27 +165,25 @@ def polish_body(body: str, derived: dict) -> str:
         "selector specification table",
     )
 
-    # Replace the policy table with all five evaluated policies, including always-full.
-    pattern = re.compile(
-        r"\\begin\{table\}\[t\].*?\\caption\{Same-harness policy baselines\..*?\\end\{table\}",
-        re.S,
+    table_pattern = re.compile(
+        r"\\begin\{table\}\[t\].*?\\caption\{Same-harness policy baselines\..*?\\end\{table\}", re.S
     )
-    body, n = pattern.subn(policy_table(derived).strip(), body, count=1)
+    body, n = table_pattern.subn(lambda _m: policy_table(derived).strip(), body, count=1)
     if n != 1:
         raise RuntimeError(f"policy table replacement: expected 1 match, found {n}")
 
     baseline_anchor = (
         "The sample-weighted view deliberately reverses one comparison: always-incremental records 1.36% sample-weighted regret versus 2.31% for adaptive because observations are dominated by repair-friendly small-batch regimes. We retain that inversion rather than selecting only the favorable aggregate. The adaptive result is therefore best interpreted as **more robust across regimes**, not uniformly best under every weighting."
     )
-    baseline_note = baseline_anchor + (
-        " Always-full is also retained in Table 3 for completeness; its 620.29% equal-regime mean regret is driven by the small-update regimes where a graph-wide traversal is far more expensive than repair."
+    body = replace_once(
+        body,
+        baseline_anchor,
+        baseline_anchor + " Always-full is also retained in Table 3 for completeness; its 620.29% equal-regime mean regret is driven by the small-update regimes where a graph-wide traversal is far more expensive than repair.",
+        "always-full interpretation",
     )
-    body = replace_once(body, baseline_anchor, baseline_note, "always-full interpretation")
 
-    # Replace the old selector-quality-only figure with the thesis-first crossover figure.
     fig_pattern = re.compile(
-        r"\\begin\{figure\*\}\[t\]\s*\\centering\s*\\includegraphics\[width=0\.94\\textwidth\]\{figures/selector-regret\.pdf\}.*?\\end\{figure\*\}",
-        re.S,
+        r"\\begin\{figure\*\}\[t\]\s*\\centering\s*\\includegraphics\[width=0\.94\\textwidth\]\{figures/selector-regret\.pdf\}.*?\\end\{figure\*\}", re.S
     )
     new_fig = r"""
 \begin{figure*}[t]
@@ -212,28 +194,22 @@ def polish_body(body: str, derived: dict) -> str:
   \label{fig:selector-crossover}
 \end{figure*}
 """
-    body, n = fig_pattern.subn(new_fig.strip(), body, count=1)
+    body, n = fig_pattern.subn(lambda _m: new_fig.strip(), body, count=1)
     if n != 1:
         raise RuntimeError(f"selector figure replacement: expected 1 match, found {n}")
 
-    # NetworKit dispersion: retain winner reversal but show that it is not one-root noise.
     nk_anchor = "On ca-GrQc, the ratio is about 1.35, so NetworKit is approximately 1.35× faster."
-    nk_note = nk_anchor + (
-        " Across the three audited roots, mean paired VeloGraphX/NetworKit ratios range from 0.70–0.76 on web-Google and 1.30–1.41 on ca-GrQc, so the reversal is not driven by one selected root."
-    )
-    body = replace_once(body, nk_anchor, nk_note, "NetworKit dispersion")
-
-    # Remove the Table 5 note that collided visually with the bottom rule; the prose already states it.
-    body, n = re.subn(
-        r"\\\\\[-1mm\]\s*\\footnotesize\s+2\.25\$\\times\$ throughput with 6\.6\\% higher peak RSS\.\s*",
-        "",
+    body = replace_once(
         body,
-        count=1,
+        nk_anchor,
+        nk_anchor + " Across the three audited roots, mean paired VeloGraphX/NetworKit ratios range from 0.70–0.76 on web-Google and 1.30–1.41 on ca-GrQc, so the reversal is not driven by one selected root.",
+        "NetworKit dispersion",
     )
-    if n != 1:
-        raise RuntimeError(f"storage table note cleanup: expected 1 match, found {n}")
 
-    # Final-paper language: remove internal registry/development phrasing.
+    # Remove the cramped note under Table 5; the same trade-off remains in prose.
+    storage_note = "\\\\[-1mm]\n\\footnotesize 2.25$\\times$ throughput with 6.6\\% higher peak RSS.\n"
+    body = replace_once(body, storage_note, "", "storage table note cleanup")
+
     replacements = {
         "The accepted NetworKit": "The audited NetworKit",
         "A separate accepted same-run web-Google campaign": "A separate audited same-run web-Google campaign",
@@ -243,25 +219,25 @@ def polish_body(body: str, derived: dict) -> str:
         " Python and other 0.x APIs may evolve.": "",
     }
     for old, new in replacements.items():
-        if old not in body:
-            raise RuntimeError(f"final-language anchor missing: {old}")
-        body = body.replace(old, new, 1)
+        body = replace_once(body, old, new, f"final-language cleanup: {old[:30]}")
 
-    # Strengthen database/data-management related work without claiming novelty for storage itself.
-    dynamic_anchor = (
-        "These systems reinforce that dynamic graph performance depends on how change propagates; VeloGraphX studies the complementary plan-selection question under exact repair/recompute alternatives."
+    dynamic_anchor = "These systems reinforce that dynamic graph performance depends on how change propagates; VeloGraphX studies the complementary plan-selection question under exact repair/recompute alternatives."
+    body = replace_once(
+        body,
+        dynamic_anchor,
+        dynamic_anchor + r"""
+
+Differential Dataflow\cite{mcsherry2013differential} provides a broader incremental-dataflow model for maintaining iterative computations under changing inputs. It reinforces that incremental computation can be a first-class execution model, but it does not address VeloGraphX's narrower decision problem of selecting between an exact localized graph repair plan and an exact full-recompute plan before repair begins. Accordingly, our novelty claim is not the existence of dual paths, historical cost signals, or incremental computation in isolation; it is their integration with exact repair semantics, selector/fallback separation, shared mutable graph state, and per-batch measured-oracle telemetry.""",
+        "incremental related work",
     )
-    dynamic_extra = dynamic_anchor + r"""
 
-Differential Dataflow\cite{mcsherry2013differential} provides a broader incremental-dataflow model for maintaining iterative computations under changing inputs. It reinforces that incremental computation can be a first-class execution model, but it does not address VeloGraphX's narrower decision problem of selecting between an exact localized graph repair plan and an exact full-recompute plan before repair begins. Accordingly, our novelty claim is not the existence of dual paths, historical cost signals, or incremental computation in isolation; it is their integration with exact repair semantics, selector/fallback separation, shared mutable graph state, and per-batch measured-oracle telemetry."""
-    body = replace_once(body, dynamic_anchor, dynamic_extra, "incremental related work")
-
-    storage_anchor = (
-        "Dynamic storage itself is not claimed as novel. GraphOne uses a hybrid representation supporting graph updates and analytical views, while Teseo develops a sophisticated mutable graph representation with transactional support."
+    storage_anchor = "Dynamic storage itself is not claimed as novel. GraphOne uses a hybrid representation supporting graph updates and analytical views, while Teseo develops a sophisticated mutable graph representation with transactional support."
+    body = replace_once(
+        body,
+        storage_anchor,
+        storage_anchor + r""" LLAMA\cite{macko2015llama} uses multiversioned arrays for graph analytics over evolving state; LiveGraph\cite{zhu2020livegraph} targets transactional updates while retaining sequential adjacency scans; and Sortledton\cite{fuchs2022sortledton} develops a universal transactional graph structure for updates and analytical access. More recent systems continue to explore this design space: Spruce\cite{shi2024spruce} emphasizes update throughput and space efficiency, LSMGraph\cite{yu2024lsmgraph} combines LSM-style update handling with multi-level CSR for dynamic graph storage, a 2025 SIGMOD study\cite{su2025dynamicstorage} systematically revisits in-memory dynamic-storage trade-offs, and RadixGraph\cite{xie2026radixgraph} uses a space-optimized radix index with snapshot/log-style edge storage.""",
+        "storage related work",
     )
-    storage_extra = storage_anchor + r""" LLAMA\cite{macko2015llama} uses multiversioned arrays for graph analytics over evolving state; LiveGraph\cite{zhu2020livegraph} targets transactional updates while retaining sequential adjacency scans; and Sortledton\cite{fuchs2022sortledton} develops a universal transactional graph structure for updates and analytical access. More recent systems continue to explore this design space: Spruce\cite{shi2024spruce} emphasizes update throughput and space efficiency, LSMGraph\cite{yu2024lsmgraph} combines LSM-style update handling with multi-level CSR for dynamic graph storage, a 2025 SIGMOD study\cite{su2025dynamicstorage} systematically revisits in-memory dynamic-storage trade-offs, and RadixGraph\cite{xie2026radixgraph} uses a space-optimized radix index with snapshot/log-style edge storage."""
-    body = replace_once(body, storage_anchor, storage_extra, "storage related work")
-
     return body
 
 
@@ -269,8 +245,7 @@ def main() -> None:
     derived = json.loads(DERIVED.read_text(encoding="utf-8"))
     generate_crossover_figure(derived)
 
-    body = BODY.read_text(encoding="utf-8")
-    body = polish_body(body, derived)
+    body = polish_body(BODY.read_text(encoding="utf-8"), derived)
     BODY.write_text(body, encoding="utf-8")
 
     abstract = ABSTRACT.read_text(encoding="utf-8")
@@ -282,14 +257,17 @@ def main() -> None:
     )
     ABSTRACT.write_text(abstract, encoding="utf-8")
 
-    if "soc-Epinions1 & 75,879 & 508,837 & 71,391 & 99\\%" in body:
-        raise RuntimeError("stale 99% soc-Epinions1 import fraction remains")
-    if "Does it avoid repair-then-full double work?" in body:
-        raise RuntimeError("stale RQ2 double-work question remains")
-    if "selector-regret.pdf" in body:
-        raise RuntimeError("old selector figure still referenced")
-    if "accepted same-run" in body or "accepted canonicalization" in body:
-        raise RuntimeError("internal accepted-campaign wording remains")
+    forbidden = [
+        "Does it avoid repair-then-full double work?",
+        "selector-regret.pdf",
+        "accepted same-run",
+        "accepted canonicalization",
+        "Python and other 0.x APIs may evolve",
+        "soc-Epinions1 & 75,879 & 508,837 & 71,391 & 99\\%",
+    ]
+    for phrase in forbidden:
+        if phrase in body:
+            raise RuntimeError(f"stale reviewer-facing text remains: {phrase}")
 
     print("Applied final reviewer corrections and generated selector crossover figure")
 
