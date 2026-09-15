@@ -6,27 +6,75 @@ This file maps every planned manuscript figure/table to retained evidence and de
 
 **Purpose:** explain the execution path rather than establish performance.
 
-**Content:** update batch → mutable graph substrate → exact repair candidate / full recomputation candidate → adaptive selector → exact result → bounded storage consolidation.
+**Content:** update batch → mutable graph substrate → exact repair candidate / full recomputation candidate → pre-repair selector → exact result → bounded storage consolidation.
 
-**Evidence dependency:** implementation and architecture only.
-
-**Primary references:** `../docs/architecture.md`, `../docs/dynamic-storage.md`, `../benchmarks/adaptive_policy_bfs.cpp`.
+**Primary references:** `../docs/architecture.md`, `../docs/dynamic-storage.md`, `../benchmarks/adaptive_policy_bfs.cpp`, `../benchmarks/publication_policy_bfs.cpp`.
 
 **Claim boundary:** architecture figure must not attach universal speedup labels.
 
-## Figure 2 — repair versus recomputation crossover and selector quality
+## Figure 2 — repair versus recomputation crossover and current selector quality
 
-**Purpose:** primary paper figure. Establish that the preferred exact execution mode changes by regime and evaluate the current publication selector against exact alternatives.
+**Purpose:** primary paper figure. Establish that the preferred exact execution mode changes by regime and evaluate the current `publication-preflight-v1` selector against exact alternatives.
 
-**Required series:** `always_incremental`, `always_full`, `simple_threshold` where available, current publication/adaptive policy, and exact oracle.
+### Primary cross-dataset evidence
 
-**Required reporting:** answer-ready latency or normalized latency by regime; exactness; oracle-relative regret; tail metric; selector decision overhead; internal fallback/wrong-arm diagnostic where supported.
+- **Run:** `34929398888`
+- **Artifact:** `10381490811`
+- **SHA-256:** `a78a421663b08228a7bd26596f9ad0498e2ad4a0c1470c79471dcaef97885a7b`
+- **Policy source:** current `benchmarks/publication_policy_bfs.cpp`, layered over historical selector source `bounded-one-sided-warmup-v5`
+- **Datasets / fixed roots:** `ca-GrQc:1974`, `soc-Epinions1:71391`, `web-Google:391806`
+- **Regimes:** three batch sizes per dataset, nine regimes total
+- **Repetitions:** five per regime
+- **Adaptive batch samples:** 1,610
+- **Threads:** one
+- **Exactness:** 100%; all policy outputs checked against exact BFS
 
-**Current evidence status:** the submitted value must come from the audited current publication-selector run/artifact. Historical `scale-conditioned-selector-owned-v3` metrics in `../docs/ablation-study.md` are development evidence, not a silent substitute for the current `bounded-one-sided-warmup-v5` / publication-policy implementation.
+Current selector summary:
 
-**Fallback safe wording before audit:** “The exact strategies exhibit a crossover: localized repair wins in smaller-impact regimes while full recomputation becomes preferable as affected work grows.”
+| Metric | Audited value |
+| --- | ---: |
+| Mean oracle regret across nine regimes | 3.939% |
+| Sample-weighted mean oracle regret | 2.309% |
+| Sample-weighted wrong-arm rate | 1.739% |
+| Sample-weighted selector decision cost | 0.286 µs |
+| Internal full fallbacks | 0 |
+| Redundant historical one-sided-full decisions | 0 |
+| Worst-regime mean regret | 17.477% |
+| Worst-regime p95 regret | 54.424% |
+| Maximum single-batch regret | 86.619% |
 
-**Do not:** cite historical v3 regret as the current production selector without an explicit historical label.
+The tail limitation must remain visible. It is concentrated in the largest evaluated `web-Google` regime: batch size 24,576 has 17.477% mean regret, 54.424% p95 regret, and a 33.3% wrong-arm rate across 15 batch samples. By contrast, all three `soc-Epinions1` regimes have zero wrong-arm selections and roughly 0.86%–1.10% mean regret.
+
+Per-regime adaptive values are retained in [`data/current-selector-regimes.csv`](data/current-selector-regimes.csv).
+
+### Same-graph tail-validation evidence
+
+- **Run:** `34928935983`
+- **Artifact:** `10381480310`
+- **SHA-256:** `800d53a327900b4a579bb761d07adf86e3622b4e46a1a8ddea0fb25603bf3691`
+- **Dataset:** checksum-pinned `web-Google`, root `481807`
+- **Batch sizes:** 512, 2,048, 8,192, 32,768
+- **Repetitions:** three per regime
+- **Exactness:** 100%
+- **Mean regret across regimes:** 2.466%
+- **Worst-regime p95 regret:** 15.671%
+- **Maximum single-batch regret:** 27.717%
+- **Internal fallbacks / redundant one-sided-full decisions:** 0 / 0
+- **Sample-weighted selector decision cost:** about 1.10 µs
+
+Use this as a focused tail-regression check, not as a substitute for the three-graph result.
+
+### Figure design
+
+Show `always_incremental`, `always_full`, `simple_threshold`, `history_cost_model`, current adaptive policy, and the exact per-batch oracle where the figure remains readable. Prefer normalized answer-ready latency or oracle-relative regret by regime. Exactness and sample count must be visible in the caption.
+
+**Safe statement:** the exact strategies exhibit a crossover; the current pre-repair selector remains exact and has low average regret across the evaluated graph families, while retaining a visible tail limitation on the largest `web-Google` regime.
+
+**Do not:** use historical v3 regret as the current selector result; claim that the current selector is uniformly near-oracle; or describe this historical fixed graph/root program as a newly unseen holdout.
+
+## Historical selector development — not a headline result
+
+`../docs/ablation-study.md` records the frozen `scale-conditioned-selector-owned-v3` development campaign: 100% exactness, 3.148% mean regret, 19.780% p95 batch regret, and 18.253% worst-regime regret. Those values explain design evolution only. The current manuscript uses the audited `publication-preflight-v1` evidence above.
 
 ## Table 1 — external baseline summary
 
@@ -42,8 +90,6 @@ Use separate rows and preserve timing/run boundaries.
 **Presentation recommendation:** report dimensionless within-run ratios and exactness rather than juxtaposing absolute microseconds from unrelated runs.
 
 ## Figure 3 — exact dynamic triangles against published exact reference
-
-**Purpose:** demonstrate exact maintained-analytics breadth beyond BFS with semantically fair answer-ready timing.
 
 **Run:** `33248107299`  
 **Artifact:** `9713495404`  
@@ -62,8 +108,6 @@ Use separate rows and preserve timing/run boundaries.
 
 ## Figure 4 — large-graph canonicalization A/B
 
-**Purpose:** show that mutable-storage maintenance can become dominated by repeated O(E) canonicalization and quantify the bounded memory/performance trade-off.
-
 **Run:** `33265264254`  
 **Artifact:** `9718634869`  
 **Dataset:** SNAP `com-Orkut`, 3,072,441 vertices, 234,370,166 directed arcs, 60 epochs.
@@ -81,50 +125,33 @@ Use separate rows and preserve timing/run boundaries.
 
 ## Supporting figure/table — multi-dataset triangle crossover
 
-**Fresh run:** `34927599394`.
+**Run:** `34927599394`.
 
-**Artifacts:**
+Artifacts:
+
 - `facebook-combined`: `10380526227`, SHA-256 `6c31bd3032123d91c400715fe598ec820f93290a0b0673d9f94947a13014b3d6`
 - `p2p-Gnutella08`: `10381010037`, SHA-256 `171727df8327519da4d45d4827df855c93b63131df12a1d5e001bc7e7dac54ae`
 - `ca-HepTh`: `10379783827`, SHA-256 `f710ca8e08b6b90f25784a7868c2d33ee116608f6439da7e2b19fd33344175f9`
 
-Five repetitions are retained at 13 update fractions for each dataset and every incremental result matches full recomputation.
+Five repetitions are retained at 13 update fractions per dataset and every incremental result matches full recomputation. Use only as supporting evidence that crossover is graph-dependent for another exact analytic; it is not the central BFS policy experiment.
 
-**Role:** supporting evidence that the incremental/full crossover is graph-dependent for another exact analytic. This workflow is triangle-counting engineering evidence; it must not be presented as the central BFS adaptive-policy experiment.
+## Supporting maturity evidence
 
-**Observed crossover note:** within this hosted campaign, `facebook-combined` remains incremental-favorable through the largest tested ratio, while `p2p-Gnutella08` and `ca-HepTh` cross into full-recompute-favorable regimes at sufficiently large update ratios. If plotted, label ratios precisely rather than casually describing `1.5` or `2.0` as percentages.
-
-## Supporting result — small hosted multicore scaling
-
-README-recorded scoped values at 4 threads:
-- BFS: 2.74×
-- connected components: 2.50×
-- triangles: 2.24×
-
-**Role:** implementation maturity only.
-
-**Do not:** extrapolate to 8/16/32 threads or NUMA.
-
-## Supporting result — compression
-
-README-recorded compression: 3.25×–3.78× smaller with a traversal-performance trade-off.
-
-**Role:** optional storage subsection or appendix.
+Hosted 4-thread speedups recorded by the project are 2.74× for BFS, 2.50× for connected components, and 2.24× for triangles. Compression is approximately 3.25×–3.78× smaller with a traversal trade-off. These are supporting implementation results only; do not extrapolate them to many-core or NUMA behavior.
 
 ## Statistics and presentation rules
 
-- Prefer median latency for repeated timings and include dispersion/error bars when raw samples are available.
+- Prefer median latency and include dispersion/error bars when raw samples are available.
 - Report sample count/repetitions in captions.
-- Report exactness in the same table/caption as dynamic performance.
+- Report exactness beside dynamic performance.
 - Use within-run ratios for cross-system comparison unless systems truly ran within the same timing envelope.
-- Keep per-dataset results visible when winner reversals occur.
-- Do not average VeloGraphX and competitor timings across unrelated GitHub runners.
-- Do not replace a current selector result with a historical development metric merely because the historical number is stronger.
+- Keep per-dataset reversals and selector tail failures visible.
+- Do not average absolute timings across unrelated GitHub runners.
+- Do not replace a current selector result with a stronger historical development metric.
 
 ## Results intentionally excluded from the main paper until audited
 
 1. A unified VeloGraphX / NetworKit / RisGraph league table from the three-system workflow.
-2. Historical selector v3 headline regret as a current-selector result.
-3. Dedicated many-core/NUMA/hardware-counter claims.
-4. Out-of-core/NVMe peak-performance claims.
-5. Any separate-run absolute timing comparison that violates the benchmark timing contract.
+2. Dedicated many-core/NUMA/hardware-counter claims.
+3. Out-of-core/NVMe peak-performance claims.
+4. Any separate-run absolute timing comparison that violates the benchmark timing contract.
