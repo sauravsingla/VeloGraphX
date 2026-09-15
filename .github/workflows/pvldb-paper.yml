@@ -22,8 +22,26 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+
+          # Replace one brittle source-line insertion in the staged patch with
+          # a line-oriented edit before executing it. The scientific content is
+          # unchanged; this only makes the patch robust to LaTeX escaping.
           path = Path('.github/workflows/apply-paper-deep-review-fixes.yml')
-          lines = path.read_text().splitlines()
+          stage = path.read_text()
+          marker = "          prep = replace_once(\n              prep,\n              'Dynamic BFS, ca-GrQc"
+          start = stage.index(marker)
+          end_marker = "\n\n          # Replace the old substring-based injector entirely with exact line anchors."
+          end = stage.index(end_marker, start)
+          replacement = '''          needle = 'Dynamic BFS, ca-GrQc & VeloGraphX vs NetworKit'
+          row_start = prep.index(needle)
+          row_end = prep.index('\\n', row_start) + 1
+          ris_row = r'''Dynamic BFS, web-Google (separate run) & VeloGraphX vs RisGraph & {ris["risgraph_faster_than_velographx_ratio"]:.2f}$\\times$ lower latency for RisGraph & RisGraph \\\\''' + '\\n'
+          prep = prep[:row_end] + ris_row + prep[row_end:]
+'''
+          stage = stage[:start] + replacement + stage[end:]
+          path.write_text(stage)
+
+          lines = stage.splitlines()
           begin = next(i for i, line in enumerate(lines) if "python - <<'PY'" in line) + 1
           end = next(i for i in range(begin, len(lines)) if lines[i].strip() == 'PY')
           code_lines = lines[begin:end]
