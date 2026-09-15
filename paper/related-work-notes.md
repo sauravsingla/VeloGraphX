@@ -50,6 +50,22 @@ Layph addresses the problem that small changes can cause graph-wide iterative wo
 
 **Consequence for VeloGraphX:** the observation that small updates can induce large affected work is established. VeloGraphX should claim an execution-response design—choose an exact global path when local propagation is predicted to be uneconomical—not discovery of the propagation problem itself.
 
+## GraphOne — evolving-graph storage and multiple access views
+
+**Pradeep Kumar, H. Howie Huang.** “GraphOne: A Data Store for Real-time Analytics on Evolving Graphs.” FAST 2019, pp. 249–263.
+
+GraphOne combines complementary edge-list and adjacency-list storage and uses dual versioning/GraphView abstractions so evolving-graph ingestion and analytics can coexist.
+
+**Consequence for VeloGraphX:** hybrid mutable storage for evolving graphs is established prior art. Segmented CSR, packed deltas, sparse row patches, and explicit consolidation should be presented as VeloGraphX's enabling substrate for repeated exact analytics and the repair/recompute execution study, not as a generic first dynamic-graph store.
+
+## Teseo — transactional dynamic structural graph storage
+
+**Dean De Leo, Peter Boncz.** “Teseo and the Analysis of Structural Dynamic Graphs.” PVLDB 14(6):1053–1066, 2021. DOI: `10.14778/3447689.3447708`.
+
+Teseo provides main-memory dynamic structural graph storage with transactional support using sparse arrays and fat trees, emphasizing update robustness and analytical scans.
+
+**Consequence for VeloGraphX:** mutable graph representation and update/scan trade-offs are mature research territory. The paper's storage contribution should stay tied to the bounded canonicalization mechanism and to supporting exact execution alternatives rather than claiming a novel storage category.
+
 ## Defensible VeloGraphX novelty framing
 
 A conservative framing suitable for reviewer scrutiny is:
@@ -73,7 +89,8 @@ Do not state that VeloGraphX is the first system to:
 - use graph properties to select incremental/static execution;
 - use past cost history to predict incremental execution cost;
 - perform dependency-driven or affected-region incremental graph processing;
-- adapt graph processing to sparsity/change propagation; or
+- adapt graph processing to sparsity/change propagation;
+- provide a mutable store for evolving graph analytics; or
 - provide low-latency exact analytics over evolving graphs.
 
 Any “first” claim would require a broader systematic literature review than the evidence above and is unnecessary for the paper's strongest contribution.
