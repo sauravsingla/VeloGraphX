@@ -41,12 +41,13 @@ def normalize_body(body: str) -> str:
 
 
 def make_typesetting_friendly(body: str) -> str:
-    """Remove avoidable unbreakable monospace spans in the venue PDF only.
+    """Make the venue rendering line-break friendly without changing claims.
 
-    The canonical manuscript keeps code-style names for readability on GitHub.
-    In the narrow PVLDB columns, long dataset/policy identifiers and retained
-    run IDs are easier to typeset as ordinary prose. This changes presentation,
-    not scientific wording or any reported value.
+    The canonical manuscript keeps code-style names and full provenance for
+    readability on GitHub. Narrow PVLDB columns benefit from ordinary prose for
+    long identifiers and from a few equivalent, shorter venue-facing phrases.
+    The machine-readable evidence registry remains the canonical provenance
+    source. No result, policy, or scientific conclusion is changed here.
     """
     replacements = {
         "`always_incremental`": "always-incremental",
@@ -58,13 +59,33 @@ def make_typesetting_friendly(body: str) -> str:
         "`ca-HepTh`": "ca-HepTh",
         "`facebook-combined`": "facebook-combined",
         "`com-Orkut`": "com-Orkut",
+        "`G_t`": "$G_t$",
+        "`U_t`": "$U_t$",
+        "`G_{t-1}`": "$G_{t-1}$",
+        "graph/reachability scale": "graph scale and reachability",
+        "external-system conclusions are workload-specific": "external-system results vary by workload",
+        "graph/update structure": "graph and update structure",
+        "the same broad principle—avoid global work while localized state remains economical—but operate at different layers and timescales": "the same broad principle of avoiding global work while localized state remains economical, but they operate at different layers and timescales",
+        "repair-versus-recompute selection": "repair/recompute selection",
+        "dependency-driven and sparsity-aware incremental graph processing": "dependency- and sparsity-aware incremental graph processing",
     }
     for source, target in replacements.items():
         body = body.replace(source, target)
 
-    # Long numeric provenance identifiers remain verbatim but need not be set in
-    # monospace; the evidence registry remains the canonical machine-readable
-    # source for these run/artifact identities.
+    # The PDF need not carry long run/artifact IDs inline: the evidence registry
+    # is retained with the submission artifact and is the authoritative mapping.
+    body = re.sub(
+        r"The primary current-policy campaign is GitHub Actions run `?\d+`? with retained artifact `?\d+`?\.",
+        "The primary current-policy campaign is retained in the manuscript evidence registry.",
+        body,
+    )
+    body = re.sub(
+        r"A separate focused web-Google regression run \(`?\d+`?, artifact `?\d+`?\)",
+        "A separate focused web-Google regression run retained in the evidence registry",
+        body,
+    )
+
+    # Any remaining long numeric provenance identifiers should not be monospace.
     body = re.sub(r"`(\d{8,})`", r"\1", body)
     return body
 
