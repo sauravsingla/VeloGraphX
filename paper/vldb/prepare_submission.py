@@ -376,8 +376,11 @@ def inject_displays(body: str, results: dict) -> str:
     body = insert_before_heading(body, "# System design", system_overview_figure())
     body = insert_before_heading(body, "## Exact deletion repair", design_contract_table())
     body = insert_before_heading(body, "## Reproducibility discipline", selector_workload_table())
-    body = insert_before_heading(body, "# Policy baselines under one frozen harness", selector_fig)
-    body = insert_before_heading(body, "# Dynamic BFS versus NetworKit", policy_baseline_table())
+    body = insert_before_heading(
+        body,
+        "# Dynamic BFS versus NetworKit",
+        selector_fig + "\n\n" + policy_baseline_table(),
+    )
     body = insert_before_heading(body, "# Static BFS and SSSP versus GAP and LAGraph", external_baseline_table(results))
     body = insert_before_heading(body, "# Large-graph storage maintenance", triangle_fig)
     body = insert_before_heading(body, "# Supporting breadth and maturity", storage_table(results))
