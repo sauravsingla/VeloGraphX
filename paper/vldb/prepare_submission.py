@@ -79,6 +79,26 @@ def add_citations(body: str) -> str:
     return body
 
 
+def design_contract_table() -> str:
+    return r"""
+\begin{table*}[t]
+\centering
+\caption{VeloGraphX separates localized work from explicit global work at both storage and algorithm layers. Exactness is invariant; adaptation changes only the physical path.}
+\label{tab:design-contract}
+\begin{tabular}{p{0.14\textwidth}p{0.31\textwidth}p{0.27\textwidth}p{0.20\textwidth}}
+\toprule
+Layer & Localized path & Global path & Control / evidence \\
+\midrule
+Storage & Packed deltas and sparse row patches preserve untouched CSR rows & Canonical CSR + transpose consolidation & Bounded storage/latency maintenance policy \\
+Dynamic BFS & Shortest-parent invalidation, boundary repair, insertion decrease propagation & Exact full BFS recomputation & Pre-repair selector plus 35\% affected-region fallback bound \\
+Selection & Structural preflight plus recent arm-cost history & Direct choice of full execution before repair & Per-batch decision reason, arm ages, predicted costs, decision time \\
+Correctness & Maintained exact state & Independent exact reference & Verification outside the timed region for publication runs \\
+\bottomrule
+\end{tabular}
+\end{table*}
+"""
+
+
 def external_baseline_table(results: dict) -> str:
     nk = results["external_baselines"]["networkit_dynamic_bfs"]["datasets"]
     static = results["external_baselines"]["gap_lagraph_static"]
@@ -139,9 +159,9 @@ def inject_displays(body: str, results: dict) -> str:
     selector_fig = r"""
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.92\textwidth]{figures/selector-regret.pdf}
-  \caption{Current publication selector across three graph families and three update regimes per graph. Mean and p95 oracle-relative regret are shown from the audited current-policy campaign. The large web-Google tail is intentionally retained.}
-  \Description{Line chart showing mean and p95 oracle-relative selector regret across nine graph/update regimes. Most regimes have low mean regret, while the largest web-Google regime has the largest p95 tail.}
+  \includegraphics[width=0.94\textwidth]{figures/selector-regret.pdf}
+  \caption{Current publication selector across three graph families and three update regimes per graph. Top: mean and p95 oracle-relative regret. Bottom: wrong-arm choices, explicit pre-repair full choices, and internal fallback. The large web-Google tail is intentionally retained; internal fallback is zero in all nine regimes.}
+  \Description{Two-panel chart over nine graph/update regimes. The top panel shows mean and p95 oracle-relative regret; the lower panel shows wrong-arm, explicit full-choice, and internal-fallback percentages. Most regimes have low regret and zero fallback, while the largest web-Google regime has the largest regret tail and a one-third wrong-arm rate.}
   \label{fig:selector-regret}
 \end{figure*}
 """
@@ -156,6 +176,7 @@ def inject_displays(body: str, results: dict) -> str:
 """
 
     anchors = [
+        ("## Exact deletion repair", design_contract_table() + "\n## Exact deletion repair"),
         ("# Dynamic BFS versus NetworKit", selector_fig + "\n# Dynamic BFS versus NetworKit"),
         ("# Static BFS and SSSP versus GAP and LAGraph", external_baseline_table(results) + "\n# Static BFS and SSSP versus GAP and LAGraph"),
         ("# Large-graph storage maintenance", triangle_fig + "\n# Large-graph storage maintenance"),
