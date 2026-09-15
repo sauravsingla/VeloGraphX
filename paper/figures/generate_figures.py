@@ -42,23 +42,62 @@ def load_selector_rows():
 
 
 def selector_regret_figure(rows):
-    fig, ax = plt.subplots(figsize=(7.2, 4.3))
-    for dataset in sorted({r["dataset"] for r in rows}):
-        rs = sorted((r for r in rows if r["dataset"] == dataset), key=lambda r: r["batch_size"])
-        xs = list(range(len(rs)))
-        mean = [100.0 * r["mean_regret"] for r in rs]
-        p95 = [100.0 * r["p95_regret"] for r in rs]
-        labels = [f'{dataset}\n{r["batch_size"]}' for r in rs]
-        ax.plot(xs, mean, marker="o", label=f"{dataset} mean")
-        ax.plot(xs, p95, marker="x", linestyle="--", label=f"{dataset} p95")
-        # Each dataset has its own batch scale; textual labels prevent implying common x values.
-        for x, y, label in zip(xs, mean, labels):
-            ax.annotate(label, (x, y), xytext=(0, 6), textcoords="offset points", ha="center", fontsize=7)
-    ax.set_ylabel("Oracle-relative regret (%)")
-    ax.set_xlabel("Three increasing batch regimes per graph (labels show graph and batch size)")
-    ax.set_title("Current publication selector: mean and p95 regret")
-    ax.grid(axis="y", alpha=0.25)
-    ax.legend(fontsize=8, ncol=2)
+    """Primary selector figure: magnitude of error plus physical-plan behavior.
+
+    A categorical x-axis is intentional because batch sizes are graph-specific. The top
+    panel shows oracle-relative regret; the lower panel separates wrong-arm choices,
+    explicit full selections, and internal fallback. This makes a large tail visibly
+    different from a frequent-but-cheap crossover error.
+    """
+    ordered = []
+    for dataset in ("ca-GrQc", "soc-Epinions1", "web-Google"):
+        ordered.extend(sorted((r for r in rows if r["dataset"] == dataset),
+                              key=lambda r: r["batch_size"]))
+    if len(ordered) != len(rows):
+        known = {id(r) for r in ordered}
+        ordered.extend(r for r in rows if id(r) not in known)
+
+    x = list(range(len(ordered)))
+    labels = [f'{r["dataset"]}\n{r["batch_size"]:,}' for r in ordered]
+    mean = [100.0 * r["mean_regret"] for r in ordered]
+    p95 = [100.0 * r["p95_regret"] for r in ordered]
+    wrong = [100.0 * r["wrong_arm_rate"] for r in ordered]
+    full = [100.0 * r["full_choice_fraction"] for r in ordered]
+    fallback = [100.0 * r["internal_fallback_fraction"] for r in ordered]
+
+    fig, (ax_regret, ax_choice) = plt.subplots(
+        2, 1, figsize=(8.2, 6.2), sharex=True,
+        gridspec_kw={"height_ratios": [1.6, 1.0]},
+    )
+
+    width = 0.36
+    ax_regret.bar([i - width / 2 for i in x], mean, width, label="Mean regret")
+    ax_regret.bar([i + width / 2 for i in x], p95, width, label="p95 regret")
+    ax_regret.set_ylabel("Oracle-relative regret (%)")
+    ax_regret.set_title("Current publication selector across graph/update regimes")
+    ax_regret.grid(axis="y", alpha=0.25)
+    ax_regret.legend(ncol=2, fontsize=8)
+
+    worst = max(range(len(ordered)), key=lambda i: p95[i])
+    ax_regret.annotate(
+        "visible tail",
+        (worst + width / 2, p95[worst]),
+        xytext=(-28, 12),
+        textcoords="offset points",
+        arrowprops={"arrowstyle": "->"},
+        fontsize=8,
+    )
+
+    ax_choice.plot(x, wrong, marker="o", label="Wrong-arm rate")
+    ax_choice.plot(x, full, marker="s", label="Explicit full-choice rate")
+    ax_choice.plot(x, fallback, marker="x", linestyle="--", label="Internal fallback rate")
+    ax_choice.set_ylabel("Batches (%)")
+    ax_choice.set_xlabel("Graph and batch size")
+    ax_choice.set_xticks(x, labels, rotation=25, ha="right")
+    ax_choice.set_ylim(bottom=0)
+    ax_choice.grid(axis="y", alpha=0.25)
+    ax_choice.legend(ncol=3, fontsize=8)
+
     fig.tight_layout()
     fig.savefig(OUT / "selector-regret.pdf", bbox_inches="tight")
     fig.savefig(OUT / "selector-regret.png", dpi=220, bbox_inches="tight")
