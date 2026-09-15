@@ -40,6 +40,58 @@ def normalize_body(body: str) -> str:
     return "\n".join(out).strip() + "\n"
 
 
+def make_typesetting_friendly(body: str) -> str:
+    """Make the venue rendering line-break friendly without changing claims.
+
+    The canonical manuscript keeps code-style names and full provenance for
+    readability on GitHub. Narrow PVLDB columns benefit from ordinary prose for
+    long identifiers and from a few equivalent, shorter venue-facing phrases.
+    The machine-readable evidence registry remains the canonical provenance
+    source. No result, policy, or scientific conclusion is changed here.
+    """
+    replacements = {
+        "`always_incremental`": "always-incremental",
+        "`always_full`": "always-full",
+        "`ca-GrQc`": "ca-GrQc",
+        "`soc-Epinions1`": "soc-Epinions1",
+        "`web-Google`": "web-Google",
+        "`p2p-Gnutella08`": "p2p-Gnutella08",
+        "`ca-HepTh`": "ca-HepTh",
+        "`facebook-combined`": "facebook-combined",
+        "`com-Orkut`": "com-Orkut",
+        "`G_t`": "$G_t$",
+        "`U_t`": "$U_t$",
+        "`G_{t-1}`": "$G_{t-1}$",
+        "`F(G_t)`": "$F(G_t)$",
+        "graph/reachability scale": "graph scale and reachability",
+        "external-system conclusions are workload-specific": "external-system results vary by workload",
+        "graph/update structure": "graph and update structure",
+        "the same broad principle—avoid global work while localized state remains economical—but operate at different layers and timescales": "the same broad principle of avoiding global work while localized state remains economical, but they operate at different layers and timescales",
+        "repair-versus-recompute selection": "repair/recompute selection",
+        "dependency-driven and sparsity-aware incremental graph processing": "dependency- and sparsity-aware incremental graph processing",
+        "explicit timing semantics, current-policy oracle metrics, external baselines, and negative-result retention": "explicit timing semantics, oracle metrics for the current policy, external baselines, and retained negative results",
+    }
+    for source, target in replacements.items():
+        body = body.replace(source, target)
+
+    # The PDF need not carry long run/artifact IDs inline: the evidence registry
+    # is retained with the submission artifact and is the authoritative mapping.
+    body = re.sub(
+        r"The primary current-policy campaign is GitHub Actions run `?\d+`? with retained artifact `?\d+`?\.",
+        "The primary current-policy campaign is retained in the manuscript evidence registry.",
+        body,
+    )
+    body = re.sub(
+        r"A separate focused web-Google regression run \(`?\d+`?, artifact `?\d+`?\)",
+        "A separate focused web-Google regression run retained in the evidence registry",
+        body,
+    )
+
+    # Any remaining long numeric provenance identifiers should not be monospace.
+    body = re.sub(r"`(\d{8,})`", r"\1", body)
+    return body
+
+
 def cite_first(text: str, phrase: str, key: str) -> str:
     marker = f"{phrase}\\cite{{{key}}}"
     if marker in text:
@@ -197,6 +249,7 @@ def main() -> None:
     abstract = section_between(text, "## Abstract", "## 1. Introduction")
     body_start = text.index("## 1. Introduction")
     body = normalize_body(text[body_start:])
+    body = make_typesetting_friendly(body)
     body = add_citations(body)
     body = inject_displays(body, results)
 
