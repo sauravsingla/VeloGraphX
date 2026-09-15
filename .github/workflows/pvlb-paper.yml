@@ -1,0 +1,97 @@
+name: PVLDB Paper Build
+
+on:
+  push:
+    paths:
+      - 'paper/**'
+      - '.github/workflows/pvlb-paper.yml'
+  pull_request:
+    paths:
+      - 'paper/**'
+      - '.github/workflows/pvlb-paper.yml'
+  workflow_dispatch:
+
+jobs:
+  build-paper:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install paper tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install matplotlib
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pandoc latexmk texlive-latex-base texlive-latex-extra \
+            texlive-fonts-recommended texlive-bibtex-extra poppler-utils
+
+      - name: Validate audited manuscript data
+        run: python paper/validate_submission_data.py
+
+      - name: Generate manuscript figures
+        run: python paper/figures/generate_figures.py
+
+      - name: Prepare canonical manuscript inputs
+        run: python paper/vldb/prepare_submission.py
+
+      - name: Fetch pinned official PVLDB Volume 20 template
+        shell: bash
+        run: |
+          set -euo pipefail
+          source <(sed 's/^/export /' paper/vldb/template.lock)
+          git clone --filter=blob:none "$repository" paper/vldb/build/template
+          git -C paper/vldb/build/template checkout --detach "$commit"
+          test "$(git -C paper/vldb/build/template rev-parse HEAD)" = "$commit"
+
+      - name: Assemble PVLDB build tree
+        run: |
+          set -euo pipefail
+          out=paper/vldb/build/compile
+          mkdir -p "$out/figures"
+          cp paper/vldb/main.tex "$out/main.tex"
+          cp paper/references.bib "$out/references.bib"
+          cp paper/vldb/build/template/acmart.cls "$out/acmart.cls"
+          cp paper/vldb/build/template/pvldb.sty "$out/pvldb.sty"
+          cp paper/vldb/build/template/ACM-Reference-Format.bst "$out/ACM-Reference-Format.bst"
+          cp paper/figures/generated/*.pdf "$out/figures/"
+          pandoc --from=markdown+raw_tex --to=latex \
+            paper/vldb/build/abstract.md -o "$out/abstract.tex"
+          pandoc --from=markdown+raw_tex --to=latex \
+            paper/vldb/build/body.md -o "$out/body.tex"
+
+      - name: Compile official-format PDF
+        working-directory: paper/vldb/build/compile
+        run: latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+
+      - name: Enforce Regular Research content-page limit
+        working-directory: paper/vldb/build/compile
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          aux = Path('main.aux').read_text(errors='replace')
+          m = re.search(r'\\newlabel\{vldb-content-end\}\{\{.*?\}\{(\d+)\}', aux)
+          if not m:
+              raise SystemExit('Could not find vldb-content-end page label in main.aux')
+          page = int(m.group(1))
+          print(f'PVLDB scientific content ends on page {page}')
+          if page > 12:
+              raise SystemExit(f'PVLDB Regular Research content exceeds 12 pages: {page}')
+          PY
+          pdfinfo main.pdf | grep -E '^(Pages|Page size):'
+
+      - name: Upload compiled manuscript and figures
+        uses: actions/upload-artifact@v4
+        with:
+          name: pvlb-submission-draft
+          path: |
+            paper/vldb/build/compile/main.pdf
+            paper/figures/generated/*.pdf
+            paper/figures/generated/*.png
+          retention-days: 30
