@@ -40,6 +40,35 @@ def normalize_body(body: str) -> str:
     return "\n".join(out).strip() + "\n"
 
 
+def make_typesetting_friendly(body: str) -> str:
+    """Remove avoidable unbreakable monospace spans in the venue PDF only.
+
+    The canonical manuscript keeps code-style names for readability on GitHub.
+    In the narrow PVLDB columns, long dataset/policy identifiers and retained
+    run IDs are easier to typeset as ordinary prose. This changes presentation,
+    not scientific wording or any reported value.
+    """
+    replacements = {
+        "`always_incremental`": "always-incremental",
+        "`always_full`": "always-full",
+        "`ca-GrQc`": "ca-GrQc",
+        "`soc-Epinions1`": "soc-Epinions1",
+        "`web-Google`": "web-Google",
+        "`p2p-Gnutella08`": "p2p-Gnutella08",
+        "`ca-HepTh`": "ca-HepTh",
+        "`facebook-combined`": "facebook-combined",
+        "`com-Orkut`": "com-Orkut",
+    }
+    for source, target in replacements.items():
+        body = body.replace(source, target)
+
+    # Long numeric provenance identifiers remain verbatim but need not be set in
+    # monospace; the evidence registry remains the canonical machine-readable
+    # source for these run/artifact identities.
+    body = re.sub(r"`(\d{8,})`", r"\1", body)
+    return body
+
+
 def cite_first(text: str, phrase: str, key: str) -> str:
     marker = f"{phrase}\\cite{{{key}}}"
     if marker in text:
@@ -197,6 +226,7 @@ def main() -> None:
     abstract = section_between(text, "## Abstract", "## 1. Introduction")
     body_start = text.index("## 1. Introduction")
     body = normalize_body(text[body_start:])
+    body = make_typesetting_friendly(body)
     body = add_citations(body)
     body = inject_displays(body, results)
 
