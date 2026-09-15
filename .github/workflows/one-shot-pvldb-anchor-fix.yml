@@ -1,0 +1,49 @@
+name: One-shot PVLDB anchor fix
+
+on:
+  push:
+    branches: [paper-deep-review-fixes]
+    paths:
+      - '.github/workflows/one-shot-pvldb-anchor-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: paper-deep-review-fixes
+          fetch-depth: 0
+
+      - name: Patch and validate builder
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('paper/vldb/prepare_submission.py')
+          text = p.read_text()
+          old = '''    body = insert_before_heading(body, "# Policy baselines under one frozen harness", selector_fig)
+    body = insert_before_heading(body, "# Dynamic BFS versus NetworKit", policy_baseline_table())'''
+          new = '''    body = insert_before_heading(body, "# Dynamic BFS versus NetworKit", selector_fig + "\\n\\n" + policy_baseline_table())'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected one PVLDB anchor block, found {count}')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          rm .github/workflows/one-shot-pvldb-anchor-fix.yml
+          python -m py_compile paper/vldb/prepare_submission.py
+          python paper/vldb/prepare_submission.py
+          git diff --check
+
+      - name: Commit source fix and self-remove
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "paper: fix PVLDB policy display anchor"
+          git push origin HEAD:paper-deep-review-fixes
