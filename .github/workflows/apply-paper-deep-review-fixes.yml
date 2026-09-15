@@ -1,0 +1,602 @@
+name: Apply deep paper review fixes
+
+on:
+  push:
+    branches: [paper-deep-review-fixes]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: paper-deep-review-fixes
+          fetch-depth: 0
+
+      - name: Apply reviewer-driven manuscript and build fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------------
+          # Canonical manuscript
+          # ------------------------------------------------------------------
+          p = Path('paper/manuscript.md')
+          text = p.read_text()
+
+          abstract = '''Graph analytics systems increasingly operate on graphs that change continuously, yet exact maintenance is often committed in advance to either incremental repair or full recomputation. Neither execution mode dominates: localized repair can avoid most graph work when updates have limited structural impact, while recomputation can win once dependency discovery and repair become broad.
+
+We present **VeloGraphX**, a C++20 system that treats localized repair and full recomputation as competing exact physical plans over one mutable graph substrate. The substrate combines segmented CSR, packed mutable deltas, sparse row patches, and forward/reverse adjacency. For dynamic BFS, VeloGraphX normalizes a batch to final edge states, identifies deleted shortest-path support before mutation, repairs invalidated state from valid boundary predecessors, propagates insertion-induced decreases, and retains conservative recomputation as a semantic safety mechanism. A separate pre-repair selector uses only pre-execution structural signals and prior measured arm costs to choose a plan before repair begins.
+
+On a checksum-pinned three-graph validation covering nine regimes, 45 graph-regime repetitions, and 1,610 sequential batch observations, every output is exact. Equal-regime mean oracle regret is **3.94%**, versus **11.19%** for always-incremental, **17.84%** for a simple update-density threshold, and **20.21%** for a history-only cost model; sample-weighted regret is 2.31%, and selector decision cost is about 0.286 µs. The largest web-Google regime remains a visible tail at 17.48% mean regret. External results also reverse by workload: VeloGraphX is about 1.38× faster than NetworKit on the evaluated web-Google workload, while NetworKit is about 1.35× faster on ca-GrQc; a separate accepted RisGraph campaign is retained where RisGraph is faster.
+
+The result is deliberately narrower than universal system superiority: exact dynamic analytics benefits from exposing repair and recomputation as observable, selectable physical plans whose preferred choice changes with graph and update regime.'''
+          text, n = re.subn(
+              r"## Abstract\n.*?\n## 1\. Introduction",
+              "## Abstract\n\n" + abstract + "\n\n## 1. Introduction",
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if n != 1:
+              raise RuntimeError(f'abstract: expected one replacement, found {n}')
+
+          correctness = '''### 3.9 Correctness argument
+
+The repair procedure is exact for the normalized final state of a batch. It is useful to separate a mixed batch into an intermediate graph containing the final deletions but not yet the final additions, followed by insertion relaxation.
+
+**Lemma 1 — unaffected old distances remain exact after deletions.** Consider a reachable vertex whose old distance is `d`. The invalidation closure marks the vertex affected exactly when every old shortest-parent support is removed directly by the batch or transitively through an affected predecessor. If the vertex is not affected, at least one old shortest parent remains valid. Induction on `d` therefore gives a surviving source-to-vertex path of length `d`. Deletions cannot create a shorter path, so the old distance remains exact in the deletion-only intermediate graph.
+
+**Lemma 2 — boundary repair computes exact distances for affected vertices.** All affected vertices are first set to unreachable. The repair seeds each affected vertex with the best distance offered by an unaffected valid predecessor and then processes affected-to-affected relaxations in nondecreasing tentative-distance order. This is Dijkstra/BFS relaxation on the affected subgraph with exact boundary distances from Lemma 1. Consequently each affected vertex receives its exact shortest distance in the deletion-only intermediate graph, or remains unreachable when no boundary path exists.
+
+**Lemma 3 — insertion propagation restores exact post-batch distances.** Insertions cannot increase any distance. After deletion repair, each final inserted edge is relaxed from the exact intermediate distances, and every successful decrease is propagated through outgoing adjacency until no relaxation remains. Standard unweighted shortest-path relaxation then yields the exact distances in the final post-batch graph, including newly reachable vertices.
+
+**Theorem 1 — exact batched BFS maintenance.** Batch normalization preserves only the final desired state of each logical edge. Lemmas 1–3 establish exactness when localized repair completes. If the affected-set bound is exceeded, VeloGraphX instead runs a fresh exact BFS. Thus `apply()` returns the same distance vector as exact recomputation after every normalized batch; plan selection affects only cost, never semantics.
+
+### 3.10 System boundary beyond BFS'''
+          text = replace_once(text, '### 3.9 System boundary beyond BFS', correctness, 'correctness insertion')
+
+          workload_anchor = 'Machine-readable artifacts record environment and timing semantics.\n\nHosted CI is used as reproducible comparative evidence when alternatives execute under the same documented envelope.'
+          workload_repl = '''Machine-readable artifacts record environment and timing semantics.
+
+The primary selector workload is a **deterministic source-order sliding window**, not a claim of a naturally timestamped temporal trace. After the checksum-pinned imported prefix, each measured batch adds the next edges in the retained source order and removes the corresponding oldest edges from the active window. Source order, import fraction, root, and batch size are therefore part of the benchmark definition. This construction gives repeatable mixed insertion/deletion churn while keeping temporal realism outside the claim boundary.
+
+Hosted CI is used as reproducible comparative evidence when alternatives execute under the same documented envelope.'''
+          text = replace_once(text, workload_anchor, workload_repl, 'workload disclosure')
+
+          stats_anchor = 'Averages do not replace per-dataset or per-regime results when winner reversals occur.\n\nThe adaptive-policy experiments execute both exact arms in the publication harness so the offline oracle is measured rather than modeled.'
+          stats_repl = '''Averages do not replace per-dataset or per-regime results when winner reversals occur.
+
+The 1,610 primary selector measurements are **sequential batch observations from 45 graph-regime repetitions**, not 1,610 independent experimental trials. We therefore use the mean across the nine regimes as the primary cross-regime summary and report the sample-weighted mean separately; the latter gives more weight to small batches because they produce more observations. Tail percentiles are descriptive rather than inferential confidence bounds. In particular, the largest web-Google regime contributes 15 batch observations across five repetitions, so its p95 value is reported together with its mean, wrong-arm rate, and maximum rather than treated as a precise population percentile.
+
+The adaptive-policy experiments execute both exact arms in the publication harness so the offline oracle is measured rather than modeled.'''
+          text = replace_once(text, stats_anchor, stats_repl, 'statistics disclosure')
+
+          selector_intro = 'It evaluates checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google`, one fixed root per graph, three batch regimes per graph, five repetitions per regime, and one thread.'
+          selector_intro_repl = selector_intro + '''
+
+For this policy-comparison harness, the incremental arm is deliberately constructed with a deletion fallback fraction of **2.0**. Because an affected set cannot exceed the graph vertex count, this disables the ordinary 0.35 internal fallback and keeps `always_incremental` and `always_full` as clean experimental arms. The resulting zero internal-fallback count is therefore a property of arm isolation, **not evidence that the selector prevented fallback**. The production/default incremental BFS continues to use the 0.35 safety bound.'''
+          text = replace_once(text, selector_intro, selector_intro_repl, 'fallback isolation disclosure')
+
+          old_metric = 'The current selector records **3.939% mean oracle regret across regimes**, **2.309% sample-weighted mean regret**, a **1.739% sample-weighted wrong-arm rate**, **zero internal full fallbacks**, and about **0.286 µs sample-weighted decision cost**.'
+          new_metric = 'The current selector records **3.939% mean oracle regret across regimes**, **2.309% sample-weighted mean regret**, a **1.739% sample-weighted wrong-arm rate**, and about **0.286 µs sample-weighted decision cost**.'
+          text = replace_once(text, old_metric, new_metric, 'selector metric interpretation')
+
+          old_fallback_para = '''Zero internal fallbacks across the current-policy validation is also significant for the architecture. The adaptive path is not achieving low average regret by repeatedly entering incremental repair and then escaping to full BFS. Full executions recorded by the policy are explicit pre-repair choices. This separates selector quality from the incremental algorithm's 35% safety fallback and shows that the measured current-policy path avoids that particular form of double work on these experiments.'''
+          new_fallback_para = '''Internal fallback is intentionally disabled in this policy-comparison harness so that repair and recomputation remain separable oracle arms. Consequently, the zero fallback count is not used as a selector-quality metric. The experiment establishes pre-repair plan quality under isolated exact arms; a separate run with the production 0.35 affected-set bound is required to quantify how often pre-repair selection avoids repair-discovery-then-full double work in deployment.'''
+          text = replace_once(text, old_fallback_para, new_fallback_para, 'fallback discussion')
+
+          policy_section = '''### 6.3 Policy baselines under one frozen harness
+
+The retained cross-dataset artifact also contains all policies under the **same graph, root, batch, repetition, timing, and exactness contract**. Equal weighting across the nine regimes is important because small batches generate many more sequential observations than large batches. Under that equal-regime summary, always-incremental has 11.19% mean regret, the simple update-density threshold 17.84%, the history-only cost model 20.21%, and the current adaptive policy 3.94%. Their worst-regime mean regrets are 57.10%, 59.29%, 57.56%, and 17.48%, respectively.
+
+The sample-weighted view deliberately tells a different story: always-incremental records 1.36% sample-weighted regret versus 2.31% for adaptive because the observation count is dominated by repair-friendly small-batch regimes. We retain that inversion rather than choosing only the favorable aggregate. The adaptive result is therefore best interpreted as **more robust across regimes**, not uniformly better under every possible weighting of the same observations. `always_full` remains an exact oracle arm but is omitted from this policy-baseline summary because it is intentionally poor in strongly repair-favorable regimes.
+
+### 6.4 Dynamic BFS external baselines'''
+          text = replace_once(text, '### 6.3 Dynamic BFS versus NetworKit', policy_section, 'policy baseline section')
+          text = replace_once(text, '### 6.4 Static BFS and SSSP versus GAP and LAGraph', '### 6.5 Static BFS and SSSP versus GAP and LAGraph', 'renumber static')
+          text = replace_once(text, '### 6.5 Exact dynamic triangles versus a published exact reference', '### 6.6 Exact dynamic triangles versus a published exact reference', 'renumber triangles')
+          text = replace_once(text, '### 6.6 Large-graph storage maintenance', '### 6.7 Large-graph storage maintenance', 'renumber storage')
+          text = replace_once(text, '### 6.7 Supporting breadth and maturity', '### 6.8 Supporting breadth and maturity', 'renumber breadth')
+
+          nk_close = 'The reversal is important: external-system conclusions are workload-specific. It also aligns with the paper\'s central premise that graph/update structure affects which execution machinery pays off. We do not generalize these two datasets to universal superiority.'
+          ris_para = nk_close + '''
+
+A separate accepted same-run web-Google campaign compares VeloGraphX with pinned official RisGraph under its exact incremental-BFS batch contract: 99% initial import, 4,096-edge batches, deterministic root 481807, 13 batches, and one thread. VeloGraphX localized repair averages 59.658 ms per answer-ready batch versus 31.333 ms for RisGraph, so **RisGraph is about 1.90× faster** on this workload. VeloGraphX repair is nevertheless about 1.98× faster than its own legacy 118.039 ms full-recompute path. This campaign is separate from the NetworKit campaign; its absolute times are never merged into a synthetic three-system ranking.'''
+          text = replace_once(text, nk_close, ris_para, 'RisGraph evaluation')
+
+          old_double_work = '''A selector that invokes incremental repair and only later discovers that the affected region is too large may pay twice: once for repair discovery or partial processing and again for full recomputation. This motivates pre-execution signals and selector-owned recomputation. The current publication-policy artifacts show zero internal fallbacks in the evaluated current-policy runs, so the policy is avoiding that specific double-work path there; the remaining error is mostly choosing the slower exact arm directly.'''
+          new_double_work = '''A selector that invokes incremental repair and only later discovers that the affected region is too large may pay twice: once for repair discovery or partial processing and again for full recomputation. This motivates pre-execution signals and selector-owned recomputation. The current publication-policy harness intentionally disables internal fallback to isolate the repair and full arms, so it does **not** by itself measure avoided repair-then-full work. Demonstrating that deployment effect requires a separate production-bound (0.35) experiment; the current result is specifically a plan-selection result.'''
+          text = replace_once(text, old_double_work, new_double_work, 'double-work claim boundary')
+
+          graphbolt_para = '''GraphBolt and DZiG develop dependency-driven and sparsity-aware incremental graph processing. Their work motivates exploiting only affected state rather than rerunning a whole computation. VeloGraphX's BFS repair likewise uses dependency structure, but the paper's focus is on when to expose that repair as one physical arm versus choosing recomputation before repair begins.'''
+          graphbolt_repl = graphbolt_para + '''
+
+Exact incremental shortest-path maintenance also long predates this system. Ramalingam and Reps handle heterogeneous graph modifications for incremental shortest paths. VeloGraphX therefore does not claim the existence of exact dynamic shortest-path repair as new; its contribution is the systems integration of exact repair with an explicit recomputation arm, pre-repair plan selection, mutable storage, and plan-quality telemetry.'''
+          text = replace_once(text, graphbolt_para, graphbolt_repl, 'dynamic shortest-path prior work')
+
+          old_storage_rw = '''Dynamic storage itself is not claimed as novel. GraphOne uses a hybrid representation supporting graph updates and analytical views, while Teseo develops a sophisticated mutable graph representation with transactional support. VeloGraphX's segmented CSR, packed deltas, and sparse row patches should be read as the substrate required to make repeated exact repair and explicit consolidation practical, not as a claim to have invented mutable graph storage.'''
+          new_storage_rw = '''Dynamic storage itself is not claimed as novel. LLAMA augments CSR with multiversioned arrays for mutable analytical snapshots; Aspen uses compressed purely-functional trees for graph streaming; LiveGraph combines transactional updates with sequential adjacency scans; and Sortledton targets transactional dynamic graph storage across multiple access patterns. GraphOne uses a hybrid representation supporting graph updates and analytical views, while Teseo develops a sophisticated mutable representation with transactional support. VeloGraphX's segmented CSR, packed deltas, and sparse row patches should therefore be read as the substrate required to make repeated exact repair and explicit consolidation practical, not as a claim to have invented mutable graph storage.'''
+          text = replace_once(text, old_storage_rw, new_storage_rw, 'storage related work')
+
+          limitations_anchor = '''The current policy's three-graph validation uses a historical fixed graph/root program rather than a newly preregistered unseen holdout. Its average regret is low, but the largest `web-Google` regime has a material tail; the paper therefore does not claim uniform near-oracle behavior.'''
+          limitations_repl = '''The current policy's three-graph validation uses a historical fixed graph/root program rather than a newly preregistered unseen holdout. Its workload is a deterministic source-order sliding window rather than a timestamped temporal trace, and its policy-comparison harness disables internal fallback to isolate the exact arms. Its average regret is low, but the largest `web-Google` regime has a material tail; the paper therefore does not claim uniform near-oracle behavior or that this experiment measures deployment fallback avoidance.'''
+          text = replace_once(text, limitations_anchor, limitations_repl, 'limitations scope')
+
+          p.write_text(text)
+
+          # ------------------------------------------------------------------
+          # Machine-readable evidence registry: disclose harness semantics and
+          # add policy baselines derived from the already retained artifact.
+          # ------------------------------------------------------------------
+          p = Path('paper/data/accepted-results.json')
+          data = json.loads(p.read_text())
+          cv = data['adaptive_selector']['cross_dataset_validation']
+          cv['graph_regime_repetitions'] = 45
+          cv['batch_observations_are_independent_trials'] = False
+          cv['policy_arm_fallback_fraction'] = 2.0
+          cv['internal_fallback_disabled_for_arm_isolation'] = True
+          cv['internal_fallback_interpretation'] = 'Zero internal fallbacks are expected because the publication policy harness uses fallback fraction 2.0 to isolate repair and full exact arms; this count is not selector-quality evidence.'
+          cv['workload_model'] = 'deterministic source-order sliding window: add next retained-stream edges and remove corresponding oldest active-window edges'
+          cv['selector_feature_semantics'] = {
+              'reachable_fraction': 'initial reachable fraction, reused across batches in the current publication harness',
+              'shallow_parent_deletion_fraction': 'first-batch cold-start preflight feature in the current publication harness'
+          }
+          cv['dataset_workload'] = {
+              'ca-GrQc': {'vertices': 5242, 'stream_edges': 28968, 'root': 1974, 'import_rate': 0.75, 'batch_sizes': [96, 384, 1536]},
+              'soc-Epinions1': {'vertices': 75879, 'stream_edges': 508837, 'root': 71391, 'import_rate': 0.99, 'batch_sizes': [384, 1536, 6144]},
+              'web-Google': {'vertices': 875713, 'stream_edges': 5105039, 'root': 391806, 'import_rate': 0.99, 'batch_sizes': [1536, 6144, 24576]}
+          }
+          cv['policy_baseline_summary'] = {
+              'always_incremental': {
+                  'mean_regret_across_regimes': 0.11194569997765644,
+                  'sample_weighted_mean_regret': 0.013624730221282555,
+                  'sample_weighted_wrong_arm_rate': 0.034161490683229814,
+                  'worst_regime_mean_regret': 0.5709730684187061
+              },
+              'simple_threshold': {
+                  'mean_regret_across_regimes': 0.17839289936481844,
+                  'sample_weighted_mean_regret': 0.07863034518009784,
+                  'sample_weighted_wrong_arm_rate': 0.08385093167701864,
+                  'worst_regime_mean_regret': 0.5929352495043947
+              },
+              'history_cost_model': {
+                  'mean_regret_across_regimes': 0.2020629594668111,
+                  'sample_weighted_mean_regret': 0.11517914215718278,
+                  'sample_weighted_wrong_arm_rate': 0.05590062111801243,
+                  'worst_regime_mean_regret': 0.5755926355292179
+              },
+              'adaptive': {
+                  'mean_regret_across_regimes': cv['mean_oracle_regret_across_regimes'],
+                  'sample_weighted_mean_regret': cv['sample_weighted_mean_oracle_regret'],
+                  'sample_weighted_wrong_arm_rate': cv['sample_weighted_wrong_arm_rate'],
+                  'worst_regime_mean_regret': cv['worst_regime_mean_regret']
+              }
+          }
+          rg = data['external_baselines']['risgraph_dynamic_bfs']
+          rg.update({
+              'threads': 1,
+              'root': 481807,
+              'batches': 13,
+              'batch_size': 4096,
+              'initial_import_rate': 0.99,
+              'velographx_localized_repair_mean_ms': 59.658,
+              'velographx_legacy_full_mean_ms': 118.039,
+              'risgraph_mean_ms': 31.333,
+              'risgraph_faster_than_velographx_ratio': 59.658 / 31.333,
+              'velographx_repair_faster_than_legacy_ratio': 118.039 / 59.658,
+              'all_exact': True
+          })
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          # ------------------------------------------------------------------
+          # Results ledger: align claim boundaries with actual harness semantics.
+          # ------------------------------------------------------------------
+          p = Path('paper/results-ledger.md')
+          ledger = p.read_text()
+          ledger = replace_once(
+              ledger,
+              '| Internal full fallbacks | 0 |',
+              '| Internal full fallbacks in arm-isolation harness | 0 (fallback fraction 2.0) |',
+              'ledger fallback row',
+          )
+          tail_anchor = 'Per-regime adaptive values are retained in [`data/current-selector-regimes.csv`](data/current-selector-regimes.csv).'
+          policy_note = tail_anchor + '''
+
+**Fallback interpretation:** the publication policy harness constructs the incremental arm with fallback fraction 2.0 so repair and full recomputation remain separable exact arms. Zero internal fallback is therefore expected by construction and is not used as evidence that the selector avoids production fallback.
+
+### Same-harness policy baselines
+
+The retained cross-dataset artifact also contains policy baselines under the identical nine-regime contract:
+
+| Policy | Equal-regime mean regret | Sample-weighted regret | Wrong-arm rate | Worst-regime mean regret |
+| --- | ---: | ---: | ---: | ---: |
+| always-incremental | 11.19% | **1.36%** | 3.42% | 57.10% |
+| simple threshold | 17.84% | 7.86% | 8.39% | 59.29% |
+| history-only cost model | 20.21% | 11.52% | 5.59% | 57.56% |
+| current adaptive | **3.94%** | 2.31% | **1.74%** | **17.48%** |
+
+The lower sample-weighted regret of always-incremental is retained explicitly: small repair-friendly regimes produce more batch observations. Equal-regime mean and worst-regime mean are therefore the primary robustness summaries.'''
+          ledger = replace_once(ledger, tail_anchor, policy_note, 'ledger policy baselines')
+          old_rg = '| VeloGraphX vs RisGraph | `33286241439` | `9724535579` | Localized VeloGraphX repair improves materially over legacy full-recompute policy; RisGraph remains faster on the evaluated `web-Google` workload | Separate run from NetworKit; never combine absolute times into a three-system ranking |'
+          new_rg = '| VeloGraphX vs RisGraph | `33286241439` | `9724535579` | `web-Google`: RisGraph ≈1.90× faster than VeloGraphX; VeloGraphX repair ≈1.98× faster than its legacy full-recompute path | Separate run from NetworKit; never combine absolute times into a three-system ranking |'
+          ledger = replace_once(ledger, old_rg, new_rg, 'ledger RisGraph numeric')
+          stats_rule = '- Report sample count/repetitions in captions.'
+          stats_rule_repl = stats_rule + '\n- Treat sequential batch samples as observations nested inside graph-regime repetitions; do not present 1,610 batches as independent trials.'
+          ledger = replace_once(ledger, stats_rule, stats_rule_repl, 'ledger nested observations')
+          p.write_text(ledger)
+
+          # ------------------------------------------------------------------
+          # Bibliography expansion for dynamic storage and exact dynamic paths.
+          # ------------------------------------------------------------------
+          p = Path('paper/references.bib')
+          bib = p.read_text().rstrip() + '\n\n'
+          additions = r'''@article{ramalingam1996incremental,
+  title   = {An Incremental Algorithm for a Generalization of the Shortest-Path Problem},
+  author  = {Ramalingam, G. and Reps, Thomas W.},
+  journal = {Journal of Algorithms},
+  volume  = {21},
+  number  = {2},
+  pages   = {267--305},
+  year    = {1996},
+  doi     = {10.1006/jagm.1996.0046}
+}
+
+@inproceedings{macko2015llama,
+  title     = {LLAMA: Efficient Graph Analytics Using Large Multiversioned Arrays},
+  author    = {Macko, Peter and Marathe, Virendra J. and Margo, Daniel W. and Seltzer, Margo I.},
+  booktitle = {2015 IEEE 31st International Conference on Data Engineering (ICDE)},
+  pages     = {363--374},
+  year      = {2015},
+  publisher = {IEEE},
+  doi       = {10.1109/ICDE.2015.7113298}
+}
+
+@inproceedings{dhulipala2019aspen,
+  title     = {Low-Latency Graph Streaming Using Compressed Purely-Functional Trees},
+  author    = {Dhulipala, Laxman and Blelloch, Guy E. and Shun, Julian},
+  booktitle = {Proceedings of the 40th ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  pages     = {918--934},
+  year      = {2019},
+  publisher = {Association for Computing Machinery},
+  doi       = {10.1145/3314221.3314598}
+}
+
+@article{zhu2020livegraph,
+  title   = {LiveGraph: A Transactional Graph Storage System with Purely Sequential Adjacency List Scans},
+  author  = {Zhu, Xiaowei and Feng, Guanyu and Serafini, Marco and Ma, Xiaosong and Yu, Jiping and Xie, Lei and Aboulnaga, Ashraf and Chen, Wenguang},
+  journal = {Proceedings of the VLDB Endowment},
+  volume  = {13},
+  number  = {7},
+  pages   = {1020--1034},
+  year    = {2020},
+  doi     = {10.14778/3384345.3384351}
+}
+
+@article{fuchs2022sortledton,
+  title   = {Sortledton: a Universal, Transactional Graph Data Structure},
+  author  = {Fuchs, Per and Margan, Domagoj and Giceva, Jana},
+  journal = {Proceedings of the VLDB Endowment},
+  volume  = {15},
+  number  = {6},
+  pages   = {1173--1186},
+  year    = {2022},
+  doi     = {10.14778/3514061.3514065}
+}
+'''
+          for key in ('ramalingam1996incremental', 'macko2015llama', 'dhulipala2019aspen', 'zhu2020livegraph', 'fuchs2022sortledton'):
+              if f'{{{key},' in bib:
+                  raise RuntimeError(f'bibliography key already exists unexpectedly: {key}')
+          p.write_text(bib + additions)
+
+          # ------------------------------------------------------------------
+          # Figure generator: do not plot disabled fallback as selector evidence;
+          # add a real system overview figure.
+          # ------------------------------------------------------------------
+          p = Path('paper/figures/generate_figures.py')
+          fig = p.read_text()
+          fig = replace_once(fig, 'import matplotlib.pyplot as plt', 'import matplotlib.pyplot as plt\nfrom matplotlib.patches import FancyArrowPatch, FancyBboxPatch', 'figure patch imports')
+          fig = replace_once(
+              fig,
+              '    explicit full selections, and internal fallback. This makes a large tail visibly\n    different from a frequent-but-cheap crossover error.',
+              '    and explicit full selections. Internal fallback is intentionally disabled in the\n    publication policy-comparison harness, so it is not plotted as selector evidence.',
+              'figure docstring',
+          )
+          fig = replace_once(fig, '    fallback = [100.0 * r["internal_fallback_fraction"] for r in ordered]\n', '', 'remove fallback series')
+          fig = replace_once(
+              fig,
+              '    ax_choice.plot(x, fallback, marker="x", linestyle="--", label="Internal fallback rate")\n',
+              '',
+              'remove fallback plot',
+          )
+          fig = replace_once(fig, '    ax_choice.legend(ncol=3, fontsize=8)', '    ax_choice.legend(ncol=2, fontsize=8)', 'selector legend')
+
+          architecture_func = r'''
+
+def system_overview_figure():
+    """Architecture overview for the paper's physical-plan framing."""
+    fig, ax = plt.subplots(figsize=(9.2, 3.4))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+    def box(x, y, w, h, title, subtitle=""):
+        patch = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.012", fill=False)
+        ax.add_patch(patch)
+        ax.text(x + w / 2, y + h * 0.62, title, ha="center", va="center", fontsize=10, weight="bold")
+        if subtitle:
+            ax.text(x + w / 2, y + h * 0.28, subtitle, ha="center", va="center", fontsize=8)
+        return (x, y, w, h)
+
+    def arrow(x1, y1, x2, y2, label=""):
+        ax.add_patch(FancyArrowPatch((x1, y1), (x2, y2), arrowstyle="->", mutation_scale=12))
+        if label:
+            ax.text((x1 + x2) / 2, (y1 + y2) / 2 + 0.035, label, ha="center", va="bottom", fontsize=7.5)
+
+    box(0.02, 0.55, 0.12, 0.22, "Update batch", "insertions + deletions")
+    box(0.19, 0.50, 0.18, 0.32, "Mutable graph substrate", "segmented CSR + deltas\nrow patches + reverse adjacency")
+    box(0.42, 0.55, 0.15, 0.22, "Pre-repair selector", "structure + recent arm cost")
+    box(0.63, 0.70, 0.14, 0.18, "Localized repair", "exact maintained state")
+    box(0.63, 0.40, 0.14, 0.18, "Full recompute", "exact fresh result")
+    box(0.83, 0.55, 0.14, 0.22, "Exact result", "same logical answer")
+    box(0.42, 0.12, 0.15, 0.18, "Telemetry", "cost, affected work, reason")
+    box(0.19, 0.12, 0.18, 0.18, "Bounded consolidation", "explicit global storage work")
+
+    arrow(0.14, 0.66, 0.19, 0.66)
+    arrow(0.37, 0.66, 0.42, 0.66, "preflight")
+    arrow(0.57, 0.68, 0.63, 0.79, "repair")
+    arrow(0.57, 0.63, 0.63, 0.49, "full")
+    arrow(0.77, 0.79, 0.83, 0.69)
+    arrow(0.77, 0.49, 0.83, 0.63)
+    arrow(0.90, 0.55, 0.57, 0.24, "observed cost")
+    arrow(0.42, 0.21, 0.37, 0.21, "maintenance state")
+    arrow(0.28, 0.30, 0.28, 0.50)
+
+    ax.text(0.70, 0.94, "Both execution arms preserve exact semantics", ha="center", va="center", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(OUT / "system-overview.pdf", bbox_inches="tight")
+    fig.savefig(OUT / "system-overview.png", dpi=220, bbox_inches="tight")
+    plt.close(fig)
+'''
+          fig = replace_once(fig, '\ndef triangle_reference_figure(results):', architecture_func + '\n\ndef triangle_reference_figure(results):', 'architecture figure function')
+          fig = replace_once(fig, '    selector_regret_figure(selector_rows)\n', '    system_overview_figure()\n    selector_regret_figure(selector_rows)\n', 'architecture figure invocation')
+          p.write_text(fig)
+
+          # ------------------------------------------------------------------
+          # PVLDB preparation: exact heading matching, stronger tables/citations,
+          # and a structural guard against orphan headings.
+          # ------------------------------------------------------------------
+          p = Path('paper/vldb/prepare_submission.py')
+          prep = p.read_text()
+          prep = replace_once(prep, '        "`always_full`": "always-full",', '        "`always_full`": "always-full",\n        "`simple_threshold`": "simple-threshold",\n        "`history_cost_model`": "history-only cost model",', 'typesetting policy names')
+          prep = replace_once(
+              prep,
+              '        ("Layph", "yu2023layph"),\n        ("NetworKit", "staudt2016networkit"),',
+              '        ("Layph", "yu2023layph"),\n        ("Ramalingam and Reps", "ramalingam1996incremental"),\n        ("LLAMA", "macko2015llama"),\n        ("Aspen", "dhulipala2019aspen"),\n        ("LiveGraph", "zhu2020livegraph"),\n        ("Sortledton", "fuchs2022sortledton"),\n        ("NetworKit", "staudt2016networkit"),',
+              'citation expansion',
+          )
+          prep = replace_once(
+              prep,
+              'Dynamic BFS & Shortest-parent invalidation, boundary repair, insertion decrease propagation & Exact full BFS recomputation & Pre-repair selector plus 35\\% affected-region fallback bound \\\\',
+              'Dynamic BFS & Shortest-parent invalidation, boundary repair, insertion decrease propagation & Exact full BFS recomputation & Pre-repair selector; production default keeps a 35\\% affected-region fallback bound \\\\',
+              'design table fallback wording',
+          )
+
+          # Insert architecture and policy/dataset table helpers before external table.
+          helper_anchor = '\ndef external_baseline_table(results: dict) -> str:\n'
+          helper = r'''
+
+def system_overview_figure_tex() -> str:
+    return r"""
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.96\textwidth]{figures/system-overview.pdf}
+  \caption{VeloGraphX exposes localized repair and full recomputation as exact physical plans over one mutable graph substrate. The selector sees only pre-execution state and prior telemetry; exactness is invariant to the selected arm.}
+  \Description{Architecture diagram showing an update batch entering a mutable graph substrate, a pre-repair selector choosing localized repair or full recomputation, both paths producing the same exact logical result, and observed telemetry feeding future decisions. Bounded storage consolidation is shown as a separate explicit global maintenance operation.}
+  \label{fig:system-overview}
+\end{figure*}
+"""
+
+
+def selector_workload_table(results: dict) -> str:
+    cv = results["adaptive_selector"]["cross_dataset_validation"]
+    rows = cv["dataset_workload"]
+    order = ["ca-GrQc", "soc-Epinions1", "web-Google"]
+    lines = []
+    for name in order:
+        r = rows[name]
+        batches = ", ".join(f"{x:,}" for x in r["batch_sizes"])
+        lines.append(
+            f"{name} & {r['vertices']:,} & {r['stream_edges']:,} & {r['root']} & "
+            f"{100*r['import_rate']:.0f}\\% & {batches} \\\\"
+        )
+    body = "\n".join(lines)
+    return rf"""
+\begin{{table*}}[t]
+\centering
+\caption{{Primary selector workload. Each regime has five repetitions. The update stream is a deterministic source-order sliding window, not a timestamped temporal trace.}}
+\label{{tab:selector-workload}}
+\begin{{tabular}}{{lrrrrl}}
+\toprule
+Dataset & Vertices & Stream edges & Root & Initial import & Batch sizes \\
+\midrule
+{body}
+\bottomrule
+\end{{tabular}}
+\end{{table*}}
+"""
+
+
+def policy_baseline_table(results: dict) -> str:
+    rows = results["adaptive_selector"]["cross_dataset_validation"]["policy_baseline_summary"]
+    display = [
+        ("always_incremental", "Always incremental"),
+        ("simple_threshold", "Simple threshold"),
+        ("history_cost_model", "History-only cost model"),
+        ("adaptive", "Current adaptive"),
+    ]
+    body = []
+    for key, label in display:
+        r = rows[key]
+        body.append(
+            f"{label} & {100*r['mean_regret_across_regimes']:.2f}\\% & "
+            f"{100*r['sample_weighted_mean_regret']:.2f}\\% & "
+            f"{100*r['sample_weighted_wrong_arm_rate']:.2f}\\% & "
+            f"{100*r['worst_regime_mean_regret']:.2f}\\% \\\\"
+        )
+    joined = "\n".join(body)
+    return rf"""
+\begin{{table}}[t]
+\centering
+\caption{{Policy baselines under the same nine-regime harness. Equal-regime mean is the primary cross-regime summary; sample weighting favors small batches because they yield more observations.}}
+\label{{tab:policy-baselines}}
+\begin{{tabular}}{{lrrrr}}
+\toprule
+Policy & Eq.-reg. mean & Weighted & Wrong arm & Worst reg. \\
+\midrule
+{joined}
+\bottomrule
+\end{{tabular}}
+\end{{table}}
+"""
+'''
+          prep = replace_once(prep, helper_anchor, helper + helper_anchor, 'PVLDB helper insertion')
+
+          prep = replace_once(
+              prep,
+              '    static = results["external_baselines"]["gap_lagraph_static"]\n',
+              '    static = results["external_baselines"]["gap_lagraph_static"]\n    ris = results["external_baselines"]["risgraph_dynamic_bfs"]\n',
+              'RisGraph table input',
+          )
+          prep = replace_once(
+              prep,
+              'Dynamic BFS, ca-GrQc & VeloGraphX vs NetworKit & {grqc:.2f}$\\times$ lower latency for NetworKit & NetworKit \\\\nStatic BFS, hosted 1--4 threads',
+              'Dynamic BFS, ca-GrQc & VeloGraphX vs NetworKit & {grqc:.2f}$\\times$ lower latency for NetworKit & NetworKit \\\\nDynamic BFS, web-Google (separate run) & VeloGraphX vs RisGraph & {ris["risgraph_faster_than_velographx_ratio"]:.2f}$\\times$ lower latency for RisGraph & RisGraph \\\\nStatic BFS, hosted 1--4 threads',
+              'RisGraph table row',
+          )
+
+          # Replace the old substring-based injector entirely with exact line anchors.
+          start = prep.index('def inject_displays(body: str, results: dict) -> str:')
+          end = prep.index('\n\ndef main() -> None:', start)
+          new_inject = r'''def insert_before_heading(body: str, heading: str, display: str) -> str:
+    pattern = re.compile(rf"(?m)^{re.escape(heading)}$")
+    matches = list(pattern.finditer(body))
+    if len(matches) != 1:
+        raise RuntimeError(f"display anchor must match exactly once: {heading!r}; found {len(matches)}")
+    m = matches[0]
+    return body[:m.start()] + display.strip() + "\n\n" + body[m.start():]
+
+
+def inject_displays(body: str, results: dict) -> str:
+    selector_fig = r"""
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.94\textwidth]{figures/selector-regret.pdf}
+  \caption{Current publication selector across three graph families and three update regimes per graph. Top: mean and p95 oracle-relative regret. Bottom: wrong-arm choices and explicit pre-repair full choices. Internal fallback is intentionally disabled in this policy-comparison harness so repair and full recomputation remain separable exact arms; it is therefore not plotted as selector evidence.}
+  \Description{Two-panel chart over nine graph and update regimes. The top panel shows mean and p95 oracle-relative regret; the lower panel shows wrong-arm and explicit full-choice percentages. Most regimes have low regret, while the largest web-Google regime has the largest regret tail and a one-third wrong-arm rate.}
+  \label{fig:selector-regret}
+\end{figure*}
+"""
+    triangle_fig = r"""
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/triangle-exact-reference.pdf}
+  \caption{Exact dynamic triangle answer-ready latency against the pinned GoldenCounter reference on facebook-combined. All 15 paired executions are exact.}
+  \Description{Bar chart comparing VeloGraphX and GoldenCounter exact answer-ready latency at one, five, and ten percent insertion batches.}
+  \label{fig:triangle-reference}
+\end{figure}
+"""
+
+    body = insert_before_heading(body, "# System design", system_overview_figure_tex())
+    body = insert_before_heading(body, "## Exact deletion repair", design_contract_table())
+    body = insert_before_heading(body, "## Reproducibility discipline", selector_workload_table(results))
+    body = insert_before_heading(body, "## Policy baselines under one frozen harness", selector_fig)
+    body = insert_before_heading(body, "## Dynamic BFS external baselines", policy_baseline_table(results))
+    body = insert_before_heading(body, "## Static BFS and SSSP versus GAP and LAGraph", external_baseline_table(results))
+    body = insert_before_heading(body, "## Large-graph storage maintenance", triangle_fig)
+    body = insert_before_heading(body, "## Supporting breadth and maturity", storage_table(results))
+
+    # A lone Markdown heading marker creates phantom numbered sections in Pandoc.
+    orphan = re.search(r"(?m)^#{1,6}\s*$", body)
+    if orphan:
+        raise RuntimeError(f"orphan Markdown heading after display injection near offset {orphan.start()}")
+    return body
+'''
+          prep = prep[:start] + new_inject + prep[end:]
+          p.write_text(prep)
+
+          # ------------------------------------------------------------------
+          # Submission checklist: preserve truthful affiliation as a hard gate.
+          # ------------------------------------------------------------------
+          p = Path('paper/submission-checklist.md')
+          chk = p.read_text()
+          chk = chk.replace('- [ ] GraphOne included in final mutable-storage positioning.', '- [x] GraphOne included in final mutable-storage positioning.')
+          chk = chk.replace('- [ ] Teseo included in final mutable-storage positioning.', '- [x] Teseo included in final mutable-storage positioning.')
+          chk = chk.replace('- [ ] Final manuscript uses citation-backed academic prose rather than internal “first/not first” notes.', '- [x] Final manuscript uses citation-backed academic prose rather than internal “first/not first” notes.')
+          chk = chk.replace('- [ ] Dataset/workload table created.', '- [x] Dataset/workload table created.')
+          chk = chk.replace('- [ ] **Figure 1:** system architecture / execution path.', '- [x] **Figure 1:** system architecture / execution path.')
+          chk = chk.replace('- [ ] **Figure 2:** current selector regret/crossover across graph/regime.', '- [x] **Figure 2:** current selector regret/crossover across graph/regime.')
+          chk = chk.replace('- [ ] **Table 2:** external baseline summary with workload-specific wins/losses.', '- [x] **Table 2:** external baseline summary with workload-specific wins/losses.')
+          chk = chk.replace('- [ ] Related Work is integrated once, without duplicated “prior art” and “related work” sections.', '- [x] Related Work is integrated once, without duplicated “prior art” and “related work” sections.')
+          chk = chk.replace('- [ ] Experimental methodology states hosted-runner scope before results.', '- [x] Experimental methodology states hosted-runner scope before results.')
+          chk = chk.replace('- [ ] Limitations explicitly include the historical-root validation and large-web tail.', '- [x] Limitations explicitly include the historical-root validation, source-order workload boundary, fallback-isolation boundary, and large-web tail.')
+          chk = chk.replace('- [ ] Conclusion states a systems lesson, not a universal fastest-system claim.', '- [x] Conclusion states a systems lesson, not a universal fastest-system claim.')
+          venue_anchor = '## G. Venue-specific finalization\n\nDo this only after the scientific package is frozen:\n'
+          venue_repl = venue_anchor + '\n- [ ] **SUBMISSION BLOCKER:** replace the minimal country-only author block with the final truthful institutional affiliation (and any coauthors) on page 1; do not infer or guess affiliation.\n- [ ] **SUBMISSION BLOCKER:** complete final author profiles/COIs required by the venue.\n'
+          chk = replace_once(chk, venue_anchor, venue_repl, 'submission blockers')
+          p.write_text(chk)
+
+          # ------------------------------------------------------------------
+          # Reviewer audit: record the resolved deep-review findings and the one
+          # intentionally unresolved identity/affiliation gate.
+          # ------------------------------------------------------------------
+          p = Path('paper/reviewer-audit.md')
+          audit = p.read_text().rstrip() + '''
+
+## Deep review remediation — 2026-09-15
+
+A post-PDF hostile review found and addressed the following submission risks:
+
+- **PDF numbering defect:** display injection previously matched `# Heading` inside `## Heading`, creating orphan `#` lines and phantom numbered sections. The PVLDB preparer now uses exact whole-line heading anchors and rejects orphan headings.
+- **Fallback interpretation:** the publication selector harness uses fallback fraction 2.0 to isolate repair and full exact arms. Zero internal fallback is now disclosed as expected by construction, not selector-quality evidence.
+- **Exactness argument:** the manuscript now gives a compact lemma/theorem argument for normalized mixed batches, deletion invalidation, boundary repair, insertion decreases, and conservative full fallback.
+- **Nested observations:** 1,610 batch measurements are now described as sequential observations nested in 45 graph-regime repetitions; equal-regime and sample-weighted summaries are separated explicitly.
+- **Workload boundary:** the primary update program is disclosed as a deterministic source-order sliding window, not a timestamped temporal trace.
+- **Policy baselines:** the existing retained artifact now exposes same-harness always-incremental, threshold, history-only, and adaptive summaries. Adaptive has the best equal-regime and worst-regime mean regret, while always-incremental has lower sample-weighted regret because small repair-friendly regimes contribute more observations.
+- **RisGraph visibility:** the accepted separate campaign is now visible in the evaluation and external-baseline table, including the competitor win.
+- **Related work:** dynamic storage coverage now includes LLAMA, Aspen, LiveGraph, Sortledton, GraphOne, and Teseo, and the paper explicitly acknowledges classical exact incremental shortest-path work.
+- **System overview:** the official paper build now includes a physical-plan architecture figure.
+
+Remaining hard gate before submission: complete the truthful institutional affiliation/coauthor metadata and obtain independent DB-systems pre-review. A broader unseen/multi-root selector validation remains desirable but is not represented as already completed.
+'''
+          p.write_text(audit)
+          PY
+
+      - name: Remove temporary workflow and validate patch
+        run: |
+          rm .github/workflows/apply-paper-deep-review-fixes.yml
+          python paper/validate_submission_data.py
+          python -m py_compile paper/vldb/prepare_submission.py paper/figures/generate_figures.py
+          git diff --check
+          git status --short
+
+      - name: Commit reviewer fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "paper: address deep reviewer blockers"
+          git push origin HEAD:paper-deep-review-fixes
