@@ -1,3 +1,37 @@
-# Paper workspace
+# VeloGraphX manuscript workspace
 
-Working material for a future research evaluation of VeloGraphX. Claims must be synchronized with the novelty ledger and reproducible benchmark outputs. Candidate framing: adaptive incremental graph analytics on modern multicore CPUs.
+This directory contains the manuscript-facing material for the VeloGraphX database-systems paper.
+
+## Working title
+
+**VeloGraphX: Adaptive Exact Analytics for Evolving Graphs**
+
+## Primary thesis
+
+The paper studies a systems question rather than claiming that incremental graph processing always wins:
+
+> For exact analytics on evolving graphs, the preferred execution strategy changes with graph structure and update regime; a dynamic graph engine should therefore expose both localized repair and full recomputation and adapt between them.
+
+The paper should remain centered on this thesis. Storage, additional algorithms, multicore execution, compression, and external baselines are supporting system evidence rather than independent headline stories.
+
+## Files
+
+- [`manuscript.md`](manuscript.md) — working full-paper draft and section-level argument.
+- [`results-ledger.md`](results-ledger.md) — figure/table plan tied to retained runs and claim boundaries.
+- [`data/accepted-results.json`](data/accepted-results.json) — compact machine-readable values selected for manuscript construction.
+- [`../docs/paper-evidence-index.md`](../docs/paper-evidence-index.md) — authoritative repository-wide evidence registry.
+- [`../PAPER.md`](../PAPER.md) — reviewer-facing artifact guide.
+
+## Evidence rules
+
+1. Every quantitative manuscript statement must map to a retained artifact, a repository document that records its provenance, or a fresh audited publication-selector artifact.
+2. Same-run and paired GitHub-hosted experiments may support narrowly scoped relative claims. They do not establish universal peak performance.
+3. Absolute timings from different hosted runners must never be combined into a synthetic cross-system ranking.
+4. Exactness gates are mandatory for dynamic results.
+5. Negative results stay visible: GAP, NetworKit, RisGraph, and full recomputation are allowed to win where the retained experiments show that they do.
+6. Many-core, multi-socket NUMA, hardware-counter, and storage-device-specific claims require suitable controlled hardware and are outside the default manuscript scope.
+7. Historical selector-development numbers must be labelled as development evidence unless the corresponding retained run/artifact is explicitly audited for the submitted manuscript.
+
+## Intended venue profile
+
+The manuscript is designed for a top data-management venue such as PVLDB/VLDB, ICDE, or SIGMOD/PACMMOD. Venue-specific formatting, anonymity, page limits, and artifact rules should be applied only after the scientific content and evidence selection are frozen.
