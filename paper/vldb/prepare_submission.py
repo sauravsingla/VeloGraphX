@@ -109,8 +109,8 @@ For this policy-comparison harness, the incremental arm is deliberately construc
     new_double = """A selector that invokes incremental repair and only later discovers that the affected region is too large may pay twice: once for repair discovery or partial processing and again for full recomputation. This motivates pre-execution signals and selector-owned recomputation. The current publication-policy harness intentionally disables internal fallback to isolate the repair and full arms, so it does **not** by itself measure avoided repair-then-full work. The current result is specifically a plan-selection result."""
     body = replace_once(body, old_double, new_double, "double-work claim boundary")
 
-    policy_heading = "# Dynamic BFS versus NetworKit"
-    policy_section = """# Policy baselines under one frozen harness
+    policy_heading = "## Dynamic BFS versus NetworKit"
+    policy_section = """## Policy baselines under one frozen harness
 
 The retained cross-dataset artifact contains all policies under the same graph, root, batch, repetition, timing, and exactness contract. Equal weighting across nine regimes is important because small batches generate many more sequential observations than large batches. Always-incremental has 11.19% equal-regime mean regret, the simple update-density threshold 17.84%, the history-only cost model 20.21%, and the current adaptive policy 3.94%; their worst-regime mean regrets are 57.10%, 59.29%, 57.56%, and 17.48%, respectively.
 
@@ -171,12 +171,18 @@ def make_typesetting_friendly(body: str) -> str:
 
 
 def cite_first(text: str, phrase: str, key: str) -> str:
+    """Cite the first prose occurrence without mutating Markdown headings."""
     marker = f"{phrase}\\cite{{{key}}}"
     if marker in text:
         return text
-    if phrase not in text:
-        raise RuntimeError(f"citation anchor not found: {phrase}")
-    return text.replace(phrase, marker, 1)
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            continue
+        if phrase in line:
+            lines[i] = line.replace(phrase, marker, 1)
+            return "".join(lines)
+    raise RuntimeError(f"citation prose anchor not found: {phrase}")
 
 
 def add_citations(body: str) -> str:
@@ -378,12 +384,12 @@ def inject_displays(body: str, results: dict) -> str:
     body = insert_before_heading(body, "## Reproducibility discipline", selector_workload_table())
     body = insert_before_heading(
         body,
-        "# Dynamic BFS versus NetworKit",
+        "## Dynamic BFS versus NetworKit",
         selector_fig + "\n\n" + policy_baseline_table(),
     )
-    body = insert_before_heading(body, "# Static BFS and SSSP versus GAP and LAGraph", external_baseline_table(results))
-    body = insert_before_heading(body, "# Large-graph storage maintenance", triangle_fig)
-    body = insert_before_heading(body, "# Supporting breadth and maturity", storage_table(results))
+    body = insert_before_heading(body, "## Static BFS and SSSP versus GAP and LAGraph", external_baseline_table(results))
+    body = insert_before_heading(body, "## Large-graph storage maintenance", triangle_fig)
+    body = insert_before_heading(body, "## Supporting breadth and maturity", storage_table(results))
 
     orphan = re.search(r"(?m)^#{1,6}\s*$", body)
     if orphan:
