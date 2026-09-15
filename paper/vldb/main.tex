@@ -10,6 +10,11 @@
 \usepackage{pvldb}
 %%% VLDB block end %%%
 
+% Pandoc emits \tightlist for compact Markdown lists. This is a conversion
+% compatibility helper only; it does not modify the PVLDB class or style.
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
 \renewcommand\vldbdoi{XX.XX/XXX.XX}
 \renewcommand\vldbpages{XXX-XXX}
 % Replace with the DOI-capable archival artifact URL before submission.
