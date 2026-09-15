@@ -2,7 +2,8 @@
 """Validate committed manuscript evidence inputs before submission.
 
 This script uses only the Python standard library. It guards against accidental drift
-between the audited selector summary and the paper-facing CSV/JSON inputs.
+between audited selector summaries, paper-facing CSV/JSON inputs, and the benchmark
+workflow contract used to produce the retained evidence.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+REPO = ROOT.parent
 DATA = ROOT / "data"
 
 
@@ -87,6 +89,68 @@ def main() -> None:
             fail(f"unexpected repetition count in {row['dataset']} batch {row['batch_size']}")
         if float(row["internal_fallback_fraction"]) != 0.0:
             fail(f"nonzero internal fallback in {row['dataset']} batch {row['batch_size']}")
+
+    # Reviewer-facing derived values are recomputed from retained artifacts and carry
+    # the source run/artifact/digest explicitly. They must never float free of that provenance.
+    derived = json.loads((DATA / "final-review-derived.json").read_text())
+    if derived.get("schema_version") != 1:
+        fail("unexpected final-review-derived schema version")
+
+    plans = derived["selector_plan_comparison"]
+    if plans["source_run_id"] != selector["run_id"] or plans["source_artifact_id"] != selector["artifact_id"]:
+        fail("selector plan-comparison provenance disagrees with registry")
+    if plans["source_artifact_sha256"] != selector["artifact_sha256"]:
+        fail("selector plan-comparison digest disagrees with registry")
+    plan_rows = plans["rows"]
+    if len(plan_rows) != 9 or sum(int(r["samples"]) for r in plan_rows) != 1610:
+        fail("selector plan-comparison row/sample contract changed")
+    if {(r["dataset"], int(r["batch_size"])) for r in plan_rows} != {
+        (r["dataset"], int(r["batch_size"])) for r in rows
+    }:
+        fail("selector plan-comparison regimes disagree with selector CSV")
+    if any(float(r["median_incremental_over_full_ratio"]) <= 0.0 for r in plan_rows):
+        fail("non-positive incremental/full crossover ratio")
+    full_favored = {
+        (r["dataset"], int(r["batch_size"]))
+        for r in plan_rows
+        if float(r["median_incremental_over_full_ratio"]) > 1.0
+    }
+    if full_favored != {("ca-GrQc", 1536), ("web-Google", 24576)}:
+        fail(f"unexpected median crossover regimes: {sorted(full_favored)}")
+
+    aggregates = plans["policy_aggregates"]
+    expected_policies = {
+        "always_incremental", "always_full", "simple_threshold", "history_cost_model", "adaptive"
+    }
+    if set(aggregates) != expected_policies:
+        fail("policy aggregate set changed")
+    adaptive = aggregates["adaptive"]
+    if not close(adaptive["equal_regime_mean_regret"], selector["mean_oracle_regret_across_regimes"], 1e-10):
+        fail("derived adaptive equal-regime regret disagrees with registry")
+    if not close(adaptive["sample_weighted_mean_regret"], selector["sample_weighted_mean_oracle_regret"], 1e-10):
+        fail("derived adaptive weighted regret disagrees with registry")
+    if not close(adaptive["sample_weighted_wrong_arm_rate"], selector["sample_weighted_wrong_arm_rate"], 1e-10):
+        fail("derived adaptive wrong-arm rate disagrees with registry")
+    if not close(adaptive["worst_regime_mean_regret"], selector["worst_regime_mean_regret"], 1e-10):
+        fail("derived adaptive worst-regime regret disagrees with registry")
+    if not all(adaptive["equal_regime_mean_regret"] < aggregates[p]["equal_regime_mean_regret"] for p in expected_policies - {"adaptive"}):
+        fail("adaptive policy is no longer best on the declared equal-regime robustness summary")
+
+    nk_registry = results["external_baselines"]["networkit_dynamic_bfs"]
+    nk = derived["networkit_dispersion"]
+    if nk["source_run_id"] != nk_registry["run_id"] or nk["source_artifact_id"] != nk_registry["artifact_id"]:
+        fail("NetworKit dispersion provenance disagrees with registry")
+    if nk["source_artifact_sha256"] != nk_registry["artifact_sha256"]:
+        fail("NetworKit dispersion digest disagrees with registry")
+    for dataset, entry in nk["datasets"].items():
+        mean = nk_registry["datasets"][dataset]["velographx_over_networkit_latency_ratio"]
+        if not (entry["min_root_mean_ratio"] <= mean <= entry["max_root_mean_ratio"]):
+            fail(f"NetworKit root range does not bracket dataset mean for {dataset}")
+
+    # Keep the paper-facing workload table tied to the exact frozen workflow contract.
+    workflow = (REPO / ".github" / "workflows" / "publication-selector-cross-dataset.yml").read_text()
+    if "'soc-Epinions1': ('soc-Epinions1', 71391, 0.90, [384, 1536, 6144])" not in workflow:
+        fail("soc-Epinions1 audited import fraction is no longer 0.90 in the selector workflow")
 
     if results["external_baselines"]["networkit_dynamic_bfs"]["all_exact"] is not True:
         fail("NetworKit paired evidence lost exactness flag")
