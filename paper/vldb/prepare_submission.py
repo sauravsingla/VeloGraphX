@@ -62,12 +62,14 @@ def make_typesetting_friendly(body: str) -> str:
         "`G_t`": "$G_t$",
         "`U_t`": "$U_t$",
         "`G_{t-1}`": "$G_{t-1}$",
+        "`F(G_t)`": "$F(G_t)$",
         "graph/reachability scale": "graph scale and reachability",
         "external-system conclusions are workload-specific": "external-system results vary by workload",
         "graph/update structure": "graph and update structure",
         "the same broad principle—avoid global work while localized state remains economical—but operate at different layers and timescales": "the same broad principle of avoiding global work while localized state remains economical, but they operate at different layers and timescales",
         "repair-versus-recompute selection": "repair/recompute selection",
         "dependency-driven and sparsity-aware incremental graph processing": "dependency- and sparsity-aware incremental graph processing",
+        "explicit timing semantics, current-policy oracle metrics, external baselines, and negative-result retention": "explicit timing semantics, oracle metrics for the current policy, external baselines, and retained negative results",
     }
     for source, target in replacements.items():
         body = body.replace(source, target)
