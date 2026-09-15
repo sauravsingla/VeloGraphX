@@ -18,7 +18,14 @@ The paper should remain centered on this thesis. Storage, additional algorithms,
 
 - [`manuscript.md`](manuscript.md) — working full-paper draft and section-level argument.
 - [`results-ledger.md`](results-ledger.md) — figure/table plan tied to retained runs and claim boundaries.
+- [`reviewer-audit.md`](reviewer-audit.md) — strict pre-submission reviewer simulation and likely reject reasons.
+- [`submission-checklist.md`](submission-checklist.md) — scientific, artifact, figure, and venue-finalization gate.
+- [`related-work-notes.md`](related-work-notes.md) — claim-by-claim novelty boundary and prior-work notes.
+- [`references.bib`](references.bib) — manuscript bibliography seed.
 - [`data/accepted-results.json`](data/accepted-results.json) — compact machine-readable values selected for manuscript construction.
+- [`figures/generate_figures.py`](figures/generate_figures.py) — deterministic figure generator reading only committed paper evidence.
+- [`figures/README.md`](figures/README.md) — figure/caption mapping and final visual-QA rules.
+- [`validate_submission_data.py`](validate_submission_data.py) — standard-library consistency check for paper evidence inputs.
 - [`../docs/paper-evidence-index.md`](../docs/paper-evidence-index.md) — authoritative repository-wide evidence registry.
 - [`../PAPER.md`](../PAPER.md) — reviewer-facing artifact guide.
 
@@ -31,6 +38,16 @@ The paper should remain centered on this thesis. Storage, additional algorithms,
 5. Negative results stay visible: GAP, NetworKit, RisGraph, and full recomputation are allowed to win where the retained experiments show that they do.
 6. Many-core, multi-socket NUMA, hardware-counter, and storage-device-specific claims require suitable controlled hardware and are outside the default manuscript scope.
 7. Historical selector-development numbers must be labelled as development evidence unless the corresponding retained run/artifact is explicitly audited for the submitted manuscript.
+
+## Local submission-data validation
+
+Run from the repository root:
+
+```bash
+python3 paper/validate_submission_data.py
+```
+
+The same validation is part of the Publication Artifact Contract workflow so accidental drift between the paper-facing CSV and the audited JSON registry fails CI.
 
 ## Intended venue profile
 

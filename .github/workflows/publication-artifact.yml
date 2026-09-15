@@ -78,3 +78,5 @@ jobs:
             exit 1
           fi
           grep -Eqi 'preflight byte-size mismatch|preflight sha256 mismatch' build/preflight-tampered.err
+      - name: Validate manuscript evidence inputs
+        run: python paper/validate_submission_data.py
