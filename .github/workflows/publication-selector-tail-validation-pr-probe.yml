@@ -1,0 +1,133 @@
+name: Publication Selector Tail Validation PR Probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/publication-selector-tail-validation-pr-probe.yml'
+
+permissions:
+  contents: read
+
+env:
+  OMP_NUM_THREADS: 1
+  OMP_PROC_BIND: true
+  SIMPLE_UPDATE_FRACTION: '0.01'
+
+jobs:
+  publication-tail:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Verify historical selector remains frozen
+        run: |
+          grep -q 'bounded-one-sided-warmup-v5' benchmarks/adaptive_policy_bfs.cpp
+          grep -q 'large_one_sided_full' benchmarks/adaptive_policy_bfs.cpp
+
+      - name: Build publication policy harness
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_bfs.cpp \
+            build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs
+
+      - name: Prepare checksum-pinned web-Google
+        run: |
+          mkdir -p build/publication/datasets build/publication/runs build/publication/summary
+          python tools/prepare_dataset.py \
+            --manifest datasets/manifest.public-small.json \
+            --output-dir build/publication/datasets \
+            --dataset web-Google > build/publication/web-Google-source.json
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/publication/datasets/web-Google.txt \
+            --output build/publication/web-Google.txt \
+            --report build/publication/web-Google-normalization.json \
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 \
+            --expected-vertices 875713 \
+            --expected-edges 5105039
+
+      - name: Run publication policies across crossover regimes
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          root = 481807
+          rate = 0.99
+          batches = [512, 2048, 8192, 32768]
+          for batch in batches:
+              for rep in range(1, 4):
+                  out = Path(f'build/publication/runs/web-Google__{batch}__{rep}.json')
+                  with out.open('w') as f:
+                      subprocess.run([
+                          'build/publication_policy_bfs',
+                          'build/publication/web-Google.txt',
+                          str(root), str(rate), str(batch),
+                          os.environ['SIMPLE_UPDATE_FRACTION'],
+                      ], stdout=f, check=True)
+                  d = json.load(out.open())
+                  assert d['all_policies_exact'], (batch, rep)
+                  assert d['oracle_definition'].startswith('min(always_incremental,always_full)')
+                  adaptive = next(p for p in d['policies'] if p['name'] == 'adaptive')
+                  reasons = [t['reason'] for t in adaptive['trace']]
+                  assert 'large_one_sided_full' not in reasons, (batch, rep)
+                  if batch == 512:
+                      assert 'large_initial_incremental_probe' in reasons, (batch, rep, reasons[:4])
+          PY
+
+      - name: Summarize oracle regret and audit telemetry
+        run: |
+          python tools/summarize_publication_policy.py \
+            --input-dir build/publication/runs \
+            --output build/publication/summary/summary.json \
+            | tee build/publication/summary/stdout-summary.json
+          python - <<'PY'
+          import json
+          d = json.load(open('build/publication/summary/summary.json'))
+          assert d['all_results_exact']
+          assert d['adaptive_redundant_one_sided_full_count'] == 0
+          assert d['adaptive_initial_incremental_probe_count'] >= 3
+          rows = d['rows']
+          assert any(r['policy'] == 'history_cost_model' for r in rows)
+          assert all('wrong_arm_rate' in r for r in rows)
+          assert all('internal_fallback_fraction' in r for r in rows)
+          print('adaptive_max_batch_regret=', d['adaptive_max_batch_regret'])
+          print('adaptive_worst_regime_p95_regret=', d['adaptive_worst_regime_p95_regret'])
+          print('note=hosted-runner performance is evidence only; performance thresholds are not hard-failed')
+          PY
+
+      - name: Capture immutable pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "historical_selector=bounded-one-sided-warmup-v5"
+            echo "publication_selector=publication-preflight-v1"
+            echo "web_google_source_sha256=8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1"
+            echo "root=481807"
+            echo "imported_rate=0.99"
+            echo "batch_sizes=512,2048,8192,32768"
+            echo "repetitions_per_regime=3"
+            echo "one_thread=true"
+            echo "research_claim=false"
+          } > build/publication/pins.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: publication-selector-tail-validation
+          path: build/publication/
+          retention-days: 90
