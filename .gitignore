@@ -13,6 +13,9 @@ cmake-build-*/
 __pycache__/
 *.pyc
 
+# Local paper-artifact validation outputs
+artifacts/paper-minimal/
+
 # Local secrets and credentials
 .env
 .env.*
