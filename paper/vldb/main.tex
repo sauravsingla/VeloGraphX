@@ -1,0 +1,56 @@
+% VeloGraphX PVLDB Volume 20 submission wrapper.
+% The CI build supplies the official pinned acmart.cls and pvldb.sty from
+% https://github.com/vldbproceedings/VLDB-Template at the commit recorded in
+% paper/vldb/template.lock.
+
+\documentclass[sigconf, nonacm]{acmart}
+
+%%% do not modify the following VLDB block %%
+%%% VLDB block start %%%
+\usepackage{pvldb}
+%%% VLDB block end %%%
+
+% Pandoc emits \tightlist for compact Markdown lists. This is a conversion
+% compatibility helper only; it does not modify the PVLDB class or style.
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+\renewcommand\vldbdoi{XX.XX/XXX.XX}
+\renewcommand\vldbpages{XXX-XXX}
+% Replace with the DOI-capable archival artifact URL before submission.
+\renewcommand\vldbavailabilityurl{https://github.com/sauravsingla/VeloGraphX}
+
+\begin{document}
+
+\title{VeloGraphX: Adaptive Exact Analytics for Evolving Graphs}
+
+% PVLDB is single-blind. Complete affiliations/coauthors must be finalized
+% before submission. This minimal author block keeps CI compilation honest
+% without inventing an employer affiliation.
+\author{Saurav Singla}
+\affiliation{%
+  \country{India}
+}
+
+\begin{abstract}
+\input{abstract.tex}
+\end{abstract}
+
+\maketitle
+
+%%% do not modify the following VLDB block %%
+%%% VLDB block start %%%
+\vldbtopmatter
+%%% VLDB block end %%%
+
+\input{body.tex}
+
+% CI extracts this label from the aux file and fails when scientific content
+% exceeds the 12-page Regular Research limit. References may extend beyond it.
+\label{vldb-content-end}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}
+\endinput

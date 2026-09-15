@@ -14,6 +14,14 @@ The paper studies a systems question rather than claiming that incremental graph
 
 The paper should remain centered on this thesis. Storage, additional algorithms, multicore execution, compression, and external baselines are supporting system evidence rather than independent headline stories.
 
+## Submission target
+
+The primary target is now **PVLDB Volume 20 / VLDB 2027, Regular Research Paper, December 1 2026 cycle**. The mandatory abstract deadline is November 25, 2026.
+
+- [`venue-plan.md`](venue-plan.md) — venue decision, deadlines, freeze policy, and submission gates.
+- [`vldb/`](vldb/) — official-template build wrapper pinned to the current PVLDB Volume 20 template revision.
+- [`.github/workflows/pvldb-paper.yml`](../.github/workflows/pvldb-paper.yml) — reproducible official-format PDF build and 12-page content gate.
+
 ## Files
 
 - [`manuscript.md`](manuscript.md) — working full-paper draft and section-level argument.
@@ -49,6 +57,6 @@ python3 paper/validate_submission_data.py
 
 The same validation is part of the Publication Artifact Contract workflow so accidental drift between the paper-facing CSV and the audited JSON registry fails CI.
 
-## Intended venue profile
+## Engineering freeze
 
-The manuscript is designed for a top data-management venue such as PVLDB/VLDB, ICDE, or SIGMOD/PACMMOD. Venue-specific formatting, anonymity, page limits, and artifact rules should be applied only after the scientific content and evidence selection are frozen.
+Core engineering is frozen unless an external reviewer identifies a concrete scientific gap. The priority order is now: official-format manuscript, figures/tables, citations, external review, archival artifact freeze, then CMT submission QA.
