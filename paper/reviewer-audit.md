@@ -4,18 +4,19 @@ This is an internal pre-submission review of **VeloGraphX: Adaptive Exact Analyt
 
 ## Overall assessment
 
-**Current paper potential:** strong top-tier database/systems submission if the manuscript stays narrow and evidence-backed.
+**Current paper potential:** strong top-tier database/systems submission if the manuscript remains narrow, preserves the negative held-out result, and completes the final presentation/archive gates.
 
 | Dimension | Current assessment | Main reason |
 | --- | --- | --- |
 | Problem importance | Strong | Exact analytics on evolving graphs face a real repair-vs-recompute crossover. |
-| Systems novelty | Strong but positioning-sensitive | The novelty is the integrated pre-repair exact execution decision over one mutable substrate, not the generic idea of incremental/static switching. |
-| Technical depth | Strong | Mutable storage, exact maintained algorithms, pre-repair policy, correctness/fallback contracts, and reproducible evaluation are all implemented. |
-| Experimental credibility | Strong | Pinned data/revisions, exactness gates, raw repetitions, current-selector oracle metrics, negative-result retention, and scoped external baselines. |
-| Reproducibility | Very strong | Reviewer-facing artifact map, machine-readable evidence registry, retained run/artifact identifiers, reproduction workflow, and deterministic figure inputs. |
-| Breadth of external dynamic baselines | Moderate-to-strong | NetworKit and RisGraph are useful, but the accepted campaigns are separate; do not fabricate a three-system league table from them. |
-| Hardware breadth | Limited by design | Hosted evidence is adequate for the central relative/crossover claim but not for many-core/NUMA/microarchitecture claims. |
-| Manuscript readiness | Strong draft | Main remaining work is venue formatting, integrated citations, figure polish, and final external review. |
+| Systems novelty | Strong but positioning-sensitive | The contribution is the integrated pre-repair exact physical-plan choice over one mutable substrate, not the generic idea of incremental/static switching. |
+| Technical depth | Strong | Mutable storage, exact BFS repair, explicit fallback, pre-repair policy, correctness contracts, and plan telemetry are implemented. |
+| Experimental credibility | Very strong | Primary oracle-relative campaign, production 0.35 fallback replay, frozen no-retuning holdout, clean feature ablation, matched GraphBolt evidence, exactness gates, and retained negative results. |
+| Reproducibility | Very strong | Reviewer-facing artifact map, machine-readable registries, retained run/artifact identifiers and digests, reproduction workflows, submission-freeze metadata, and deterministic figure inputs. |
+| External dynamic baselines | Stronger than before | Matched GraphBolt evidence now complements NetworKit and RisGraph; workload-specific reversals are retained. |
+| Generalization evidence | Mixed by design | `Amazon0312` is strong; timestamp-ordered `CollegeMsg` is a substantial negative result and prevents a universal selector claim. |
+| Hardware breadth | Limited by design | Hosted evidence is adequate for the scoped central claim but not for many-core/NUMA/microarchitecture claims. |
+| Manuscript readiness | Strong synchronized draft | Scientific prose now includes the closure experiments; remaining work is figures/tables, citation polish, archival DOI, and external review. |
 
 ## Likely reviewer objections and required responses
 
@@ -23,119 +24,125 @@ This is an internal pre-submission review of **VeloGraphX: Adaptive Exact Analyt
 
 **Severity:** high if framed poorly; low if framed correctly.
 
-GraphIn already uses dual incremental/static execution, and Bok et al. already use historical cost information to choose incremental or static processing. VeloGraphX must therefore avoid first-of-kind language about switching or cost-based selection.
+GraphIn already uses dual incremental/static execution, and Bok et al. already use historical cost information to choose incremental or static processing. VeloGraphX must avoid first-of-kind language about switching or cost-based selection.
 
-**Required paper response:** define the contribution as the combination of:
+**Required paper response:** define the contribution as the combination of exact localized repair and full recomputation as physical plans over one mutable state, a decision made before expensive repair discovery when possible, explicit separation of selector and fallback, direct measurement of repair-then-full work, oracle/regret evaluation, and an artifact discipline that preserves failures.
 
-- exact localized repair and full recomputation as two physical plans under one mutable graph substrate;
-- a decision made *before* expensive repair discovery when possible;
-- explicit prevention/measurement of repair-then-full double work;
-- exact per-batch oracle/regret evaluation including wrong-arm and tail behavior; and
-- an artifact-backed benchmark discipline that preserves competitor and selector losses.
+**Status:** addressed in the synchronized manuscript and related-work notes. Keep citations precise.
 
-**Status:** addressed in `related-work-notes.md`; must remain explicit in the final Related Work section.
+### 2. “The current selector does not generalize uniformly.”
 
-### 2. “The selector is not uniformly near-oracle.”
+**Severity:** high if hidden; medium if presented as a scoped policy limitation.
 
-**Severity:** medium.
+The frozen held-out campaign is exact with no post-result retuning, but the two held-out families differ sharply. `Amazon0312` records 1.52% equal-regime mean regret, while timestamp-ordered `CollegeMsg` records 34.52%, with a 185.83% worst-regime mean and 311.88% worst-regime p95.
 
-The largest evaluated `web-Google` regime has a visible tail. This is a result, not an error to hide.
+**Required paper response:** make the architectural claim primary and the current selector claim secondary. State explicitly that the physical-plan abstraction generalizes more broadly than the present hand-designed policy. Do not retune thresholds after seeing `CollegeMsg` merely to improve the reported result.
 
-**Required paper response:** report both aggregate quality and the tail in the primary selector figure/table. Explain that the system claim is useful adaptive execution, not oracle optimality.
+**Status:** addressed in abstract, evaluation, discussion, limitations, and conclusion.
 
-**Status:** addressed. Do not retune after seeing this tail unless a new development/holdout protocol is declared.
+### 3. “You motivate avoiding repair→full double work, but is it directly measured?”
 
-### 3. “Hosted runners are noisy.”
+**Severity:** now low.
+
+The production 0.35 campaign directly compares fallback-only behavior with the same frozen selector path. Across 93 exact aligned observations, fallback-only falls back six times; the pre-repair selector avoids all six opportunities and 17.323 ms of conservatively measured double work, while retaining 33 false-full choices.
+
+**Required paper response:** keep both the benefit and the cost visible. Do not generalize the 220K cascade stress case to natural-workload frequency.
+
+**Status:** closed.
+
+### 4. “Which selector mechanisms actually matter?”
+
+**Severity:** now low-to-medium.
+
+The clean one-factor-at-a-time ablation shows that removing structural preflight worsens equal-regime mean regret from 4.82% to 8.16%, while removing uncertainty raises it to 142.97% with a catastrophic tail. Removing previous-affected-work slightly improves the aggregate result to 4.20%.
+
+**Required paper response:** claim support for structural preflight and uncertainty, but do not claim that every existing feature is independently beneficial. Treat previous-affected-work as unresolved or a candidate for simplification.
+
+**Status:** closed scientifically; retain the neutral/negative result.
+
+### 5. “Hosted runners are noisy.”
 
 **Severity:** medium if making absolute peak-performance claims; low for the current claim scope.
 
-**Required paper response:** emphasize same-run/paired comparisons, exact timing envelopes, repeated samples, dimensionless ratios where possible, and the explicit exclusion of many-core/NUMA/hardware-counter claims.
+**Required paper response:** emphasize same-run/paired comparisons, exact timing envelopes, repetitions, dimensionless ratios where possible, and explicit exclusion of many-core/NUMA/hardware-counter claims.
 
-**Status:** addressed in the evidence registry and manuscript limitations.
+**Status:** addressed in methodology and limitations.
 
-### 4. “Why only BFS for the adaptive policy?”
-
-**Severity:** medium.
-
-**Required paper response:** explain that BFS is the controlled vehicle for studying repair/recompute selection because it exposes insertion and deletion dependency changes and admits a direct exact recomputation oracle. Use triangles, SSSP, CC, k-core, PageRank-related workflows, and storage results as system breadth evidence without pretending one selector transfers unchanged to every analytic.
-
-**Status:** addressed, but the final introduction and limitations should state this plainly.
-
-### 5. “The mutable storage design overlaps prior dynamic graph stores.”
+### 6. “Why only BFS for the adaptive policy?”
 
 **Severity:** medium.
 
-GraphOne, Teseo, and related dynamic graph stores establish strong prior art for mutable graph representations and concurrent/evolving-graph storage.
+**Required paper response:** BFS is the controlled vehicle because it exposes insertion/deletion dependency changes and admits a direct exact recomputation oracle. Use triangles, static context, and storage as breadth evidence without implying one selector transfers unchanged to every analytic. Keep PageRank outside the exactness claim by using residual/tolerance-validation wording.
 
-**Required paper response:** do not claim the storage layout itself is the sole novelty. Position segmented CSR + packed deltas + sparse row patches as the substrate that enables the paper's exact execution-choice study and separately report its bounded canonicalization trade-off.
+**Status:** addressed.
 
-**Status:** bibliography/related-work coverage should explicitly include GraphOne and Teseo.
+### 7. “External-system results look cherry-picked.”
 
-### 6. “External baseline coverage is fragmented.”
+**Severity:** low-to-medium if the reversals remain visible.
 
-**Severity:** medium.
+The evidence now includes matched GraphBolt, paired NetworKit, separate RisGraph, and static GAP/LAGraph context. VeloGraphX wins some regimes and loses others. The GraphBolt ratio reverses by update fraction; NetworKit wins `ca-GrQc`; GAP wins weighted SSSP; RisGraph wins its documented hosted campaign.
 
-NetworKit and RisGraph accepted evidence comes from separate hosted campaigns. Absolute times from those runs must not be combined.
+**Required paper response:** preserve each workload-specific reversal and never merge unrelated absolute times into one league table.
 
-**Required paper response:** report each scoped comparison separately and preserve the fact that competitors win some workloads. A future audited unified same-run campaign would strengthen the paper but is not a prerequisite for the current central claim.
+**Status:** addressed.
 
-**Status:** evidence rules already enforce this.
-
-### 7. “The paper has too many secondary stories.”
+### 8. “The paper has too many secondary stories.”
 
 **Severity:** high if not controlled.
 
-The repository contains storage, compression, multicore, Python packaging, multiple algorithms, and many benchmark campaigns. A paper that gives them equal weight will look like a project report rather than a focused systems contribution.
+The repository contains storage, compression, multicore, Python packaging, several algorithms, and many benchmark campaigns.
 
-**Required paper response:** keep the hierarchy:
+**Required paper hierarchy:**
 
-1. repair/recompute crossover;
-2. current pre-repair selector;
-3. external dynamic/static context;
-4. triangle breadth;
-5. large-graph storage mechanism;
-6. everything else in supporting/appendix material.
+1. exact repair/recompute crossover and physical-plan architecture;
+2. primary selector behavior;
+3. production fallback double-work evidence;
+4. frozen held-out generalization and clean ablation;
+5. matched external dynamic baselines;
+6. triangle/storage breadth only as supporting evidence.
 
-**Status:** current manuscript follows this hierarchy; preserve it.
+**Status:** synchronized manuscript follows this hierarchy; preserve it during figure/table integration.
 
-## Simulated scores
+## Internal readiness scores
 
-These are internal readiness scores, not acceptance probabilities.
+These are internal manuscript-readiness scores, **not acceptance probabilities**.
 
 | Review category | Score / 10 |
 | --- | ---: |
-| Significance | 9.0 |
-| Technical quality | 9.3 |
-| Novelty after proper positioning | 8.7 |
-| Evaluation | 9.2 |
+| Significance | 9.1 |
+| Technical quality | 9.4 |
+| Novelty after proper positioning | 8.8 |
+| Evaluation | 9.5 |
 | Reproducibility | 9.8 |
-| Clarity potential | 9.1 |
-| Artifact quality | 9.7 |
-| Overall submission readiness | 9.2 |
+| Clarity potential | 9.3 |
+| Artifact quality | 9.8 |
+| Overall submission readiness | 9.4 |
+
+The main reason the score is not higher is no longer missing experimentation. It is final-paper execution: visual evidence integration, citation quality, archival permanence, and independent external review.
 
 ## Must close before submission
 
-1. Convert the internal “novelty boundary” wording into a polished Related Work section with real citations.
-2. Include GraphOne and Teseo in mutable-storage positioning.
-3. Ensure every headline number in the abstract appears in a figure/table or has an obvious evidence pointer.
-4. Generate and visually inspect all final figures at two-column print size.
-5. Add dataset/workload and hardware/software environment tables.
-6. Freeze the exact submission commit and raw selected evidence in a durable archival release; do not rely only on expiring Actions artifacts.
-7. Perform one independent database-systems review focused on novelty and missing baselines.
-8. Apply the chosen venue's anonymity, page-limit, artifact, COI, and AI-disclosure rules only after the scientific content is frozen.
+1. Integrate final figures/tables for the primary selector, production fallback, held-out result, ablation, and external baseline summary at conference-readable size.
+2. Finalize dataset/workload and hardware/software environment tables.
+3. Complete the bibliography/citation audit, especially GraphIn, Bok et al., GraphBolt/DZiG, RisGraph, Layph, GraphOne, Teseo, GAP, LAGraph, and NetworKit.
+4. Ensure every abstract number maps visibly to a figure/table or obvious manuscript evidence row.
+5. Freeze the exact submission commit and selected raw evidence in a durable release and mint/verify the DOI-capable archive record.
+6. Perform one independent database/graph-systems review focused on novelty, baselines, and the interpretation of the `CollegeMsg` holdout.
+7. Complete author/affiliation/ORCID/COI metadata and the current PVLDB venue-specific disclosure requirements.
+8. Build and visually inspect the final official-format PDF after the synchronized manuscript and figures are integrated.
 
 ## Explicit non-blockers
 
-The following are **not required** for this paper unless the claim scope changes:
+The following are **not required** unless the claim scope changes:
 
 - buying dedicated hardware;
 - 32/64-core scalability;
 - multi-socket NUMA experiments;
 - AVX-512 superiority;
 - adding more graph algorithms;
-- retuning the selector to eliminate every tail;
+- retuning the selector to eliminate `CollegeMsg` or `web-Google` tails;
 - producing a universal fastest-system league table.
 
 ## Submission gate
 
-The paper is ready to enter venue-formatting and external-review stage when all items under **Must close before submission** are either completed or deliberately documented as venue-specific finalization tasks. Core engine feature development should remain frozen during this stage.
+Core experimentation is now substantially closed. The paper should remain in manuscript/figure/archive/external-review mode unless a reviewer finds a concrete correctness, baseline, or methodology gap. Do not reopen broad engineering development merely to chase a cleaner headline number.
