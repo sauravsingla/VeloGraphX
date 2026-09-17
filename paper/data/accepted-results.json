@@ -16,7 +16,11 @@
       "run_id": 34929398888,
       "artifact_id": 10381490811,
       "artifact_sha256": "a78a421663b08228a7bd26596f9ad0498e2ad4a0c1470c79471dcaef97885a7b",
-      "datasets": ["ca-GrQc", "soc-Epinions1", "web-Google"],
+      "datasets": [
+        "ca-GrQc",
+        "soc-Epinions1",
+        "web-Google"
+      ],
       "regimes": 9,
       "repetitions_per_regime": 5,
       "adaptive_batch_samples": 1610,
@@ -40,7 +44,12 @@
       "artifact_sha256": "800d53a327900b4a579bb761d07adf86e3622b4e46a1a8ddea0fb25603bf3691",
       "dataset": "web-Google",
       "root": 481807,
-      "batch_sizes": [512, 2048, 8192, 32768],
+      "batch_sizes": [
+        512,
+        2048,
+        8192,
+        32768
+      ],
       "repetitions_per_regime": 3,
       "all_exact": true,
       "mean_oracle_regret_across_regimes": 0.024659584837658823,
@@ -63,7 +72,18 @@
       "false_full_choices": 33,
       "observed_fallback_double_work_ms": 17.323,
       "observed_double_work_avoided_ms": 17.323,
-      "claim_boundary": "The 220K destructive-cascade row is a mechanism stress case; this campaign demonstrates the mechanism and measured avoided work, not its natural-workload frequency."
+      "claim_boundary": "All six 0.35 fallback events occur in the declared 220K destructive-cascade stress case; the 72 real-graph observations have zero such fallback. The historical false_full_choices field is a structural explicit-full/non-fallback label, not a wrong-arm count. Cumulative latency ratios are sample-weighted totals within this retained campaign, not population-frequency or universal-performance claims.",
+      "false_full_choices_semantics": "Historical artifact label: selector chose full where fallback-only did not internally fall back; this is not a wrong-arm assertion and does not establish that full was slower than repair.",
+      "positive_false_full_penalty_us": 0.0,
+      "all_fallbacks_in_declared_cascade_stress_case": true,
+      "real_graph_aligned_batch_observations": 72,
+      "real_graph_fallback_only_internal_fallbacks": 0,
+      "fallback_only_over_selector_plus_fallback_cumulative_latency_ratio_all": 1.745008759207781,
+      "selector_plus_fallback_cumulative_latency_reduction_fraction_all": 0.4269369739702674,
+      "fallback_only_over_selector_plus_fallback_cumulative_latency_ratio_real_graphs": 1.72903333187279,
+      "selector_plus_fallback_cumulative_latency_reduction_fraction_real_graphs": 0.421642150231507,
+      "cumulative_selector_savings_ms_all": 754.870575,
+      "cumulative_selector_savings_ms_real_graphs": 737.796774
     },
     "frozen_heldout": {
       "run_id": 35237513595,
@@ -98,19 +118,47 @@
       "artifact_sha256": "a0aa985cd3f64d2e340938ba0111ec017076e24412665213bd4a9f4d5bf3601d",
       "all_exact": true,
       "policies": {
-        "adaptive": {"equal_regime_mean_regret": 0.0482, "worst_regime_mean_regret": 0.1876, "worst_regime_p95_regret": 0.5839},
-        "adaptive_no_structural": {"equal_regime_mean_regret": 0.0816, "worst_regime_mean_regret": 0.4216, "worst_regime_p95_regret": 1.3188},
-        "adaptive_no_affected": {"equal_regime_mean_regret": 0.0420, "worst_regime_mean_regret": 0.1753, "worst_regime_p95_regret": 0.5607},
-        "adaptive_no_uncertainty": {"equal_regime_mean_regret": 1.4297, "worst_regime_mean_regret": 11.6011, "worst_regime_p95_regret": 35.5837},
-        "simple_threshold": {"equal_regime_mean_regret": 0.1724, "worst_regime_mean_regret": 0.5965, "worst_regime_p95_regret": 1.4110},
-        "always_incremental": {"equal_regime_mean_regret": 0.1145, "worst_regime_mean_regret": 0.5903, "worst_regime_p95_regret": 1.3193},
-        "always_full": {"equal_regime_mean_regret": 6.3200, "worst_regime_mean_regret": 17.5690, "worst_regime_p95_regret": 44.5134}
+        "adaptive": {
+          "equal_regime_mean_regret": 0.0482,
+          "worst_regime_mean_regret": 0.1876,
+          "worst_regime_p95_regret": 0.5839
+        },
+        "adaptive_no_structural": {
+          "equal_regime_mean_regret": 0.0816,
+          "worst_regime_mean_regret": 0.4216,
+          "worst_regime_p95_regret": 1.3188
+        },
+        "adaptive_no_affected": {
+          "equal_regime_mean_regret": 0.042,
+          "worst_regime_mean_regret": 0.1753,
+          "worst_regime_p95_regret": 0.5607
+        },
+        "adaptive_no_uncertainty": {
+          "equal_regime_mean_regret": 1.4297,
+          "worst_regime_mean_regret": 11.6011,
+          "worst_regime_p95_regret": 35.5837
+        },
+        "simple_threshold": {
+          "equal_regime_mean_regret": 0.1724,
+          "worst_regime_mean_regret": 0.5965,
+          "worst_regime_p95_regret": 1.411
+        },
+        "always_incremental": {
+          "equal_regime_mean_regret": 0.1145,
+          "worst_regime_mean_regret": 0.5903,
+          "worst_regime_p95_regret": 1.3193
+        },
+        "always_full": {
+          "equal_regime_mean_regret": 6.32,
+          "worst_regime_mean_regret": 17.569,
+          "worst_regime_p95_regret": 44.5134
+        }
       },
       "claim_boundary": "Structural preflight and uncertainty are supported by the ablation. Previous-affected-work is not claimed as independently beneficial because removing it slightly improves aggregate metrics in this campaign."
     },
     "historical_development_v3": {
       "mean_regret_percent": 3.148,
-      "p95_batch_regret_percent": 19.780,
+      "p95_batch_regret_percent": 19.78,
       "worst_regime_regret_percent": 18.253,
       "exactness_percent": 100.0,
       "status": "historical development evidence only; not substituted for current selector"
@@ -125,11 +173,22 @@
       "velographx_exact": true,
       "graphbolt_final_bfs_independently_verified": true,
       "graphbolt_over_velographx_answer_ready_ratio": {
-        "0.0001": 14.219,
-        "0.001": 2.245,
-        "0.005": 0.886
+        "0.001": 14.219,
+        "0.01": 2.245,
+        "0.05": 0.886
       },
-      "claim_boundary": "Same hosted allocation and shared checksum-retained mutation stream using a pinned legacy GraphBolt artifact runtime; workload-scoped comparison, not a universal ranking."
+      "claim_boundary": "Same hosted allocation and shared checksum-retained mutation stream using a pinned legacy GraphBolt artifact runtime; workload-scoped comparison, not a universal ranking.",
+      "operation_fractions": [
+        0.001,
+        0.01,
+        0.05
+      ],
+      "operation_fraction_percent": [
+        0.1,
+        1.0,
+        5.0
+      ],
+      "operation_fraction_semantics": "graph-operation rows divided by initial-edge rows; 0.01 = 1%"
     },
     "networkit_dynamic_bfs": {
       "run_id": 33542995289,
@@ -153,16 +212,32 @@
       "run_id": 33418520303,
       "artifact_id": 9768499895,
       "artifact_sha256": "a858749145ae2490f524672344358513daa68151471f83249601b2af62c7c6a7",
-      "threads": [1, 2, 4],
+      "threads": [
+        1,
+        2,
+        4
+      ],
       "repetitions_per_configuration": 5,
       "bfs": {
-        "velographx_vs_gap_speedup_range": [1.60, 2.04],
-        "velographx_vs_lagraph_speedup_range": [9.4, 11.8],
+        "velographx_vs_gap_speedup_range": [
+          1.6,
+          2.04
+        ],
+        "velographx_vs_lagraph_speedup_range": [
+          9.4,
+          11.8
+        ],
         "winner": "VeloGraphX on evaluated hosted cases"
       },
       "weighted_sssp": {
-        "velographx_vs_lagraph_speedup_range": [2.6, 3.0],
-        "velographx_vs_gap_slowdown_range": [7.0, 8.5],
+        "velographx_vs_lagraph_speedup_range": [
+          2.6,
+          3.0
+        ],
+        "velographx_vs_gap_slowdown_range": [
+          7.0,
+          8.5
+        ],
         "winner": "GAP on evaluated hosted cases"
       }
     },
@@ -185,9 +260,27 @@
     "paired_comparisons": 15,
     "all_exact": true,
     "rows": [
-      {"update_fraction": 0.01, "inserted_edges": 883, "velographx_answer_ready_ms": 1.066, "goldencounter_answer_ready_ms": 43.657, "goldencounter_over_velographx_latency": 40.95},
-      {"update_fraction": 0.05, "inserted_edges": 4412, "velographx_answer_ready_ms": 6.782, "goldencounter_answer_ready_ms": 47.095, "goldencounter_over_velographx_latency": 6.94},
-      {"update_fraction": 0.10, "inserted_edges": 8824, "velographx_answer_ready_ms": 15.495, "goldencounter_answer_ready_ms": 53.931, "goldencounter_over_velographx_latency": 3.48}
+      {
+        "update_fraction": 0.01,
+        "inserted_edges": 883,
+        "velographx_answer_ready_ms": 1.066,
+        "goldencounter_answer_ready_ms": 43.657,
+        "goldencounter_over_velographx_latency": 40.95
+      },
+      {
+        "update_fraction": 0.05,
+        "inserted_edges": 4412,
+        "velographx_answer_ready_ms": 6.782,
+        "goldencounter_answer_ready_ms": 47.095,
+        "goldencounter_over_velographx_latency": 6.94
+      },
+      {
+        "update_fraction": 0.1,
+        "inserted_edges": 8824,
+        "velographx_answer_ready_ms": 15.495,
+        "goldencounter_answer_ready_ms": 53.931,
+        "goldencounter_over_velographx_latency": 3.48
+      }
     ],
     "claim_boundary": "Comparison is against the pinned exact GoldenCounter reference component, not the approximate SWTC algorithm."
   },
@@ -200,9 +293,26 @@
     "directed_arcs": 234370166,
     "epochs": 60,
     "all_correct": true,
-    "conservative": {"storage_envelope": 1.25, "consolidations": 15, "total_consolidation_seconds": 386.573, "maintenance_amortized_ops_per_second": 19135, "peak_rss_kib": 7517892},
-    "large_graph": {"storage_envelope": 1.50, "consolidations": 6, "total_consolidation_seconds": 156.128, "maintenance_amortized_ops_per_second": 43062, "peak_rss_kib": 8016740},
-    "derived": {"consolidation_count_reduction_fraction": 0.60, "consolidation_time_reduction_fraction": 0.596, "throughput_speedup": 2.25, "peak_rss_increase_fraction": 0.066}
+    "conservative": {
+      "storage_envelope": 1.25,
+      "consolidations": 15,
+      "total_consolidation_seconds": 386.573,
+      "maintenance_amortized_ops_per_second": 19135,
+      "peak_rss_kib": 7517892
+    },
+    "large_graph": {
+      "storage_envelope": 1.5,
+      "consolidations": 6,
+      "total_consolidation_seconds": 156.128,
+      "maintenance_amortized_ops_per_second": 43062,
+      "peak_rss_kib": 8016740
+    },
+    "derived": {
+      "consolidation_count_reduction_fraction": 0.6,
+      "consolidation_time_reduction_fraction": 0.596,
+      "throughput_speedup": 2.25,
+      "peak_rss_increase_fraction": 0.066
+    }
   },
   "fresh_multi_dataset_triangle_crossover": {
     "run_id": 34927599394,
@@ -211,9 +321,18 @@
     "all_exact": true,
     "role": "supporting triangle crossover engineering evidence",
     "artifacts": {
-      "facebook-combined": {"artifact_id": 10380526227, "sha256": "6c31bd3032123d91c400715fe598ec820f93290a0b0673d9f94947a13014b3d6"},
-      "p2p-Gnutella08": {"artifact_id": 10381010037, "sha256": "171727df8327519da4d45d4827df855c93b63131df12a1d5e001bc7e7dac54ae"},
-      "ca-HepTh": {"artifact_id": 10379783827, "sha256": "f710ca8e08b6b90f25784a7868c2d33ee116608f6439da7e2b19fd33344175f9"}
+      "facebook-combined": {
+        "artifact_id": 10380526227,
+        "sha256": "6c31bd3032123d91c400715fe598ec820f93290a0b0673d9f94947a13014b3d6"
+      },
+      "p2p-Gnutella08": {
+        "artifact_id": 10381010037,
+        "sha256": "171727df8327519da4d45d4827df855c93b63131df12a1d5e001bc7e7dac54ae"
+      },
+      "ca-HepTh": {
+        "artifact_id": 10379783827,
+        "sha256": "f710ca8e08b6b90f25784a7868c2d33ee116608f6439da7e2b19fd33344175f9"
+      }
     },
     "claim_boundary": "Incremental triangle-counting crossover evidence, not the central adaptive BFS policy result."
   }

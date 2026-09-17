@@ -18,7 +18,16 @@
       "false_full_choices": 33,
       "observed_fallback_double_work_ms": 17.323,
       "observed_double_work_avoided_ms": 17.323,
-      "claim_boundary": "The 220K destructive-cascade row is a mechanism stress case; natural-workload frequency is not claimed."
+      "claim_boundary": "All six fallback events are confined to the declared 220K cascade stress case; the real-graph rows have zero 0.35 fallbacks. The false_full_choices field is a structural label rather than a wrong-arm claim.",
+      "false_full_choices_semantics": "Historical artifact label: selector chose full where fallback-only did not internally fall back; not a wrong-arm assertion.",
+      "positive_false_full_penalty_us": 0.0,
+      "all_fallbacks_in_declared_cascade_stress_case": true,
+      "real_graph_aligned_batch_observations": 72,
+      "real_graph_fallback_only_internal_fallbacks": 0,
+      "fallback_only_over_selector_plus_fallback_cumulative_latency_ratio_all": 1.745008759207781,
+      "selector_plus_fallback_cumulative_latency_reduction_fraction_all": 0.4269369739702674,
+      "fallback_only_over_selector_plus_fallback_cumulative_latency_ratio_real_graphs": 1.72903333187279,
+      "selector_plus_fallback_cumulative_latency_reduction_fraction_real_graphs": 0.421642150231507
     },
     {
       "id": "frozen-heldout-selector",
@@ -27,9 +36,25 @@
       "artifact_sha256": "3cc4394693818450523fc56a9bb4368f7e26365d19077f2835a915a2bc312452",
       "exact": true,
       "post_result_retuning": false,
-      "all_heldout": {"regimes": 15, "equal_regime_mean_regret_percent": 21.32, "worst_regime_mean_regret_percent": 185.83, "worst_regime_p95_regret_percent": 311.88},
-      "college_msg_timestamp_ordered": {"regimes": 9, "equal_regime_mean_regret_percent": 34.52, "worst_regime_mean_regret_percent": 185.83, "worst_regime_p95_regret_percent": 311.88, "semantics": "Repeated interactions are idempotent under simple-graph semantics; sliding-window removals are induced expiries, not observed deletions."},
-      "amazon0312_unseen": {"regimes": 6, "equal_regime_mean_regret_percent": 1.52, "worst_regime_mean_regret_percent": 2.29, "worst_regime_p95_regret_percent": 9.44},
+      "all_heldout": {
+        "regimes": 15,
+        "equal_regime_mean_regret_percent": 21.32,
+        "worst_regime_mean_regret_percent": 185.83,
+        "worst_regime_p95_regret_percent": 311.88
+      },
+      "college_msg_timestamp_ordered": {
+        "regimes": 9,
+        "equal_regime_mean_regret_percent": 34.52,
+        "worst_regime_mean_regret_percent": 185.83,
+        "worst_regime_p95_regret_percent": 311.88,
+        "semantics": "Repeated interactions are idempotent under simple-graph semantics; sliding-window removals are induced expiries, not observed deletions."
+      },
+      "amazon0312_unseen": {
+        "regimes": 6,
+        "equal_regime_mean_regret_percent": 1.52,
+        "worst_regime_mean_regret_percent": 2.29,
+        "worst_regime_p95_regret_percent": 9.44
+      },
       "claim_boundary": "The current selector does not demonstrate uniformly low-regret out-of-sample generalization; the negative CollegeMsg result must remain visible."
     },
     {
@@ -39,13 +64,41 @@
       "artifact_sha256": "a0aa985cd3f64d2e340938ba0111ec017076e24412665213bd4a9f4d5bf3601d",
       "exact": true,
       "policies": {
-        "adaptive": {"equal_regime_mean_regret_percent": 4.82, "worst_regime_mean_percent": 18.76, "worst_regime_p95_percent": 58.39},
-        "adaptive_no_structural": {"equal_regime_mean_regret_percent": 8.16, "worst_regime_mean_percent": 42.16, "worst_regime_p95_percent": 131.88},
-        "adaptive_no_affected": {"equal_regime_mean_regret_percent": 4.20, "worst_regime_mean_percent": 17.53, "worst_regime_p95_percent": 56.07},
-        "adaptive_no_uncertainty": {"equal_regime_mean_regret_percent": 142.97, "worst_regime_mean_percent": 1160.11, "worst_regime_p95_percent": 3558.37},
-        "simple_threshold": {"equal_regime_mean_regret_percent": 17.24, "worst_regime_mean_percent": 59.65, "worst_regime_p95_percent": 141.10},
-        "always_incremental": {"equal_regime_mean_regret_percent": 11.45, "worst_regime_mean_percent": 59.03, "worst_regime_p95_percent": 131.93},
-        "always_full": {"equal_regime_mean_regret_percent": 632.00, "worst_regime_mean_percent": 1756.90, "worst_regime_p95_percent": 4451.34}
+        "adaptive": {
+          "equal_regime_mean_regret_percent": 4.82,
+          "worst_regime_mean_percent": 18.76,
+          "worst_regime_p95_percent": 58.39
+        },
+        "adaptive_no_structural": {
+          "equal_regime_mean_regret_percent": 8.16,
+          "worst_regime_mean_percent": 42.16,
+          "worst_regime_p95_percent": 131.88
+        },
+        "adaptive_no_affected": {
+          "equal_regime_mean_regret_percent": 4.2,
+          "worst_regime_mean_percent": 17.53,
+          "worst_regime_p95_percent": 56.07
+        },
+        "adaptive_no_uncertainty": {
+          "equal_regime_mean_regret_percent": 142.97,
+          "worst_regime_mean_percent": 1160.11,
+          "worst_regime_p95_percent": 3558.37
+        },
+        "simple_threshold": {
+          "equal_regime_mean_regret_percent": 17.24,
+          "worst_regime_mean_percent": 59.65,
+          "worst_regime_p95_percent": 141.1
+        },
+        "always_incremental": {
+          "equal_regime_mean_regret_percent": 11.45,
+          "worst_regime_mean_percent": 59.03,
+          "worst_regime_p95_percent": 131.93
+        },
+        "always_full": {
+          "equal_regime_mean_regret_percent": 632.0,
+          "worst_regime_mean_percent": 1756.9,
+          "worst_regime_p95_percent": 4451.34
+        }
       },
       "claim_boundary": "Structural preflight and uncertainty are supported by this ablation; previous-affected-work is not independently supported because its removal slightly improves aggregate metrics."
     },
@@ -57,9 +110,24 @@
       "velographx_exact": true,
       "graphbolt_final_bfs_independently_verified": true,
       "paired_repetitions_per_fraction": 5,
-      "graphbolt_over_velographx_answer_ready_ratio": {"0.0001": 14.219, "0.001": 2.245, "0.005": 0.886},
+      "graphbolt_over_velographx_answer_ready_ratio": {
+        "0.001": 14.219,
+        "0.01": 2.245,
+        "0.05": 0.886
+      },
       "ratio_semantics": "Above 1 means VeloGraphX lower answer-ready latency; below 1 means GraphBolt lower answer-ready latency.",
-      "claim_boundary": "Same hosted allocation and shared checksum-retained mutation stream; pinned legacy GraphBolt artifact runtime; not a universal ranking."
+      "claim_boundary": "Same hosted allocation and shared checksum-retained mutation stream; pinned legacy GraphBolt artifact runtime; not a universal ranking.",
+      "operation_fractions": [
+        0.001,
+        0.01,
+        0.05
+      ],
+      "operation_fraction_percent": [
+        0.1,
+        1.0,
+        5.0
+      ],
+      "operation_fraction_semantics": "graph-operation rows divided by initial-edge rows; 0.01 = 1%"
     }
   ]
 }

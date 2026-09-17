@@ -44,7 +44,7 @@ The frozen held-out campaign is exact with no post-result retuning, but the two 
 
 **Severity:** now low.
 
-The production 0.35 campaign directly compares fallback-only behavior with the same frozen selector path. Across 93 exact aligned observations, fallback-only falls back six times; the pre-repair selector avoids all six opportunities and 17.323 ms of conservatively measured double work, while retaining 33 false-full choices.
+The production 0.35 campaign directly compares fallback-only behavior with the same frozen selector path. Across 93 exact aligned observations, fallback-only falls back six times; the pre-repair selector avoids all six opportunities and 17.323 ms of conservatively measured double work, while retaining 33 explicit-full/non-fallback labels.
 
 **Required paper response:** keep both the benefit and the cost visible. Do not generalize the 220K cascade stress case to natural-workload frequency.
 
