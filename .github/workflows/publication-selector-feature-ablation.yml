@@ -1,0 +1,157 @@
+name: Publication Selector Clean Feature Ablation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/publication-selector-feature-ablation.yml'
+      - 'benchmarks/publication_selector_feature_ablation.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/summarize_selector_ablation.py'
+      - 'tools/prepare_dataset.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/prepare_symmetric_pinned_edge_stream.py'
+      - 'datasets/manifest.public-small.json'
+      - 'include/velographx/**'
+      - 'src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+  EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+
+jobs:
+  ablation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Build frozen feature-switch harness
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_selector_feature_ablation.cpp \
+            build/vx/libvelographx.a -pthread -o build/publication_selector_feature_ablation
+      - name: Prepare primary checksum-pinned graph matrix
+        run: |
+          mkdir -p build/ablation/datasets build/ablation/graphs build/ablation/runs build/ablation/summary
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/ablation/datasets --dataset web-Google >/dev/null
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/ablation/datasets --dataset ca-GrQc >/dev/null
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/ablation/datasets --dataset soc-Epinions1 >/dev/null
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/ablation/datasets/web-Google.txt \
+            --output build/ablation/graphs/web-Google.txt \
+            --report build/ablation/web-Google-normalization.json \
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 \
+            --expected-vertices 875713 --expected-edges 5105039 >/dev/null
+          python tools/prepare_symmetric_pinned_edge_stream.py \
+            --input build/ablation/datasets/ca-GrQc.txt \
+            --output build/ablation/graphs/ca-GrQc.txt \
+            --report build/ablation/ca-GrQc-normalization.json \
+            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
+            --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 \
+            --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484 >/dev/null
+          gzip -dc build/ablation/datasets/soc-Epinions1.gz > build/ablation/epinions-source.txt
+          test "$(sha256sum build/ablation/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/ablation/epinions-source.txt \
+            --output build/ablation/graphs/soc-Epinions1.txt \
+            --report build/ablation/soc-Epinions1-normalization.json \
+            --expected-sha256 "$EPINIONS_TEXT_SHA256" \
+            --expected-vertices 75879 --expected-edges 508837 >/dev/null
+      - name: Execute one-factor-at-a-time ablation under one frozen harness
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          configs={
+              'ca-GrQc': (1974,0.75,[96,384,1536]),
+              'soc-Epinions1': (71391,0.90,[384,1536,6144]),
+              'web-Google': (391806,0.99,[1536,6144,24576]),
+          }
+          for dataset,(root,rate,batches) in configs.items():
+              for batch in batches:
+                  for rep in range(1,6):
+                      out=Path(f'build/ablation/runs/{dataset}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_selector_feature_ablation',
+                              f'build/ablation/graphs/{dataset}.txt', str(root), str(rate),
+                              str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d=json.load(out.open())
+                      assert d['all_policies_exact']
+                      assert d['fallback_disabled_for_clean_arms']
+                      expected={'always_incremental','always_full','simple_threshold','adaptive','adaptive_no_structural','adaptive_no_affected','adaptive_no_uncertainty'}
+                      assert {p['name'] for p in d['policies']} == expected
+          PY
+      - name: Summarize causal feature switches
+        run: |
+          python tools/summarize_selector_ablation.py \
+            --input-dir build/ablation/runs \
+            --output build/ablation/summary/summary.json \
+            | tee build/ablation/summary/stdout.json
+          python - <<'PY'
+          import json
+          d=json.load(open('build/ablation/summary/summary.json'))
+          assert d['all_results_exact']
+          assert d['aggregates']['adaptive']['regimes'] == 9
+          print(json.dumps(d['aggregates'],indent=2,sort_keys=True))
+          PY
+      - name: Capture immutable ablation contract
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "selector=publication-preflight-v1"
+            echo "policy_harness_blob=$(git rev-parse HEAD:benchmarks/publication_selector_feature_ablation.cpp)"
+            echo "fallback_disabled_for_clean_arms=true"
+            echo "one_factor_at_a_time=true"
+            echo "repetitions_per_regime=5"
+            echo "one_thread=true"
+          } > build/ablation/pins.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: publication-selector-clean-feature-ablation
+          path: build/ablation/
+          retention-days: 90
+      - name: Comment PR with ablation summary
+        if: github.event_name == 'pull_request' && always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if test -f build/ablation/summary/summary.json; then
+            python - <<'PY' > /tmp/ablation-comment.md
+          import json
+          d=json.load(open('build/ablation/summary/summary.json'))
+          print('### Frozen current-selector feature ablation')
+          print()
+          print(f"Exact across all variants: **{d['all_results_exact']}**")
+          print()
+          print('| Policy | Equal-regime mean regret | Worst-regime mean | Worst-regime p95 |')
+          print('|---|---:|---:|---:|')
+          order=['adaptive','adaptive_no_structural','adaptive_no_affected','adaptive_no_uncertainty','simple_threshold','always_incremental','always_full']
+          for name in order:
+              r=d['aggregates'][name]
+              print(f"| `{name}` | {100*r['equal_regime_mean_regret']:.2f}% | {100*r['worst_regime_mean_regret']:.2f}% | {100*r['worst_regime_p95_regret']:.2f}% |")
+          print()
+          print('Each `adaptive_no_*` variant removes exactly one selector mechanism under the same graph/root/batch/repetition/timing contract.')
+          PY
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/ablation-comment.md
+          fi
