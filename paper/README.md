@@ -12,11 +12,11 @@ The paper studies a systems question rather than claiming that incremental graph
 
 > For exact analytics on evolving graphs, the preferred execution strategy changes with graph structure and update regime; a dynamic graph engine should therefore expose both localized repair and full recomputation and adapt between them.
 
-The paper should remain centered on this thesis. Storage, additional algorithms, multicore execution, compression, and external baselines are supporting system evidence rather than independent headline stories.
+The paper should remain centered on this thesis. The **physical-plan architecture** is the durable contribution; the current hand-designed selector is explicitly treated as workload-dependent. Storage, additional algorithms, multicore execution, compression, and external baselines are supporting evidence rather than independent headline stories.
 
 ## Submission target
 
-The primary target is now **PVLDB Volume 20 / VLDB 2027, Regular Research Paper, December 1 2026 cycle**. The mandatory abstract deadline is November 25, 2026.
+The primary target is **PVLDB Volume 20 / VLDB 2027, Regular Research Paper, December 1 2026 cycle**. The repository's venue plan records the working deadline and freeze gates; verify the live PVLDB schedule again immediately before submission.
 
 - [`venue-plan.md`](venue-plan.md) — venue decision, deadlines, freeze policy, and submission gates.
 - [`vldb/`](vldb/) — official-template build wrapper pinned to the current PVLDB Volume 20 template revision.
@@ -24,14 +24,16 @@ The primary target is now **PVLDB Volume 20 / VLDB 2027, Regular Research Paper,
 
 ## Files
 
-- [`manuscript.md`](manuscript.md) — working full-paper draft and section-level argument.
+- [`manuscript.md`](manuscript.md) — canonical scientific prose used by the PVLDB build.
 - [`results-ledger.md`](results-ledger.md) — figure/table plan tied to retained runs and claim boundaries.
+- [`data/accepted-results.json`](data/accepted-results.json) — machine-readable manuscript-selected evidence, including the post-readiness campaigns.
+- [`submission-closure-evidence.json`](submission-closure-evidence.json) — immutable summary of production fallback, frozen held-out, clean ablation, and matched GraphBolt evidence.
+- [`submission-freeze.json`](submission-freeze.json) — intended submission tag/archive contract.
 - [`reviewer-audit.md`](reviewer-audit.md) — strict pre-submission reviewer simulation and likely reject reasons.
 - [`submission-checklist.md`](submission-checklist.md) — scientific, artifact, figure, and venue-finalization gate.
 - [`related-work-notes.md`](related-work-notes.md) — claim-by-claim novelty boundary and prior-work notes.
 - [`references.bib`](references.bib) — manuscript bibliography seed.
-- [`data/accepted-results.json`](data/accepted-results.json) — compact machine-readable values selected for manuscript construction.
-- [`figures/generate_figures.py`](figures/generate_figures.py) — deterministic figure generator reading only committed paper evidence.
+- [`figures/generate_figures.py`](figures/generate_figures.py) — deterministic figure generator reading committed paper evidence.
 - [`figures/README.md`](figures/README.md) — figure/caption mapping and final visual-QA rules.
 - [`validate_submission_data.py`](validate_submission_data.py) — standard-library consistency check for paper evidence inputs.
 - [`../docs/paper-evidence-index.md`](../docs/paper-evidence-index.md) — authoritative repository-wide evidence registry.
@@ -39,13 +41,16 @@ The primary target is now **PVLDB Volume 20 / VLDB 2027, Regular Research Paper,
 
 ## Evidence rules
 
-1. Every quantitative manuscript statement must map to a retained artifact, a repository document that records its provenance, or a fresh audited publication-selector artifact.
+1. Every quantitative manuscript statement must map to `data/accepted-results.json`, `submission-closure-evidence.json`, the results ledger, or another retained artifact with explicit provenance.
 2. Same-run and paired GitHub-hosted experiments may support narrowly scoped relative claims. They do not establish universal peak performance.
 3. Absolute timings from different hosted runners must never be combined into a synthetic cross-system ranking.
-4. Exactness gates are mandatory for dynamic results.
-5. Negative results stay visible: GAP, NetworKit, RisGraph, and full recomputation are allowed to win where the retained experiments show that they do.
-6. Many-core, multi-socket NUMA, hardware-counter, and storage-device-specific claims require suitable controlled hardware and are outside the default manuscript scope.
-7. Historical selector-development numbers must be labelled as development evidence unless the corresponding retained run/artifact is explicitly audited for the submitted manuscript.
+4. Exactness gates are mandatory for dynamic BFS results; PageRank is described separately as residual/tolerance validated with conservative fallback.
+5. Negative results stay visible. This includes the large-`web-Google` primary-policy tail, the timestamp-ordered `CollegeMsg` held-out failure, the neutral/negative previous-affected-work ablation result, and competitor wins.
+6. The frozen selector must not be retuned after the held-out result merely to improve reported numbers.
+7. The 220K destructive-cascade fallback row is a mechanism stress case and must not be presented as an estimate of natural-workload frequency.
+8. The GraphBolt comparison is a matched pinned-artifact result, not a universal ranking of GraphBolt/DZiG implementations.
+9. Many-core, multi-socket NUMA, hardware-counter, and device-specific claims require suitable controlled hardware and remain outside the default manuscript scope.
+10. Historical selector-development numbers remain development evidence unless the corresponding retained artifact is explicitly audited for the submitted manuscript.
 
 ## Local submission-data validation
 
@@ -55,8 +60,8 @@ Run from the repository root:
 python3 paper/validate_submission_data.py
 ```
 
-The same validation is part of the Publication Artifact Contract workflow so accidental drift between the paper-facing CSV and the audited JSON registry fails CI.
+The same validation is part of the Publication Artifact Contract workflow so accidental drift between paper-facing data and the audited registry fails CI.
 
 ## Engineering freeze
 
-Core engineering is frozen unless an external reviewer identifies a concrete scientific gap. The priority order is now: official-format manuscript, figures/tables, citations, external review, archival artifact freeze, then CMT submission QA.
+Core engineering is frozen unless an external reviewer identifies a concrete scientific gap. The priority order is now: synchronized official-format manuscript, figures/tables, citations, external review, archival artifact freeze/DOI, then final submission QA.
