@@ -1,16 +1,14 @@
 # VeloGraphX: Adaptive Exact Analytics for Evolving Graphs
 
-> Working manuscript. Quantitative claims in this file are restricted to `results-ledger.md` and `../docs/paper-evidence-index.md`.
+> Working manuscript. Quantitative claims in this file are restricted to `results-ledger.md`, `data/accepted-results.json`, `submission-closure-evidence.json`, and `../docs/paper-evidence-index.md`.
 
 ## Abstract
 
-Graph analytics systems increasingly operate on graphs that change continuously, yet the execution strategy for maintaining an exact analytical result is often fixed in advance: either recompute the result after updates or maintain it incrementally. Neither strategy dominates across update regimes. Localized repair can avoid most graph work when changes have limited impact, while recomputation becomes preferable when affected state grows or repair-discovery overhead accumulates.
+Graph analytics systems increasingly operate on graphs that change continuously, yet the execution strategy for maintaining an analytical result is often fixed in advance: either recompute after updates or maintain incrementally. Neither strategy dominates across regimes. Localized repair can avoid most graph work when changes have limited impact, while full recomputation becomes preferable when affected state grows or repair-discovery overhead accumulates.
 
-We present **VeloGraphX**, a C++20 system for exact analytics on evolving graphs that exposes localized repair and full recomputation as competing physical execution strategies over a common mutable graph substrate. VeloGraphX combines segmented CSR storage, packed mutable deltas, sparse row patches, forward/reverse adjacency, exact maintained analytics, and a pre-repair selector that uses structural state and observed cost to choose how to execute subsequent batches. For dynamic BFS, deletion handling discovers vertices that lose all shortest-path support before the batch is applied, repairs invalidated state from still-valid boundary predecessors, and falls back conservatively when the affected region grows beyond a configured bound. The selector sits outside this repair path so it can choose full recomputation before paying repair-discovery cost.
+We present **VeloGraphX**, a C++20 system that exposes localized repair and full recomputation as competing physical execution strategies over one mutable graph substrate. For dynamic BFS, both arms produce the same exact result; deletion repair detects loss of shortest-path support, reconstructs affected state from valid boundaries, and conservatively falls back when the affected region becomes too broad. A pre-repair selector sits outside the repair path so it can choose full recomputation before paying dependency-discovery cost. The system records plan decisions, costs, fallbacks, and exactness separately.
 
-The evaluation uses checksum-pinned datasets, repeated measurements, explicit timing envelopes, exactness checks, retained artifacts, and negative-result retention. On a three-graph current-policy validation covering nine regimes and 1,610 adaptive batch samples, every output is exact; the selector records 3.94% mean oracle regret across regimes, 2.31% sample-weighted regret, a 1.74% sample-weighted wrong-arm rate, zero internal full fallbacks, and about 0.286 µs sample-weighted decision cost. The tail is not hidden: the largest evaluated `web-Google` regime reaches 17.48% mean regret and 54.42% p95 regret. In paired dynamic-BFS experiments, VeloGraphX is about 1.38× faster than NetworKit on the evaluated `web-Google` workload, while NetworKit is about 1.35× faster on `ca-GrQc`, with all 30 paired executions exact. Exact dynamic triangle counting reaches the same post-update answer as a pinned GoldenCounter reference with 40.95×, 6.94×, and 3.48× lower median answer-ready latency at 1%, 5%, and 10% insertion batches. On `com-Orkut` with 234.4 million directed arcs, a wider bounded storage envelope improves maintenance-amortized throughput by 2.25× and reduces consolidation time by 59.6% at a 6.6% peak-RSS cost.
-
-These results support a narrower conclusion than universal system superiority: exact dynamic analytics benefits from treating repair and recomputation as selectable execution modes whose preferred choice changes with graph and update regime.
+On the primary three-graph validation, covering nine regimes and 1,610 adaptive batch samples, all outputs are exact and the selector records **3.94% mean oracle regret across regimes**, **2.31% sample-weighted regret**, and **1.74% sample-weighted wrong-arm rate**; the largest `web-Google` regime retains a visible **17.48% mean / 54.42% p95** regret tail. A production-style replay with the normal **0.35 affected-region fallback** is exact across 93 aligned observations: a fallback-only path falls back six times, while the frozen pre-repair selector avoids all six opportunities and **17.323 ms** of conservatively measured repair-then-full double work, at the cost of 33 false-full choices. A frozen, no-retuning held-out campaign shows that selector quality is workload-dependent: unseen `Amazon0312` records **1.52%** equal-regime mean regret, while timestamp-ordered `CollegeMsg` records **34.52%**. A matched GraphBolt comparison likewise retains a winner reversal across update fractions. These results support the architectural conclusion rather than a universal selector claim: **incremental maintenance should be a selectable exact execution strategy, not an unconditional architectural assumption**.
 
 ## 1. Introduction
 
@@ -18,24 +16,24 @@ Large graphs are rarely static. Relationship, transaction, knowledge, infrastruc
 
 The usual framing makes one choice architectural. Static engines optimize full recomputation. Dynamic engines emphasize incremental maintenance. In practice, the boundary is workload-dependent. Small or structurally local updates can make localized repair much cheaper than a graph-wide traversal. Larger updates, destructive changes, or broad dependency cascades can reverse the ordering: the work needed to discover and repair affected state can approach or exceed the cost of a fresh computation. A system that hard-codes either strategy can therefore pay unnecessary work in regimes where the other strategy is preferable.
 
-The difficulty is not merely update volume. Two batches with the same number of changed edges can have different consequences because they touch different positions in the dependency structure of the maintained result. An insertion near the frontier of a reachable region may trigger little work, while a deletion close to the BFS root can invalidate a large subtree. Reachability density, prior affected work, graph scale, and recent measured arm costs are therefore potentially more informative than update fraction alone. This makes repair-versus-recompute selection resemble a physical-plan choice rather than a fixed property of an algorithm.
+The difficulty is not merely update volume. Two batches with the same number of changed edges can have different consequences because they touch different positions in the dependency structure of the maintained result. A deletion close to the BFS root can invalidate a large dependency region, while a larger batch elsewhere can remain cheap to repair. Graph scale, reachability, destructive locality, recent arm costs, and uncertainty can therefore matter alongside update fraction. This makes repair-versus-recompute selection resemble a physical-plan choice rather than a fixed property of an algorithm.
 
-VeloGraphX is built around the observation that **repair and recomputation are two exact physical execution strategies for the same logical analytic result**. The system keeps both strategies available behind a common mutable graph representation. Incremental algorithms identify and repair affected state; conservative fallbacks preserve exactness; and a pre-repair selector uses observable workload state and measured costs to choose how to execute subsequent batches.
+VeloGraphX is built around the observation that **repair and recomputation are two exact physical execution strategies for the same logical result**. The system keeps both strategies available behind a common mutable graph representation. Incremental algorithms identify and repair affected state; conservative fallback preserves exactness; and a pre-repair selector uses observable state plus prior measured cost to choose how to execute a batch.
 
-This placement matters. A common failure mode in adaptive incremental systems is to begin repair, discover that the affected region is large, and then perform a full computation. Correctness is preserved, but the system pays both discovery/partial-repair work and recomputation. VeloGraphX allows the policy to choose full execution **before** the incremental path begins when preflight evidence is sufficiently strong. Internal fallback remains available as a semantic safety net, but it is not the primary adaptation mechanism.
+This placement matters. A dynamic algorithm can be semantically adaptive yet still waste work if it begins repair, discovers that the affected region is too large, and then performs a full computation. Correctness is preserved, but the system pays both dependency-discovery or partial-repair work and recomputation. VeloGraphX allows the policy to choose full execution **before** the incremental path begins. Internal fallback remains a safety/performance bound rather than the primary adaptation mechanism.
 
-The same tension appears in storage. Rebuilding a canonical CSR after every update defeats much of the benefit of localized analytics, but indefinitely accumulating mutable overlays makes traversal and maintenance increasingly expensive. VeloGraphX separates a compact CSR base from packed mutable deltas and sparse row patches and performs canonical consolidation explicitly under bounded policies. Both layers therefore follow the same systems principle: avoid global work while local state remains economical, then switch to a global operation when the local path stops being attractive.
+The same broad tension appears in storage. Rebuilding canonical CSR after every update defeats much of the benefit of localized analytics, while indefinitely accumulating mutable overlays increases traversal and maintenance cost. VeloGraphX separates a compact segmented-CSR base from packed deltas and sparse row patches and exposes explicit canonical consolidation under bounded policies. Storage and analytical adaptation are separate mechanisms, but both avoid global work while local state remains economical.
 
-VeloGraphX supports exact maintained BFS/unweighted SSSP, weighted SSSP with conservative fallback, connected components, triangle counting, k-core, and PageRank-related workflows. We use BFS as the primary vehicle for studying adaptive repair versus recomputation because it exposes insertion- and deletion-induced dependency changes and admits a direct exact recomputation oracle. Additional algorithms and storage experiments establish that the system mechanisms are not specific to a single BFS benchmark.
+The paper focuses on exact dynamic BFS because it exposes insertion- and deletion-induced dependency changes and admits a direct exact recomputation oracle. The codebase also includes exact or conservative-fallback workflows for unweighted and weighted SSSP, connected components, triangles, and k-core. PageRank is described separately as **residual/tolerance-validated maintenance with conservative fallback**; we do not use PageRank to extend the paper's mathematical exactness claim.
 
 The paper makes four contributions:
 
-1. **A mutable graph substrate for repeated exact analytics.** Segmented CSR, packed deltas, sparse row patches, forward/reverse adjacency, and explicit consolidation avoid mandatory canonical reconstruction after every batch while retaining a compact traversal-oriented base.
-2. **Exact localized maintenance with explicit dependency repair.** For BFS, VeloGraphX detects shortest-parent losses before destructive updates, invalidates only vertices whose shortest-path support disappears, repairs from valid boundary predecessors, propagates distance decreases, and conservatively recomputes when the affected region exceeds a bound.
-3. **Pre-repair repair-versus-recompute selection.** VeloGraphX exposes both exact modes to a policy layer that combines structural preflight guards with recent measured arm costs, avoiding both unnecessary global work and the repair-then-recompute double-work path when possible.
-4. **A reproducible characterization of the crossover.** The evaluation uses pinned data and revisions, repeated raw measurements, exactness gates, explicit timing semantics, current-policy oracle metrics, external baselines, and negative-result retention.
+1. **A mutable graph substrate for repeated analytics.** Segmented CSR, packed deltas, sparse row patches, forward/reverse adjacency, and explicit consolidation avoid mandatory whole-graph reconstruction after every batch while preserving a compact traversal-oriented base.
+2. **Exact localized BFS maintenance with explicit dependency repair.** VeloGraphX detects shortest-parent loss before destructive updates, invalidates only unsupported state, repairs from valid boundary predecessors, propagates decreases, and conservatively recomputes when the affected region exceeds a bound.
+3. **Pre-repair repair-versus-recompute selection.** Both exact modes are exposed to a policy layer that can choose full execution before repair begins. Production-style evidence directly measures the repair-then-full work this placement can avoid.
+4. **A reproducible evaluation that retains generalization failures and competitor wins.** The artifact includes a primary oracle-relative selector campaign, production fallback replay, frozen held-out temporal evaluation, clean feature ablation, matched GraphBolt evidence, external baselines, exactness gates, and archived claim boundaries.
 
-The strongest claim is therefore not that VeloGraphX is universally the fastest graph system. It is that the preferred exact execution mode changes materially across dynamic regimes, and system architecture should make this choice explicit, observable, and adaptable.
+The strongest claim is therefore not that VeloGraphX is universally fastest or that its current selector generalizes uniformly. It is that the preferred exact execution mode changes materially across dynamic regimes, and system architecture should make that choice explicit, observable, and adaptable.
 
 ## 2. Problem and execution model
 
@@ -46,285 +44,281 @@ Let graph state `G_t` result from applying update batch `U_t` to `G_{t-1}`. For 
 
 Both target the same semantics. Their costs differ with graph size, update size, reachability, destructive-change location, affected-region size, mutable-storage state, and recent observed execution cost.
 
-For batch `t`, let `C_inc(t)` be the measured answer-ready cost of exact incremental maintenance and `C_full(t)` the measured answer-ready cost of exact recomputation under the same updated graph and timing envelope. The offline per-batch oracle cost is
+For batch `t`, let `C_inc(t)` be the measured answer-ready cost of exact incremental maintenance and `C_full(t)` the measured answer-ready cost of exact recomputation under the same updated graph and timing envelope. The offline per-batch oracle is
 
 `C_oracle(t) = min(C_inc(t), C_full(t))`.
 
-A selector chooses arm `a_t` before execution and incurs `C_a(t)` plus its measured decision cost. We report oracle-relative regret `(C_a(t)-C_oracle(t))/C_oracle(t)`, wrong-arm frequency, selector overhead, explicit full choices, and internal fallbacks. Regret captures the magnitude of a mistake; wrong-arm frequency alone does not, because a wrong choice near the crossover can be inexpensive while the same mistake in a strongly separated regime can be costly.
+A selector chooses arm `a_t` before execution and incurs `C_a(t)` plus its measured decision cost. We report oracle-relative regret `(C_a(t)-C_oracle(t))/C_oracle(t)`, wrong-arm frequency, selector overhead, explicit full choices, internal fallbacks, and—in the production-fallback campaign—repair-discovery work paid before fallback.
 
 ### 2.1 Correctness contract
 
-Exactness is non-negotiable. Every maintained result used in performance comparison is checked against an independently computed exact reference outside the timed region. A policy may choose recomputation and an incremental implementation may conservatively fall back without weakening semantics. The selector changes only **how** an exact result is obtained.
+Exactness is non-negotiable for the BFS experiments. Every maintained result used in performance comparison is checked against an independently computed exact reference outside the timed region. A policy may choose recomputation and an incremental implementation may conservatively fall back without changing semantics. A policy mistake is therefore a performance error rather than an accuracy error.
 
-The contract has three implications. First, the policy never trades accuracy for latency. Second, a policy error is a performance error rather than a semantic error. Third, exact recomputation remains both an execution arm and an experimental oracle/reference, making it possible to reason about adaptation without changing the logical query.
+This contract deliberately separates exact dynamic BFS from tolerance-based numerical workflows such as PageRank. The latter may share storage and maintenance machinery, but they are not evidence for the exactness theorem or the exact repair/recompute oracle used in the paper.
 
 ### 2.2 Timing contract
 
-We distinguish answer-ready latency from process-wall costs that include loading or representation construction. Comparisons use only compatible timing envelopes. Selector decision time is recorded separately and included in adaptive batch timing where specified by the publication harness. Exactness verification is deliberately outside the timed region but is mandatory for accepting a result.
+We distinguish answer-ready latency from process-wall costs that include loading or representation construction. Comparisons use only compatible timing envelopes. Selector decision time is recorded separately and included where specified by the publication harness. Correctness verification is outside timing but mandatory for accepting a result.
 
-Absolute timings from separate GitHub-hosted campaigns are not merged into a synthetic ranking. Same-run and paired hosted measurements support scoped relative claims on the evaluated runner; they do not establish universal peak throughput or many-core scalability.
+Absolute timings from unrelated GitHub-hosted campaigns are never merged into a synthetic ranking. Same-run and paired hosted measurements support scoped relative claims on the evaluated runner; they do not establish universal peak throughput, many-core scalability, or hardware-specific superiority.
 
 ### 2.3 Execution lifecycle
 
 A dynamic BFS batch passes through four conceptual stages:
 
-1. **Preflight.** The selector observes only information available before running the chosen arm: update density, graph/reachability scale, shallow destructive dependencies where the harness computes them, previous affected work, and recent cost history.
-2. **Arm selection.** The policy chooses localized repair or full recomputation. The choice is logged with a reason and decision cost.
-3. **Exact execution.** The update batch is applied through the selected path. If localized deletion repair determines that its dependency region exceeds the safety/performance bound, it may still fall back internally.
-4. **Telemetry update and verification.** The observed arm cost and affected-work state update the selector's history. An independent exact BFS is computed outside timing for validation in the publication harness.
+1. **Preflight.** Observe only information available before running the chosen arm: update density, graph/reachability scale, shallow destructive dependencies where available, prior state, and recent arm-cost history.
+2. **Arm selection.** Choose localized repair or full recomputation and record the reason and decision cost.
+3. **Exact execution.** Apply the selected path. If localized deletion repair discovers an affected region beyond its bound, it may still fall back internally.
+4. **Telemetry update and verification.** Update cost history and independently verify the resulting BFS outside the timed region.
 
-Separating these stages makes adaptation observable: the artifact records whether full execution was selected before repair, reached through fallback, or would have been preferable only in hindsight.
+The artifact records whether full execution was selected before repair, reached through fallback, or would have been preferable only in hindsight.
 
 ## 3. System design
 
 ### 3.1 Mutable graph substrate
 
-The storage design separates a compact base representation from mutable state. The base is segmented CSR with sorted, deduplicated adjacency. Segments contain 65,536 logical vertices, allowing untouched regions to retain contiguous CSR traversal while updates remain local. For undirected input the logical representation materializes both directions; directed graphs maintain both forward and reverse adjacency so predecessor-dependent repair does not require global source scans.
+The storage design separates a compact base representation from mutable state. The base is segmented CSR with sorted, deduplicated adjacency. Segments contain 65,536 logical vertices, allowing untouched regions to retain contiguous traversal while updates remain local. Directed graphs maintain both forward and reverse adjacency so predecessor-dependent repair does not require global source scans.
 
-Updates are represented in packed mutable delta arenas. Each logical row owns metadata for a sorted slice of delta entries, and an entry represents desired presence relative to the compact row. If later updates restore an edge to its compact state, the overlay entry disappears; the live delta ratio therefore tracks current divergence rather than cumulative update history. This is important for policy observability because a long update history does not automatically imply a large active overlay.
+Updates are represented in packed mutable delta arenas. Each logical row owns metadata for a sorted slice of delta entries, and an entry represents desired presence relative to the compact row. If later updates restore an edge to its compact state, the overlay entry disappears; the live delta ratio therefore tracks current divergence rather than cumulative update history.
 
-Sparse compaction materializes only dirty logical rows into row-level compact patches instead of rebuilding an entire 65K-vertex CSR segment. A patched row becomes the compact reference for later deltas, while untouched rows continue reading from the original CSR. Forward and reverse rows are maintained symmetrically. Normal updates therefore avoid an O(E) canonical rebuild.
-
-Over long executions, however, many row patches can accumulate and increase both owned memory and lookup cost. VeloGraphX exposes explicit canonical CSR consolidation that materializes the current logical graph into a fresh segmented CSR plus transpose. The source graph remains unchanged until the caller validates and cuts over to the new snapshot. Consolidation is thus a maintenance boundary, not an implicit side effect of `apply()`.
-
-This layout balances two costs. Immediate whole-graph reconstruction simplifies subsequent traversal but turns every update epoch into O(E) maintenance. Retaining too much mutable state reduces update cost but eventually increases traversal and memory overhead. VeloGraphX therefore treats consolidation as a bounded maintenance decision rather than an unconditional update step.
+Sparse compaction materializes only dirty logical rows into row-level compact patches instead of rebuilding an entire segment. A patched row becomes the compact reference for later deltas, while untouched rows continue reading from the original CSR. Over longer executions, explicit canonical consolidation materializes the current logical graph into a fresh segmented CSR plus transpose. Consolidation is therefore a measurable maintenance boundary, not an implicit side effect of every update.
 
 ### 3.2 Batch normalization before BFS repair
 
-A batch can contain repeated or contradictory updates to the same edge. Processing every historical operation independently would both waste work and complicate deletion dependency reasoning. The BFS maintenance path scans the batch from the end and retains only the final desired state for each canonical edge key. For undirected graphs the key is normalized so `(u,v)` and `(v,u)` identify the same logical edge.
+A batch can contain repeated or contradictory updates to the same edge. The BFS maintenance path scans the batch from the end and retains only the final desired state for each canonical edge key. For undirected graphs the key is normalized so `(u,v)` and `(v,u)` identify the same logical edge.
 
-Before applying destructive updates, VeloGraphX checks which final deletions actually exist in the current graph and which of those edges are shortest-parent edges under the maintained distances. Only such deletions can immediately remove shortest-path support. The resulting candidate set is deduplicated before dependency propagation. This pre-batch view is essential: after the edge is removed, the system would otherwise lose direct evidence that the deleted edge had supported the old exact solution.
+Before applying destructive updates, VeloGraphX checks which final deletions actually exist and which removed edges are shortest-parent edges under the maintained distances. Only such deletions can immediately remove shortest-path support. This pre-batch view is essential: after an edge is removed, the system would otherwise lose direct evidence that it supported the old exact solution.
 
 ### 3.3 Exact deletion repair
 
-For a vertex `v` with maintained distance `d(v)`, a predecessor `p` is a shortest parent when `d(p)+1=d(v)`. A deletion is potentially destructive only when it removes such support. VeloGraphX counts the number of shortest parents for candidate vertices and tracks how many of those supports are removed by the final batch.
+For a vertex `v` with maintained distance `d(v)`, predecessor `p` is a shortest parent when `d(p)+1=d(v)`. A deletion is potentially destructive only when it removes such support. VeloGraphX counts shortest parents for candidate vertices and tracks how many are removed by the final batch.
 
-A vertex becomes affected only when all of its shortest-parent support is lost. Once affected, it can in turn remove shortest-parent support from descendants whose old distance is one larger. VeloGraphX therefore performs an invalidation propagation over the **pre-batch** dependency structure, excluding edges that the current batch itself deletes. This identifies the portion of the old BFS solution that cannot remain valid after the batch.
+A vertex becomes affected only when all shortest-parent support is lost. Once affected, it can remove shortest-parent support from descendants whose old distance is one larger. VeloGraphX therefore propagates invalidation over the **pre-batch** dependency structure, excluding edges deleted by the current batch. This identifies the part of the old BFS solution that cannot remain valid.
 
-The invalidation is bounded. The default BFS deletion fallback fraction is 0.35: if affected vertices exceed 35% of the graph, localized repair stops and the algorithm requests exact recomputation. The bound is deliberately conservative. It guarantees no loss of exactness while preventing a nominally incremental path from traversing an almost graph-wide dependency region merely to prove that full BFS would have been cheaper.
+The invalidation is bounded. The default deletion fallback fraction is **0.35**: if affected vertices exceed 35% of the graph, localized repair stops and requests exact recomputation. The bound preserves semantics while preventing an incremental path from scanning an almost graph-wide dependency region merely to discover that a fresh BFS is preferable.
 
-If the affected set remains below the bound, the batch is applied and the invalidated vertices are first marked unreachable. Repair then proceeds from the boundary of unaffected state. For each affected vertex, VeloGraphX examines incoming neighbors that are still valid and takes the best available boundary distance. These seeds enter a min-heap so repaired distances propagate through the affected subgraph in nondecreasing distance order. Vertices with no valid boundary path remain unreachable.
-
-This boundary-driven phase handles distance increases and disconnections caused by deletions. Any repaired vertex whose new distance is *smaller* than its saved pre-repair value seeds a normal decrease propagation, ensuring interactions between simultaneous deletions and insertions are handled consistently.
+If the affected set remains below the bound, the invalidated vertices are marked unreachable and repaired from the boundary of unaffected state. Incoming neighbors that remain valid provide candidate distances; a min-heap propagates repaired distances through the affected subgraph in nondecreasing order. Vertices with no valid boundary path remain unreachable.
 
 ### 3.4 Exact insertion repair
 
-Insertions are simpler because they cannot invalidate an existing shortest distance; they can only create a shorter path or make an unreachable vertex reachable. After deletion repair, each final addition `(u,v)` is relaxed. If `d(u)+1<d(v)`, `d(v)` decreases and `v` enters a FIFO propagation queue. The decrease is then propagated through outgoing neighbors exactly as in BFS relaxation. Undirected graphs relax both orientations.
-
-The maintained result after both phases is therefore equivalent to a fresh BFS: destructive changes first remove unsupported old dependencies and rebuild from valid boundaries; constructive changes then propagate any newly shorter paths.
+Insertions cannot invalidate an existing shortest distance; they can only create a shorter path or make an unreachable vertex reachable. After deletion repair, each final addition is relaxed. Any decreased distance enters a FIFO queue and propagates through outgoing neighbors exactly as in BFS relaxation. The combined deletion and insertion phases therefore produce the same result as a fresh BFS.
 
 ### 3.5 Why fallback and pre-repair selection are different
 
-The incremental BFS fallback and the external selector solve different problems. Internal fallback is discovered **during dependency analysis** and exists to bound localized repair. If it fires, some incremental work has already been paid. The pre-repair selector instead tries to predict when full recomputation is preferable **before** entering that path.
+Internal fallback and external selection solve different problems. Fallback is discovered **during** dependency analysis and bounds the localized algorithm. If it fires, some incremental work has already been paid. The pre-repair selector instead tries to choose full recomputation **before** entering that path.
 
-This distinction is central to VeloGraphX. A system with only internal fallback is adaptive in a semantic sense but can still suffer double work. A pre-repair choice can avoid that cost, while retaining fallback for cases where structural consequences are not predictable cheaply enough from preflight signals.
+This distinction is central to the paper because it is experimentally observable. A fallback-only system can remain exact yet waste work; the selector can avoid that work, while still retaining fallback for cases whose structural consequences are not predictable cheaply enough before execution.
 
 ### 3.6 Pre-repair adaptive execution
 
-The publication harness evaluates `always_incremental`, `always_full`, a simple update-density threshold, and the current adaptive path. The current implementation records a trace containing update fraction, reachable fraction, shallow shortest-parent deletion fraction, previous affected fraction, predicted incremental and full costs, observation ages, chosen arm, and decision reason.
+The publication harness evaluates `always_incremental`, `always_full`, a simple update-density threshold, a history-cost baseline, and the current adaptive policy `publication-preflight-v1`. The adaptive trace records update fraction, reachable fraction, shallow shortest-parent deletion information, prior affected state, predicted arm costs, observation ages, chosen arm, decision reason, and decision time.
 
-For smaller graphs, the selector first applies structural guards. Very large update fractions choose full recomputation directly. Extremely sparse reachable state can also favor full execution because incremental bookkeeping may have little useful state to preserve. For moderately sparse reachable state, a smaller update-density guard can trigger full execution. When both arms have recent observations, exponentially weighted moving averages predict incremental and full cost; incremental prediction is inflated by previous affected fraction, and full execution is selected only when the predicted incremental cost exceeds the full prediction by a margin.
+For smaller graphs, the selector applies structural guards and recent measured arm costs. For larger graphs, the initial exact BFS provides a full-computation baseline and the missing incremental arm is probed separately. Prediction uncertainty is tracked from observed error. A full choice is made when the incremental estimate is sufficiently worse than the full estimate; overlapping uncertainty remains conservative rather than declaring a confident full win.
 
-For larger graphs, the policy avoids repeatedly paying for a second full calibration. The initial exact BFS already measures a full-computation baseline. The missing incremental arm is probed separately, and later incremental predictions are scaled by the change in update fraction and previous affected work. Prediction uncertainty is tracked from observed relative error. Full execution is selected when the lower confidence estimate for incremental cost exceeds the upper confidence estimate for full cost; overlapping uncertainty defaults toward incremental execution rather than declaring a confident full win.
+The exact numeric thresholds are frozen in the artifact. The paper does not claim the hand-designed selector is globally optimal. Its role is to demonstrate that plan selection is measurable, inexpensive relative to execution, and separable from algorithm correctness.
 
-The policy also contains explicit preflight guards for large update fractions and shallow destructive changes during cold start. Historical one-sided warm-up behavior is retained in development provenance, while the publication validation records that the obsolete redundant one-sided-full choice is absent in the current audited policy.
+### 3.7 Telemetry and explainability
 
-### 3.7 Cost history and freshness
+Every adaptive batch records why an arm was selected and how much the selection cost. This supports three analyses: distinguishing deliberate full choices from internal fallback, measuring decision overhead independently of execution, and locating wrong-arm regimes. The policy therefore produces both an exact answer and a physical-plan trace.
 
-Observed execution time updates an exponential moving average with weight 0.25. The policy separately ages incremental and full observations; stale measurements are not treated as equally trustworthy indefinitely. For large graphs it also maintains an exponential moving average of relative prediction error for each arm, bounded before being converted into confidence intervals.
+### 3.8 System boundary beyond BFS
 
-This design is intentionally simple. VeloGraphX does not claim a learned model or globally optimal scheduler. The purpose is to show that a low-cost, observable pre-repair policy can exploit the repair/recompute crossover while preserving a clear failure mode when its prediction is wrong.
-
-### 3.8 Telemetry and explainability
-
-Every adaptive batch records why an arm was selected and how much the selection itself cost. This supports three analyses that are difficult when adaptation is hidden inside an algorithm: (i) distinguishing deliberate full choices from internal fallback, (ii) measuring decision overhead independently of execution, and (iii) identifying wrong-arm regions such as the large `web-Google` tail.
-
-The policy therefore produces not only an answer but also a physical-plan trace. That trace is part of the reproducibility contract and is retained in publication artifacts.
-
-### 3.9 System boundary beyond BFS
-
-The same mutable substrate is shared by additional exact or exact-with-conservative-fallback analytics: unweighted and weighted SSSP, connected components, triangles, k-core, and PageRank-related maintenance. The paper does not claim that the BFS selector transfers unchanged to every algorithm. Rather, BFS demonstrates the adaptive physical-plan architecture in depth, while triangle and storage experiments show that localized-versus-global crossover behavior also appears outside the primary BFS path.
+The mutable substrate is also used by other graph analytics. Exactness claims in this paper are strongest for the discrete algorithms whose outputs are independently verified. PageRank is intentionally worded differently: its maintenance path is residual/tolerance validated with conservative fallback. The BFS selector is not claimed to transfer unchanged to every algorithm.
 
 ## 4. Design rationale and alternatives
 
 ### 4.1 Why not rebuild CSR after every batch?
 
-Doing so gives the simplest traversal representation but couples update cost to graph size. For small update fractions this can erase the benefit of localized analytics before the algorithm even begins. Packed deltas and row patches keep update work proportional to changed state for longer, while explicit consolidation provides a controlled route back to a canonical representation.
+Whole-graph reconstruction gives a simple traversal representation but couples every update epoch to graph size. Packed deltas and row patches keep update work local for longer, while explicit consolidation provides a controlled route back to a canonical representation.
 
-### 4.2 Why not always repair until the algorithm falls back?
+### 4.2 Why not always repair until fallback?
 
-Because discovering that repair is expensive can itself be expensive. The 35% deletion fallback bound protects the incremental algorithm, but it does not refund dependency-discovery work already performed. Pre-repair selection attacks that separate source of waste.
+Because discovering that repair is expensive can itself be expensive. The 35% deletion fallback protects the incremental algorithm, but it does not refund dependency-discovery work already performed. The production-style fallback experiment directly measures this distinction.
 
 ### 4.3 Why not choose only from update fraction?
 
-Update fraction is useful but incomplete. A small destructive batch near shallow shortest-path levels can affect more state than a larger batch in an irrelevant region. Similarly, the same fractional batch can imply very different absolute work at different graph scales. VeloGraphX therefore combines update density with reachability, shallow dependency information, prior affected work, and recent arm costs.
+Update fraction is useful but incomplete. The same number of changed edges can have very different dependency consequences. The clean ablation therefore separates structural preflight, uncertainty, and previous-affected-work rather than treating the final policy as an indivisible heuristic.
 
-### 4.4 Why not hide the selector inside BFS?
+### 4.4 Why keep the selector outside BFS?
 
-Keeping the selector outside the maintained algorithm gives full recomputation equal status as a physical plan and makes policy behavior independently measurable. It also prevents the paper from conflating algorithm correctness, fallback correctness, and plan-selection quality.
+Keeping the selector outside the maintained algorithm gives full recomputation equal status as a physical plan and makes policy behavior independently measurable. It also prevents the paper from conflating algorithm correctness, fallback behavior, and plan-selection quality.
 
 ### 4.5 Failure modes
 
-The selector can fail in two main ways. A **false incremental** decision chooses repair when full recomputation is cheaper, potentially exposing a large regret tail. A **false full** decision sacrifices useful maintained state and pays a global traversal unnecessarily. Both remain exact. The evaluation therefore reports not only average regret but also p95/max regret, wrong-arm rate, full-choice fraction, and internal fallback.
-
-The current results show why this decomposition matters: average regret is low, yet one large `web-Google` regime remains visibly difficult. That tail is a plan-quality limitation, not a correctness limitation.
+A **false incremental** decision chooses repair when full recomputation is cheaper and may expose a large regret tail. A **false full** decision discards useful maintained state and pays a global traversal unnecessarily. Both remain exact. The evaluation therefore reports averages, tails, wrong-arm behavior, false-full choices, and fallbacks rather than only the best aggregate number.
 
 ## 5. Experimental methodology
 
 ### 5.1 Research questions
 
-**RQ1 — Correctness and crossover.** Do exact localized repair and full recomputation exchange the performance lead as update impact changes, and can the current pre-repair policy track the preferable arm without sacrificing exactness?
+**RQ1 — Crossover and exactness.** Do exact localized repair and full recomputation exchange the performance lead as update impact changes, and can a pre-repair policy exploit that crossover without sacrificing exactness?
 
-**RQ2 — Selector behavior.** When the policy makes a wrong choice, is the error frequent, expensive, or concentrated in particular regimes? Does it avoid repair-then-full double work?
+**RQ2 — Fallback double work.** Under the normal 0.35 affected-region bound, does pre-repair selection actually avoid repair-discovery work that a fallback-only path would pay before recomputation?
 
-**RQ3 — External dynamic BFS comparison.** How does VeloGraphX compare with established dynamic graph systems under paired/same-run semantics, and do conclusions change by graph family?
+**RQ3 — Frozen generalization.** Without retuning after seeing results, how does the current selector behave on unseen roots/graphs and on a genuine timestamp-ordered interaction stream?
 
-**RQ4 — Static execution context.** Is the underlying engine competitive with optimized static graph libraries, and where does it lose?
+**RQ4 — Policy mechanisms.** Which selector mechanisms are supported by a clean one-factor-at-a-time ablation under one frozen harness?
 
-**RQ5 — Algorithmic breadth.** Do exact dynamic mechanisms provide meaningful benefits beyond BFS under a semantically fair published-reference comparison?
+**RQ5 — External systems.** How does VeloGraphX compare with matched dynamic baselines, and do winners change with graph or update regime?
 
-**RQ6 — Storage maintenance.** Does delaying whole-graph canonicalization reduce maintenance cost at large graph scale, and what memory trade-off does it impose?
+**RQ6 — Breadth and storage.** Do the broader implementation and storage mechanisms show useful behavior without requiring a universal fastest-system claim?
 
 ### 5.2 Reproducibility discipline
 
-Datasets are checksum-pinned and preprocessing is recorded. External systems are pinned to immutable revisions where possible. Raw repetitions are retained before aggregation. Dynamic workloads verify exactness after every measured execution. The benchmark record retains competitor wins and negative results. Machine-readable artifacts record environment and timing semantics.
+Datasets are checksum-pinned and preprocessing is recorded. External systems are pinned to immutable revisions where possible. Raw repetitions are retained before aggregation. Dynamic workloads verify exactness after every measured execution. Negative results, competitor wins, and tail failures are retained rather than removed after inspection.
 
-Hosted CI is used as reproducible comparative evidence when alternatives execute under the same documented envelope. We do not use hosted evidence to claim stable 8/16/32-core scaling, true multi-socket NUMA behavior, hardware-counter superiority, NVMe performance, or universal peak throughput.
+The primary selector program is historical and fixed, so it is **not** described as a new holdout. The held-out campaign freezes the selector before acquiring/running the declared unseen workloads and explicitly prohibits post-result retuning. `CollegeMsg` preserves observed timestamp arrival order; repeated interactions are idempotent under simple-graph semantics, and sliding-window removals are induced expiries rather than observed deletion events.
 
 ### 5.3 Statistical reporting
 
-We report medians for repeated latency measurements and dispersion where raw samples permit it. Policy experiments additionally report oracle-relative regret, tail regret, wrong-arm rate, full-recomputation frequency, internal fallback, and selector overhead. Averages do not replace per-dataset or per-regime results when winner reversals occur.
+Repeated latency experiments report medians and dispersion where the retained raw samples support them. Policy experiments report oracle-relative regret, wrong-arm behavior, explicit full choices, fallback, and decision overhead. Equal-regime summaries prevent long regimes from silently dominating the result; sample-weighted values are also reported where appropriate.
 
-The adaptive-policy experiments execute both exact arms in the publication harness so the offline oracle is measured rather than modeled. The production decision sees only pre-execution state and prior observations; oracle information is used only after the fact for evaluation.
+The publication selector harness executes both exact arms to measure the offline oracle. Production decisions see only pre-execution state and prior observations; oracle information is used only after the fact for evaluation.
 
-### 5.4 Scope of hosted evidence
+### 5.4 Hosted evidence scope
 
-Shared hosted runners are valuable because they are reproducible and permit paired or same-run comparisons, but they are not stable microarchitectural testbeds. We therefore interpret them at the granularity the experiments support: relative behavior under the same run, crossover direction, exactness, and policy regret. Claims that fundamentally depend on socket topology, persistent NUMA placement, device bandwidth, or wide many-core scaling remain outside the headline scope.
+Hosted CI is used as reproducible comparative evidence when alternatives execute under the same documented timing envelope. We do not use hosted evidence to claim stable many-core scaling, multi-socket NUMA behavior, hardware-counter superiority, NVMe performance, or universal peak throughput.
 
 ## 6. Evaluation
 
-### 6.1 Current selector: exact, low average regret, visible tail
+### 6.1 Primary selector: exact, low average regret, visible tail
 
-The primary current-policy campaign is GitHub Actions run `34929398888` with retained artifact `10381490811`. It evaluates checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google`, one fixed root per graph, three batch regimes per graph, five repetitions per regime, and one thread. The historical graph/root program is reused for cross-dataset current-policy validation; we do not describe it as a newly unseen holdout.
+The primary current-policy campaign is run `34929398888`, retained artifact `10381490811`. It evaluates checksum-pinned `ca-GrQc`, `soc-Epinions1`, and `web-Google`, one fixed root per graph, three batch regimes per graph, five repetitions per regime, and one thread. This historical graph/root program is reused for current-policy validation and is not claimed as an unseen holdout.
 
-Across **nine regimes and 1,610 adaptive batch samples**, all policy outputs match exact BFS. The current selector records **3.939% mean oracle regret across regimes**, **2.309% sample-weighted mean regret**, a **1.739% sample-weighted wrong-arm rate**, **zero internal full fallbacks**, and about **0.286 µs sample-weighted decision cost**. The obsolete redundant one-sided-full decision is never taken.
+Across **nine regimes and 1,610 adaptive batch samples**, all outputs match exact BFS. The selector records **3.939% mean oracle regret across regimes**, **2.309% sample-weighted mean regret**, **1.739% sample-weighted wrong-arm rate**, zero internal fallbacks, and about **0.286 µs** sample-weighted decision cost.
 
-The result is not uniformly near-oracle. On `soc-Epinions1`, all three regimes have zero wrong-arm selections and mean regret between 0.86% and 1.10%. On `ca-GrQc`, the selector moves from all-incremental at batch 96 to all-full at batch 1,536; the middle batch has an 18.9% wrong-arm rate but 2.83% mean regret. The largest `web-Google` regime, batch 24,576, is the principal tail weakness: mean regret is **17.477%**, p95 regret **54.424%**, and wrong-arm rate **33.3%** over 15 batch samples. This regime is retained in the primary result rather than tuned away.
+The result is not uniformly near-oracle. The largest `web-Google` regime, batch 24,576, records **17.477% mean regret**, **54.424% p95 regret**, and **33.3% wrong-arm rate** over 15 batch samples. That tail remains in the headline evidence rather than being tuned away. A separate focused `web-Google` regression run (`34928935983`, artifact `10381480310`) remains exact and records 2.466% mean regret across its tested regimes; we use it as supporting regression evidence, not as a replacement for the cross-dataset result.
 
-A separate focused `web-Google` regression run (`34928935983`, artifact `10381480310`) validates the current policy across four other batch sizes. It is 100% exact, records 2.466% mean regret across regimes, 15.671% worst-regime p95 regret, 27.717% maximum single-batch regret, zero internal fallbacks, and zero redundant one-sided-full decisions. We use this as regression evidence rather than as a cross-dataset claim.
+### 6.2 Production 0.35 fallback: directly measuring avoided double work
 
-Together these experiments support the central thesis without claiming oracle optimality: exact repair and recomputation have a real crossover, and a pre-repair policy can capture much of that benefit while still exposing a measurable tail where the decision remains difficult.
+The earlier primary policy harness deliberately disabled normal internal fallback to isolate the repair and recomputation arms. That design is appropriate for oracle measurement but cannot by itself establish the practical benefit of avoiding “repair, discover broad impact, then recompute.” We therefore run a separate production-style replay with the normal **0.35 affected-region bound**.
 
-### 6.2 Interpreting policy errors
+Run `35237513376`, artifact `10503926632`, retains **93 aligned batch observations**, all exact. In the fallback-only path, internal fallback occurs **six** times. Under the same retained cases, the frozen pre-repair selector chooses full execution before repair in all **six** fallback opportunities, leaving **zero** selector-path internal fallbacks. The campaign conservatively measures **17.323 ms** of repair-then-full double work in the fallback-only path and **17.323 ms avoided** by pre-repair selection.
 
-The aggregate wrong-arm rate is much smaller than the mean-regret number might suggest because most samples occur in regimes where the selector's preference is stable. `soc-Epinions1` is the clearest example: all three regimes make no wrong-arm selections, yet small nonzero oracle regret remains because measured timings vary even when the same physical arm is chosen. Conversely, the middle `ca-GrQc` regime demonstrates that wrong-arm frequency need not imply catastrophic cost: 18.9% wrong-arm selections coexist with only 2.83% mean regret because the two exact arms are relatively close near the crossover.
+The benefit is not free: the selector also makes **33 false-full choices**, where full recomputation is selected even though repair would have been cheaper. This is precisely why the paper reports both avoided fallback work and plan-selection error. The retained 220K destructive-cascade case is a **mechanism stress case**; we do not claim that its fallback frequency represents natural graph streams.
 
-The largest `web-Google` regime is qualitatively different. It combines a 33.3% wrong-arm rate with a 17.48% mean regret and 54.42% p95 regret, showing that the arm separation is larger when the policy misses. The result suggests that recent cost history and update fraction do not fully capture the destructive structural impact of this regime. Because the campaign is a historical fixed graph/root program rather than a fresh held-out workload, we deliberately do not retune thresholds against this tail after observing it.
+### 6.3 Frozen held-out evaluation: generalization is workload-dependent
 
-Zero internal fallbacks across the current-policy validation is also significant for the architecture. The adaptive path is not achieving low average regret by repeatedly entering incremental repair and then escaping to full BFS. Full executions recorded by the policy are explicit pre-repair choices. This separates selector quality from the incremental algorithm's 35% safety fallback and shows that the measured current-policy path avoids that particular form of double work on these experiments.
+To separate design validation from post-hoc tuning, run `35237513595`, artifact `10504131673`, freezes `publication-preflight-v1` before the held-out workloads are executed. The campaign remains exact and performs **no post-result retuning**.
 
-### 6.3 Dynamic BFS versus NetworKit
+Across all **15 held-out regimes**, equal-regime mean regret is **21.32%**, with a **185.83% worst-regime mean** and **311.88% worst-regime p95**. This aggregate hides an important split. On unseen `Amazon0312` (six regimes), equal-regime mean regret is only **1.52%**, worst-regime mean **2.29%**, and worst-regime p95 **9.44%**. On timestamp-ordered `CollegeMsg` (nine regimes), equal-regime mean regret is **34.52%**, with the **185.83% / 311.88%** worst-regime mean/p95 tail.
 
-The accepted NetworKit campaign uses NetworKit 11.2.1, one thread, two graph families, three fixed roots per dataset, and five paired repetitions per root. All 30 paired executions are exact. On `web-Google`, the mean VeloGraphX/NetworKit paired latency ratio is about 0.73, corresponding to approximately **1.38× lower latency for VeloGraphX** on that evaluated workload. On `ca-GrQc`, the ratio is about 1.35, so **NetworKit is approximately 1.35× faster**.
+The correct interpretation is not that the held-out campaign invalidates the architecture. It invalidates a stronger claim that the current hand-designed selector is uniformly low-regret out of sample. The physical-plan abstraction generalizes; this particular policy remains workload-dependent. We retain the `CollegeMsg` failure and do not retune against it.
 
-The reversal is important: external-system conclusions are workload-specific. It also aligns with the paper's central premise that graph/update structure affects which execution machinery pays off. We do not generalize these two datasets to universal superiority.
+### 6.4 Clean feature ablation
 
-### 6.4 Static BFS and SSSP versus GAP and LAGraph
+Run `35237513377`, artifact `10504591544`, evaluates one-mechanism-at-a-time selector variants under one frozen graph/root/batch/repetition/timing contract. Every variant remains exact. The full adaptive policy records **4.82%** equal-regime mean regret in this ablation campaign. Removing structural preflight increases that value to **8.16%** and worsens the tail. Removing uncertainty handling is much more damaging: mean regret rises to **142.97%**, with **1160.11% worst-regime mean** and **3558.37% worst-regime p95**.
 
-A same-run hosted campaign compares VeloGraphX with GAP Benchmark Suite and LAGraph/SuiteSparse:GraphBLAS at 1, 2, and 4 threads, with five repetitions per configuration and independent correctness checks. VeloGraphX is fastest in the evaluated BFS cases, measuring **1.60×–2.04× faster than GAP** and **9.4×–11.8× faster than LAGraph**. Weighted SSSP gives the opposite lesson: **GAP is fastest**; VeloGraphX is 2.6×–3.0× faster than LAGraph but 7.0×–8.5× slower than GAP.
+By contrast, removing the previous-affected-work factor yields **4.20%** mean regret, slightly better than the full policy on this campaign. We therefore do **not** claim that previous-affected-work is independently beneficial. The ablation supports structural preflight and uncertainty as useful mechanisms; it treats the affected-work feature as unresolved rather than forcing a positive story.
 
-These results establish two useful boundaries. First, the full-recompute arm used by the adaptive architecture is not merely an intentionally slow reference path; the underlying BFS engine is competitive on the evaluated hosted cases. Second, the weighted-SSSP loss prevents the manuscript from implying that every kernel receives the same degree of optimization.
+These values are not substituted for the primary 3.939% selector headline because the ablation is a different retained campaign with a different purpose.
 
-### 6.5 Exact dynamic triangles versus a published exact reference
+### 6.5 Matched GraphBolt comparison
 
-We compare VeloGraphX with the exact `GoldenCounter` implementation distributed with published SIGMOD 2021 source code, pinned to an immutable revision. Because `GoldenCounter::insert_edge` does not itself make the exact global triangle answer available, the comparable baseline is insertion plus the subsequent exact `triangle_count()` query.
+Run `35237513587`, artifact `10503851688`, compares VeloGraphX with a pinned legacy GraphBolt artifact runtime on the same retained mutation stream and hosted allocation. VeloGraphX is exact and GraphBolt's final BFS is independently verified on every retained run, with five paired repetitions per update fraction.
 
-On normalized `facebook-combined` (4,039 vertices and 88,234 undirected edges), all 15 paired comparisons at 1%, 5%, and 10% insertion batches produce identical exact counts. Median VeloGraphX answer-ready latency is 1.066 ms, 6.782 ms, and 15.495 ms, versus 43.657 ms, 47.095 ms, and 53.931 ms for the published exact reference: **40.95×, 6.94×, and 3.48× lower answer-ready latency**, respectively.
+The GraphBolt/VeloGraphX answer-ready latency ratio is **14.219× at 0.01%**, **2.245× at 0.1%**, and **0.886× at 0.5%**. Ratios above one indicate lower VeloGraphX latency; below one indicate lower GraphBolt latency. The winner therefore reverses as the update fraction grows. This is a workload-scoped comparison with a pinned artifact runtime, not a universal GraphBolt or DZiG ranking.
 
-The declining advantage as the batch grows is itself consistent with the localized-versus-global story: more changed state reduces the fraction of work that exact incremental maintenance can avoid. This is evidence about the pinned exact reference component, not a claim that VeloGraphX outperforms the paper's approximate sliding-window algorithm, whose semantics differ.
+### 6.6 Dynamic BFS versus NetworKit
 
-### 6.6 Large-graph storage maintenance
+The accepted NetworKit campaign uses NetworKit 11.2.1, one thread, two graph families, three fixed roots per dataset, and five paired repetitions per root. All 30 paired executions are exact. On `web-Google`, VeloGraphX is approximately **1.38× faster** on the evaluated paired workload; on `ca-GrQc`, **NetworKit is approximately 1.35× faster**.
 
-The accepted canonicalization A/B uses SNAP `com-Orkut`, with 3,072,441 vertices and 234,370,166 directed arcs in the dynamic representation, over 60 mutation/maintenance epochs. It compares a conservative 1.25× owned-storage envelope with a bounded 1.50× large-graph policy while preserving exact edge counts and consolidation digests.
+This reversal reinforces the paper's central point: external-system conclusions are workload-specific, and no universal fastest-system claim is warranted.
 
-The wider bounded envelope reduces consolidations from 15 to 6 and total consolidation time from 386.573 s to 156.128 s, a **59.6% reduction**. Maintenance-amortized throughput increases from 19,135 to 43,062 operations/s, or **2.25×**. The trade-off is higher peak RSS: 8,016,740 KiB versus 7,517,892 KiB, approximately **6.6% higher**.
+### 6.7 Static BFS and weighted SSSP context
 
-This experiment shows that whole-graph canonicalization can dominate maintenance at 100M+-arc scale and that a bounded delay can materially improve amortized cost. It does not establish that the 1.50× threshold is universally optimal. Instead, the result motivates treating canonical reconstruction as another explicit global operation whose frequency must be controlled rather than assumed free.
+A same-run hosted campaign compares VeloGraphX with GAP Benchmark Suite and LAGraph/SuiteSparse:GraphBLAS at 1, 2, and 4 threads, with five repetitions per configuration and correctness checks. VeloGraphX is fastest in the evaluated BFS cases, measuring **1.60×–2.04× faster than GAP** and **9.4×–11.8× faster than LAGraph**. Weighted SSSP gives the opposite result: **GAP is fastest**; VeloGraphX is 2.6×–3.0× faster than LAGraph but 7.0×–8.5× slower than GAP.
 
-### 6.7 Supporting breadth and maturity
+The purpose of this experiment is contextual. It shows that the full BFS arm is a credible execution path while retaining a kernel where another system clearly wins.
 
-A fresh three-dataset triangle crossover campaign retains five repetitions at 13 update fractions per dataset and exactness against full recomputation. `facebook-combined` remains incremental-favorable through the largest tested ratio, while `p2p-Gnutella08` and `ca-HepTh` cross into full-recompute-favorable regimes at sufficiently large updates. This supports the broader graph-dependent crossover story but is secondary to the BFS policy experiment.
+### 6.8 Exact dynamic triangles versus a published exact reference
 
-Hosted engineering campaigns also show 4-thread speedups of 2.74× for BFS, 2.50× for connected components, and 2.24× for triangle counting, and compression ratios of approximately 3.25×–3.78× with a documented traversal trade-off. These are implementation-maturity results, not many-core claims.
+Against the pinned exact `GoldenCounter` reference on normalized `facebook-combined`, all 15 paired comparisons at 1%, 5%, and 10% insertion batches produce identical exact counts. Median VeloGraphX answer-ready latency is 1.066 ms, 6.782 ms, and 15.495 ms, versus 43.657 ms, 47.095 ms, and 53.931 ms for the reference: **40.95×, 6.94×, and 3.48× lower answer-ready latency**, respectively.
+
+This is evidence against the pinned exact reference component, not a claim against the paper's approximate sliding-window algorithm whose semantics differ.
+
+### 6.9 Large-graph storage maintenance
+
+On SNAP `com-Orkut` with 3,072,441 vertices and 234,370,166 directed arcs over 60 epochs, a wider bounded storage envelope reduces consolidations from 15 to 6 and total consolidation time from 386.573 s to 156.128 s, a **59.6% reduction**. Maintenance-amortized throughput increases from 19,135 to 43,062 operations/s (**2.25×**) while peak RSS rises by approximately **6.6%**.
+
+This establishes a measured time/memory trade-off on one large graph; it does not claim that the 1.50× envelope is universally optimal.
+
+### 6.10 Supporting breadth
+
+A three-dataset triangle-crossover campaign retains five repetitions at 13 update fractions per dataset and exactness against full recomputation. Dataset-specific crossover behavior appears outside the primary BFS experiment as well. Hosted 4-thread and compression results remain supporting implementation evidence only and are not used to make many-core or universal-performance claims.
 
 ## 7. Discussion
 
-### 7.1 The crossover is a systems property, not one threshold
+### 7.1 Architecture and selector quality are different claims
 
-The evaluation does not reveal a single global update fraction at which recomputation should always replace repair. `soc-Epinions1`, `ca-GrQc`, and `web-Google` behave differently, and the triangle campaign exhibits dataset-specific crossover points as well. A fixed threshold can therefore be useful as a baseline but cannot encode all structural consequences of an update batch.
+The new held-out campaign sharpens the paper's thesis. The architectural claim is that exact repair and exact recomputation should be exposed as alternative physical plans over a shared mutable substrate. The policy claim is narrower: one current selector can often exploit that crossover, but its quality is workload-dependent. `Amazon0312` and `CollegeMsg` make this distinction explicit.
 
-The architecture is more important than any one current policy: both exact arms are available behind the same logical operation, the choice occurs before repair when possible, and telemetry is available to improve the policy without rewriting the maintained algorithm.
+This separation is useful because selector improvement does not require rewriting the exact maintenance algorithm. New preflight features or a learned policy can be evaluated under the same execution interface, oracle, and fallback contract.
 
-### 7.2 Negative results are part of the result
+### 7.2 Pre-repair selection can avoid real fallback work
 
-The benchmark record contains several useful reversals: full recomputation wins when repair becomes sufficiently broad; NetworKit wins the evaluated `ca-GrQc` dynamic-BFS workload; GAP substantially wins weighted SSSP; RisGraph remains faster on the documented hosted dynamic-BFS run; and the current selector has a visible large-`web-Google` tail. Removing these cases would weaken rather than strengthen the systems claim, because the paper is about workload-dependent execution choices.
+The production 0.35 campaign closes an important evidentiary gap. The benefit of pre-repair placement is no longer inferred from zero fallback in an isolation harness; it is directly measured against a fallback-only path. In the retained campaign, six fallback opportunities and 17.323 ms of conservatively measured double work are avoided. The simultaneous presence of 33 false-full choices prevents overclaiming: avoiding fallback work does not imply perfect plan selection.
 
-### 7.3 Repair discovery can itself be wasted work
+### 7.3 Uncertainty matters; not every feature does
 
-A selector that invokes incremental repair and only later discovers that the affected region is too large may pay twice: once for repair discovery or partial processing and again for full recomputation. This motivates pre-execution signals and selector-owned recomputation. The current publication-policy artifacts show zero internal fallbacks in the evaluated current-policy runs, so the policy is avoiding that specific double-work path there; the remaining error is mostly choosing the slower exact arm directly.
+The clean ablation shows that uncertainty handling is essential in the current policy and that structural preflight is useful. It also shows that previous-affected-work is not independently justified by this campaign. That negative result is retained. The appropriate response is to simplify future selector design or re-evaluate the feature on broader frozen workloads, not to declare every existing heuristic necessary.
 
-### 7.4 Storage and algorithm adaptation are related but distinct
+### 7.4 Negative results are part of the result
 
-The storage policy and analytical selector embody the same broad principle—avoid global work while localized state remains economical—but operate at different layers and timescales. We do not collapse them into one learned policy. Storage consolidation is a bounded maintenance decision; repair-versus-recompute selection is an answer-ready execution decision.
+The benchmark record intentionally retains several reversals: recomputation wins when repair becomes broad; NetworKit wins the evaluated `ca-GrQc` workload; GAP wins weighted SSSP; GraphBolt wins the largest matched update fraction; RisGraph remains faster on its documented hosted campaign; and the current selector performs poorly on part of the timestamp-ordered `CollegeMsg` holdout. Removing these cases would weaken the systems paper because its central claim is precisely that execution preference is workload-dependent.
 
-### 7.5 What the `web-Google` tail teaches
+### 7.5 Storage and algorithm adaptation are related but distinct
 
-The large-regime tail is useful because it identifies what the current selector does **not** yet model well. Recent execution cost and update density summarize workload history, but they are imperfect proxies for future dependency expansion. Richer cheap features could estimate destructive locality, root-distance distribution, or sampled dependency exposure before repair. Any such extension should be evaluated under the same frozen-harness discipline rather than tuned until the visible tail disappears.
+The storage policy and analytical selector embody the same broad principle—avoid global work while local state remains economical—but operate at different layers and timescales. We do not collapse them into one learned policy. Storage consolidation is a bounded maintenance decision; repair-versus-recompute selection is an answer-ready execution decision.
 
 ### 7.6 Generalization beyond BFS
 
-The architecture does not require every analytic to use the same features or thresholds. An exact triangle counter, k-core maintainer, or PageRank repair path exposes different dependency state. What transfers is the interface: a localized exact arm, a full exact arm, pre-execution observables, explicit fallback, and post-execution telemetry. BFS is therefore a detailed case study of the physical-plan abstraction rather than a claim that one selector is universal.
+The architecture does not require every analytic to use the same features or thresholds. An exact triangle counter or k-core maintainer exposes different dependency state, and PageRank uses a tolerance-based numerical contract. What transfers is the interface: a localized arm, a global arm, pre-execution observables, explicit fallback where appropriate, and post-execution telemetry. BFS is therefore the detailed exact case study rather than evidence that one selector is universal.
 
 ## 8. Limitations
 
-The primary comparative evidence is hosted and therefore intentionally scoped. The paper does not claim stable many-core scaling, multi-socket NUMA behavior, hardware-counter advantages, NVMe/out-of-core superiority, or universal peak throughput. NetworKit evidence covers one thread and two graph families. The accepted RisGraph and NetworKit campaigns were executed separately, so their absolute latencies are not combined into a three-system ranking unless the unified same-machine campaign is separately audited.
+The primary comparative evidence is hosted and intentionally scoped. The paper does not claim stable many-core scaling, multi-socket NUMA behavior, hardware-counter advantages, NVMe/out-of-core superiority, or universal peak throughput. NetworKit evidence covers one thread and two graph families. The accepted RisGraph and NetworKit campaigns were executed separately, so their absolute latencies are not combined into a three-system ranking.
 
-The current policy's three-graph validation uses a historical fixed graph/root program rather than a newly preregistered unseen holdout. Its average regret is low, but the largest `web-Google` regime has a material tail; the paper therefore does not claim uniform near-oracle behavior. The system supports multiple maintained analytics, but adaptive selection is studied most deeply for BFS. Some destructive weighted-SSSP updates conservatively recompute. Python and other 0.x APIs may evolve.
+The primary three-graph selector campaign uses a historical fixed graph/root program. Its low average regret is therefore not a fresh generalization result. The frozen held-out campaign improves the evidence but also exposes a substantial failure on timestamp-ordered `CollegeMsg`: 34.52% equal-regime mean regret and a very large worst-regime tail. We consequently make no uniform near-oracle or universal selector-generalization claim.
 
-Historical selector-development experiments changed multiple mechanisms across iterations. They motivate the final design but are not a clean cumulative component ablation. If the manuscript makes causal claims about individual selector mechanisms, it should add explicit feature switches under one frozen harness; otherwise mechanism discussion remains descriptive.
+`CollegeMsg` preserves observed interaction arrival order, but repeated interactions are idempotent under simple-graph semantics and sliding-window removals are induced expiries rather than observed deletion events. It is therefore a genuine temporal-order test of the selector, not a perfect model of every real temporal graph semantics.
 
-The storage result shows a clear canonicalization trade-off on one very large graph, but it does not determine a universally optimal envelope. A broader controlled-hardware study could vary mutation locality, memory pressure, graph family, and consolidation implementation. Those questions are useful follow-up work rather than prerequisites for the paper's repair-versus-recompute thesis.
+The production 0.35 fallback campaign directly measures avoided repair-then-full work, but the 220K destructive cascade is a mechanism stress case. The experiment establishes that the architecture can avoid measured double work when such a case occurs; it does not estimate the population frequency of those cases in natural workloads.
+
+The clean ablation is stronger than the historical development record because it changes one mechanism at a time, but it is still tied to one frozen campaign. Structural preflight and uncertainty are supported there; previous-affected-work is not. Future policy work should treat this as evidence to simplify or revisit the feature rather than as a final causal model.
+
+The GraphBolt comparison uses a pinned legacy artifact runtime on a matched hosted allocation. It provides a serious same-stream reference with a retained winner reversal, but it is not a universal evaluation of every modern GraphBolt/DZiG configuration.
+
+Adaptive selection is studied most deeply for BFS. Some destructive weighted-SSSP updates conservatively recompute, and PageRank uses residual/tolerance validation rather than the exact BFS contract. The storage result demonstrates a clear canonicalization trade-off on one very large graph but does not determine a universally optimal envelope.
 
 ## 9. Related work
 
 ### 9.1 Dynamic and incremental graph processing
 
-GraphIn explicitly introduced a property-based dual-path execution model that can switch between incremental and static processing. VeloGraphX therefore does not claim that the existence of two graph-processing paths is new. The distinction here is the exact repair/recompute framing over one mutable analytical state, the pre-repair placement of the decision, and explicit accounting for wrong-arm and repair-to-full double work.
+GraphIn introduced a property-based dual-path execution model that can switch between incremental and static processing. VeloGraphX therefore does not claim that the existence of two graph-processing paths is new. The distinction here is the exact repair/recompute framing over one mutable analytical state, the pre-repair placement of the decision, and explicit accounting for wrong-arm and repair-to-full work.
 
-Bok et al. predict incremental-processing cost from prior history and select between incremental and static execution. This establishes that history-based cost selection is also prior art. VeloGraphX combines recent cost observations with structural preflight guards and keeps selector telemetry alongside exactness/fallback evidence; the contribution is the integrated exact systems design and evaluation rather than the general idea of using past cost.
+Bok et al. predict incremental-processing cost from prior history and select between incremental and static execution. History-based cost selection is therefore also prior art. VeloGraphX combines cost history with structural preflight and uncertainty while separating selector behavior from fallback and correctness; the contribution is the integrated exact systems design and evaluation rather than the general idea of using past cost.
 
-GraphBolt and DZiG develop dependency-driven and sparsity-aware incremental graph processing. Their work motivates exploiting only affected state rather than rerunning a whole computation. VeloGraphX's BFS repair likewise uses dependency structure, but the paper's focus is on when to expose that repair as one physical arm versus choosing recomputation before repair begins.
+GraphBolt and DZiG develop dependency-driven and sparsity-aware incremental graph processing. Their work motivates exploiting affected state rather than rerunning a whole computation. VeloGraphX's BFS repair likewise uses dependency structure, but this paper focuses on **when** that repair should be selected versus recomputation. The matched GraphBolt artifact experiment is reported as a scoped reference rather than as a claim to reproduce or rank the full published DZiG/GraphBolt design space.
 
-RisGraph targets low-latency evolving-graph processing and provides an important external dynamic-system reference. Layph addresses broad propagation in dynamic graph computation through layered processing. These systems reinforce that dynamic graph performance depends on how change propagates; VeloGraphX studies the complementary plan-selection question under exact repair/recompute alternatives.
+RisGraph targets low-latency evolving-graph processing and provides an important external dynamic-system reference. Layph addresses broad propagation in dynamic graph computation through layered processing. These systems reinforce that dynamic performance depends on how change propagates; VeloGraphX studies the complementary physical-plan selection problem under exact repair/recompute alternatives.
 
 ### 9.2 Mutable graph storage
 
-Dynamic storage itself is not claimed as novel. GraphOne uses a hybrid representation supporting graph updates and analytical views, while Teseo develops a sophisticated mutable graph representation with transactional support. VeloGraphX's segmented CSR, packed deltas, and sparse row patches should be read as the substrate required to make repeated exact repair and explicit consolidation practical, not as a claim to have invented mutable graph storage.
+Dynamic storage itself is not claimed as novel. GraphOne uses hybrid representations for graph updates and analytical views, while Teseo develops a sophisticated mutable representation with transactional support. VeloGraphX's segmented CSR, packed deltas, and sparse row patches should be read as the substrate required to make repeated repair and explicit consolidation practical, not as a claim to have invented mutable graph storage.
 
-The storage contribution in this paper is consequently scoped to its interaction with execution: updates need not force canonical reconstruction, reverse adjacency supports dependency repair, and canonicalization is exposed as an explicit bounded maintenance action whose cost can be measured separately.
+The storage contribution is consequently scoped to its interaction with execution: updates need not force canonical reconstruction, reverse adjacency supports dependency repair, and canonicalization is exposed as a bounded maintenance action whose cost can be measured separately.
 
 ### 9.3 Static graph analytics and sparse linear algebra
 
-GAP Benchmark Suite provides optimized graph kernels and a widely used evaluation reference; LAGraph/SuiteSparse:GraphBLAS represents graph algorithms through sparse linear algebra. The static comparison in this paper is contextual rather than a claim that VeloGraphX replaces either ecosystem. It verifies that the recomputation arm is credible on BFS while retaining the weighted-SSSP case where GAP is substantially faster.
+GAP Benchmark Suite provides optimized graph kernels and a widely used evaluation reference; LAGraph/SuiteSparse:GraphBLAS represents graph algorithms through sparse linear algebra. The static comparison is contextual rather than a claim that VeloGraphX replaces either ecosystem. It verifies that the recomputation arm is credible on BFS while retaining the weighted-SSSP case where GAP is substantially faster.
 
-NetworKit is a mature graph-analysis library with dynamic capabilities and serves as the paired external BFS baseline. The observed winner reversal across `web-Google` and `ca-GrQc` is consistent with the paper's decision not to make a universal fastest-system claim.
+NetworKit is a mature graph-analysis library with dynamic capabilities and serves as a paired external BFS baseline. The observed winner reversal across `web-Google` and `ca-GrQc` is consistent with the paper's refusal to make a universal fastest-system claim.
 
 ## 10. Conclusion
 
-VeloGraphX treats exact localized repair and full recomputation as alternative physical strategies for the same evolving-graph analytics problem. A mutable graph substrate makes repeated updates practical, exact maintained algorithms expose localized work, and a pre-repair selector can avoid committing the system to one execution mode across all regimes.
+VeloGraphX treats exact localized repair and full recomputation as alternative physical strategies for the same evolving-graph result. A mutable graph substrate makes repeated updates practical, exact BFS maintenance exposes localized work, and a pre-repair selector can choose full execution before entering repair while retaining fallback as a safety/performance bound.
 
-The BFS design makes the boundary concrete: destructive updates remove shortest-parent support, dependency invalidation identifies affected state before the batch is applied, boundary repair restores exact distances, insertions propagate decreases, and a conservative fallback remains available when affected work becomes broad. Above that algorithm, a low-cost selector can choose full execution before entering repair and can record why it made that choice.
+The expanded evaluation strengthens and narrows the paper at the same time. The primary selector remains exact with low average regret on its historical three-graph program. Under the real 0.35 fallback bound, pre-repair selection avoids six retained fallback opportunities and 17.323 ms of conservatively measured repair-then-full work. A frozen held-out campaign performs well on unseen `Amazon0312` but poorly on timestamp-ordered `CollegeMsg`, demonstrating that the current selector is not universally general. Clean ablation supports structural preflight and uncertainty while refusing to assign causal credit to every feature. External comparisons retain workload-specific winner reversals.
 
-The evaluation deliberately retains regimes where recomputation, competitors, or the oracle beat the chosen policy, because those reversals are central to the result: dynamic graph execution has a crossover. The current policy is exact and low-regret on average, but its visible `web-Google` tail shows that plan selection remains a real systems problem rather than a solved threshold-tuning exercise.
-
-The resulting systems lesson is simple: **incremental maintenance should be a selectable exact execution strategy, not an unconditional architectural assumption.**
+The resulting systems lesson is therefore deliberately architectural rather than promotional: **incremental maintenance should be a selectable exact execution strategy, not an unconditional architectural assumption.**
