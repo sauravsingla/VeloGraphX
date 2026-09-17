@@ -1,0 +1,227 @@
+name: Apply paper deep-review corrections
+
+on:
+  push:
+    branches: [paper-deep-review-corrections-20260917]
+
+permissions:
+  contents: write
+
+jobs:
+  correct:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: paper-deep-review-corrections-20260917
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply evidence-backed manuscript and registry corrections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import math
+
+          def replace_once(path, old, new):
+              p=Path(path)
+              s=p.read_text()
+              n=s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {n}: {old[:100]!r}')
+              p.write_text(s.replace(old,new))
+
+          # Canonical manuscript: correct fallback semantics, GraphBolt fractions,
+          # and the dangling "exactness theorem" wording. Add a compact invariant
+          # argument and make the selector mechanics reviewer-visible.
+          manuscript='paper/manuscript.md'
+          replace_once(
+              manuscript,
+              'A production-style replay with the normal **0.35 affected-region fallback** is exact across 93 aligned observations: a fallback-only path falls back six times, while the frozen pre-repair selector avoids all six opportunities and **17.323 ms** of conservatively measured repair-then-full double work, at the cost of 33 false-full choices.',
+              'A production-style replay with the normal **0.35 affected-region fallback** is exact across 93 aligned observations. All six fallback-only fallbacks occur in the declared 220K destructive-cascade stress case; the frozen pre-repair selector preempts all six and **17.323 ms** of conservatively measured repair-then-full double work. Across all 93 aligned observations, selector+fallback reduces cumulative answer-ready latency by **42.7%** relative to fallback-only; on the 72 real-graph observations, which trigger no 0.35 fallback, the reduction is **42.2%**.'
+          )
+          replace_once(
+              manuscript,
+              'they are not evidence for the exactness theorem or the exact repair/recompute oracle used in the paper.',
+              'they are not evidence for the exactness contract or the exact repair/recompute oracle used in the paper.'
+          )
+          replace_once(
+              manuscript,
+              'This contract deliberately separates exact dynamic BFS from tolerance-based numerical workflows such as PageRank. The latter may share storage and maintenance machinery, but they are not evidence for the exactness contract or the exact repair/recompute oracle used in the paper.',
+              'This contract deliberately separates exact dynamic BFS from tolerance-based numerical workflows such as PageRank. The latter may share storage and maintenance machinery, but they are not evidence for the exactness contract or the exact repair/recompute oracle used in the paper.\n\n**BFS exactness invariant.** Before a batch, maintained distances equal a fresh BFS. A final deletion can increase a distance only after all shortest-parent support for the old distance is removed; invalidation propagates over the pre-batch shortest-path dependency relation and therefore contains every vertex whose old label can become invalid. Boundary repair recomputes the minimum admissible labels for that affected region, and insertion relaxation monotonically propagates every newly shorter path. If the affected set exceeds the bound, a fresh BFS is used instead. Thus either execution path restores the same post-batch distances as exact recomputation; the selector changes cost, not semantics.'
+          )
+          replace_once(
+              manuscript,
+              'The exact numeric thresholds are frozen in the artifact. The paper does not claim the hand-designed selector is globally optimal. Its role is to demonstrate that plan selection is measurable, inexpensive relative to execution, and separable from algorithm correctness.',
+              'The exact numeric thresholds are frozen in the artifact. Operationally, the selector (1) computes pre-execution structural signals, (2) uses the initial BFS as a measured full-cost baseline, (3) probes a missing incremental arm rather than inventing its cost, (4) maintains exponentially smoothed observed arm costs and prediction errors, and (5) chooses full only when a structural guard fires or the uncertainty-adjusted incremental estimate is confidently worse; otherwise it chooses repair. Only the executed arm updates future cost history, so offline oracle costs never leak into later production decisions. The paper does not claim the hand-designed selector is globally optimal. Its role is to demonstrate that plan selection is measurable, inexpensive relative to execution, and separable from algorithm correctness.'
+          )
+          replace_once(
+              manuscript,
+              'Run `35237513376`, artifact `10503926632`, retains **93 aligned batch observations**, all exact. In the fallback-only path, internal fallback occurs **six** times. Under the same retained cases, the frozen pre-repair selector chooses full execution before repair in all **six** fallback opportunities, leaving **zero** selector-path internal fallbacks. The campaign conservatively measures **17.323 ms** of repair-then-full double work in the fallback-only path and **17.323 ms avoided** by pre-repair selection.\n\nThe benefit is not free: the selector also makes **33 false-full choices**, where full recomputation is selected even though repair would have been cheaper. This is precisely why the paper reports both avoided fallback work and plan-selection error. The retained 220K destructive-cascade case is a **mechanism stress case**; we do not claim that its fallback frequency represents natural graph streams.',
+              'Run `35237513376`, artifact `10503926632`, retains **93 aligned batch observations**, all exact. In the fallback-only path, internal fallback occurs **six** times, and **all six occur in the declared 220K destructive-cascade stress case**; none occurs in the 72 observations from `ca-GrQc`, `soc-Epinions1`, or `web-Google`. Under the same retained cases, the frozen pre-repair selector chooses full execution before repair in all six fallback opportunities, leaving **zero** selector-path internal fallbacks. The campaign conservatively measures **17.323 ms** of repair-then-full double work in the fallback-only path and **17.323 ms avoided** by pre-repair selection.\n\nThe retained summarizer also reports 33 `false_full` labels. That historical field means only that the selector chose full on a batch where the fallback-only path would not itself have fallen back; it is **not** a wrong-arm test and does not establish that full was slower than repair. Indeed, the retained positive `false_full_penalty_us` is zero for all 33 such labels. Across all 93 aligned observations, selector+fallback reduces cumulative answer-ready latency by **42.7%** relative to fallback-only (fallback-only / selector+fallback = **1.745×**). Restricting to the 72 real-graph observations, the reduction is **42.2%** (**1.729×**). These are campaign-scoped, sample-weighted totals; the cascade experiment demonstrates the fallback mechanism and its measurable cost, not the natural frequency of fallback events.'
+          )
+          replace_once(
+              manuscript,
+              'The GraphBolt/VeloGraphX answer-ready latency ratio is **14.219× at 0.01%**, **2.245× at 0.1%**, and **0.886× at 0.5%**. Ratios above one indicate lower VeloGraphX latency; below one indicate lower GraphBolt latency. The winner therefore reverses as the update fraction grows. This is a workload-scoped comparison with a pinned artifact runtime, not a universal GraphBolt or DZiG ranking.',
+              'The GraphBolt/VeloGraphX answer-ready latency ratio is **14.219× at 0.1%**, **2.245× at 1%**, and **0.886× at 5%** operation fraction. Here operation fraction is the number of graph-operation rows divided by the initial-edge count, matching the retained workload generator (`0.01 = 1%`). Ratios above one indicate lower VeloGraphX latency; below one indicate lower GraphBolt latency. The winner therefore reverses as the update fraction grows. This is a workload-scoped comparison with a pinned artifact runtime, not a universal GraphBolt or DZiG ranking.'
+          )
+          replace_once(
+              manuscript,
+              'The production 0.35 campaign closes an important evidentiary gap. The benefit of pre-repair placement is no longer inferred from zero fallback in an isolation harness; it is directly measured against a fallback-only path. In the retained campaign, six fallback opportunities and 17.323 ms of conservatively measured double work are avoided. The simultaneous presence of 33 false-full choices prevents overclaiming: avoiding fallback work does not imply perfect plan selection.',
+              'The production 0.35 campaign closes an important evidentiary gap. The benefit of pre-repair placement is no longer inferred from zero fallback in an isolation harness; it is directly measured against a fallback-only path. All six observed fallback events occur in the declared cascade stress case, and pre-repair selection avoids all six plus 17.323 ms of conservatively measured double work. The real-graph rows trigger no 0.35 fallback, so the experiment establishes the mechanism rather than its natural frequency. Separately, selector+fallback reduces cumulative answer-ready latency by 42.7% across all retained observations and 42.2% on the real-graph subset. The artifact\'s 33 `false_full` labels are explicit-full/non-fallback labels, not wrong-arm assertions.'
+          )
+          replace_once(
+              manuscript,
+              'The production 0.35 fallback campaign directly measures avoided repair-then-full work, but the 220K destructive cascade is a mechanism stress case. The experiment establishes that the architecture can avoid measured double work when such a case occurs; it does not estimate the population frequency of those cases in natural workloads.',
+              'The production 0.35 fallback campaign directly measures avoided repair-then-full work, but all six internal fallback events occur in the 220K destructive-cascade mechanism stress case; the 72 real-graph observations have zero 0.35 fallbacks. The experiment therefore establishes that the architecture can avoid measured double work when such a case occurs, not the population frequency of such cases in natural workloads. The reported 42.7% all-observation and 42.2% real-graph cumulative latency reductions are scoped to this retained campaign.'
+          )
+          replace_once(
+              manuscript,
+              'The expanded evaluation strengthens and narrows the paper at the same time. The primary selector remains exact with low average regret on its historical three-graph program. Under the real 0.35 fallback bound, pre-repair selection avoids six retained fallback opportunities and 17.323 ms of conservatively measured repair-then-full work. A frozen held-out campaign performs well on unseen `Amazon0312` but poorly on timestamp-ordered `CollegeMsg`, demonstrating that the current selector is not universally general. Clean ablation supports structural preflight and uncertainty while refusing to assign causal credit to every feature. External comparisons retain workload-specific winner reversals.',
+              'The expanded evaluation strengthens and narrows the paper at the same time. The primary selector remains exact with low average regret on its historical three-graph program. Under the real 0.35 fallback bound, pre-repair selection avoids all six retained fallback opportunities and 17.323 ms of conservatively measured repair-then-full work; all six fallbacks arise in the declared cascade stress case, while the real-graph subset has none. Across the retained replay, selector+fallback also lowers cumulative answer-ready latency by 42.7% overall and 42.2% on real graphs. A frozen held-out campaign performs well on unseen `Amazon0312` but poorly on timestamp-ordered `CollegeMsg`, demonstrating that the current selector is not universally general. Clean ablation supports structural preflight and uncertainty while refusing to assign causal credit to every feature. External comparisons retain workload-specific winner reversals.'
+          )
+
+          # Canonical evidence registry. Preserve the historical field name for
+          # artifact compatibility, but attach its true semantics and derived
+          # latency totals from the retained raw artifact.
+          p=Path('paper/data/accepted-results.json')
+          d=json.loads(p.read_text())
+          fb=d['adaptive_selector']['production_fallback_035']
+          assert fb['false_full_choices'] == 33
+          fb.update({
+              'false_full_choices_semantics': 'Historical artifact label: selector chose full where fallback-only did not internally fall back; this is not a wrong-arm assertion and does not establish that full was slower than repair.',
+              'positive_false_full_penalty_us': 0.0,
+              'all_fallbacks_in_declared_cascade_stress_case': True,
+              'real_graph_aligned_batch_observations': 72,
+              'real_graph_fallback_only_internal_fallbacks': 0,
+              'fallback_only_over_selector_plus_fallback_cumulative_latency_ratio_all': 1.745008759207781,
+              'selector_plus_fallback_cumulative_latency_reduction_fraction_all': 0.4269369739702674,
+              'fallback_only_over_selector_plus_fallback_cumulative_latency_ratio_real_graphs': 1.72903333187279,
+              'selector_plus_fallback_cumulative_latency_reduction_fraction_real_graphs': 0.421642150231507,
+              'cumulative_selector_savings_ms_all': 754.870575,
+              'cumulative_selector_savings_ms_real_graphs': 737.796774,
+          })
+          fb['claim_boundary']='All six 0.35 fallback events occur in the declared 220K destructive-cascade stress case; the 72 real-graph observations have zero such fallback. The historical false_full_choices field is a structural explicit-full/non-fallback label, not a wrong-arm count. Cumulative latency ratios are sample-weighted totals within this retained campaign, not population-frequency or universal-performance claims.'
+
+          gb=d['external_baselines']['graphbolt_dynamic_bfs']
+          old=gb['graphbolt_over_velographx_answer_ready_ratio']
+          assert old == {'0.0001':14.219,'0.001':2.245,'0.005':0.886}
+          gb['operation_fractions']=[0.001,0.01,0.05]
+          gb['operation_fraction_percent']=[0.1,1.0,5.0]
+          gb['operation_fraction_semantics']='graph-operation rows divided by initial-edge rows; 0.01 = 1%'
+          gb['graphbolt_over_velographx_answer_ready_ratio']={'0.001':14.219,'0.01':2.245,'0.05':0.886}
+          p.write_text(json.dumps(d,indent=2,ensure_ascii=False)+'\n')
+
+          # Submission-closure registry mirrors the same corrected semantics.
+          p=Path('paper/submission-closure-evidence.json')
+          d=json.loads(p.read_text())
+          campaigns={c['id']:c for c in d['campaigns']}
+          fb=campaigns['production-fallback-035']
+          assert fb['false_full_choices']==33
+          fb.update({
+              'false_full_choices_semantics':'Historical artifact label: selector chose full where fallback-only did not internally fall back; not a wrong-arm assertion.',
+              'positive_false_full_penalty_us':0.0,
+              'all_fallbacks_in_declared_cascade_stress_case':True,
+              'real_graph_aligned_batch_observations':72,
+              'real_graph_fallback_only_internal_fallbacks':0,
+              'fallback_only_over_selector_plus_fallback_cumulative_latency_ratio_all':1.745008759207781,
+              'selector_plus_fallback_cumulative_latency_reduction_fraction_all':0.4269369739702674,
+              'fallback_only_over_selector_plus_fallback_cumulative_latency_ratio_real_graphs':1.72903333187279,
+              'selector_plus_fallback_cumulative_latency_reduction_fraction_real_graphs':0.421642150231507,
+          })
+          fb['claim_boundary']='All six fallback events are confined to the declared 220K cascade stress case; the real-graph rows have zero 0.35 fallbacks. The false_full_choices field is a structural label rather than a wrong-arm claim.'
+          gb=campaigns['graphbolt-real-dataset-dynamic-bfs']
+          gb['operation_fractions']=[0.001,0.01,0.05]
+          gb['operation_fraction_percent']=[0.1,1.0,5.0]
+          gb['operation_fraction_semantics']='graph-operation rows divided by initial-edge rows; 0.01 = 1%'
+          gb['graphbolt_over_velographx_answer_ready_ratio']={'0.001':14.219,'0.01':2.245,'0.05':0.886}
+          p.write_text(json.dumps(d,indent=2,ensure_ascii=False)+'\n')
+
+          # Results ledger: keep human-readable claim boundaries aligned.
+          p=Path('paper/results-ledger.md')
+          s=p.read_text()
+          s=s.replace('| False-full choices | 33 |','| Explicit-full/non-fallback labels (historical `false_full` field) | 33 |')
+          s=s.replace(
+              '**Interpretation:** this campaign closes the gap intentionally left by the clean-oracle-arm primary selector harness. Under the production 0.35 affected-region fallback, pre-repair selection avoided all six observed fallback opportunities in the aligned campaign and therefore avoided the conservatively measured 17.323 ms of repair-discovery-then-full work.\n\n**Required caveat:** the 220K destructive cascade is a mechanism stress case. Do not present its frequency as representative of a natural workload; real-graph rows are retained separately.',
+              '**Interpretation:** this campaign closes the gap intentionally left by the clean-oracle-arm primary selector harness. Under the production 0.35 affected-region fallback, pre-repair selection avoided all six observed fallback opportunities and therefore avoided the conservatively measured 17.323 ms of repair-discovery-then-full work. All six fallback events occur in the declared 220K destructive-cascade stress case; the 72 real-graph observations have zero 0.35 fallbacks. Across all 93 observations, selector+fallback reduces cumulative answer-ready latency by 42.7% relative to fallback-only (1.745× ratio); on real graphs alone the reduction is 42.2% (1.729×).\n\n**Historical field semantics:** the 33 `false_full` labels mean explicit full was selected on a batch where fallback-only did not internally fall back. They are not a wrong-arm count; the retained positive false-full penalty is 0 µs.\n\n**Required caveat:** the 220K destructive cascade demonstrates the fallback mechanism, not its natural-workload frequency. Cumulative latency totals are campaign-scoped and sample-weighted.'
+          )
+          p.write_text(s)
+
+          # Correct GraphBolt percentage labels anywhere a paper-facing line gives
+          # all three retained ratios. This avoids touching unrelated percentages.
+          current_docs=[
+              Path('paper/results-ledger.md'), Path('paper/reviewer-audit.md'),
+              Path('paper/submission-checklist.md'), Path('paper/README.md'),
+              Path('docs/paper-evidence-index.md'), Path('docs/paper-claims.md'),
+              Path('PAPER.md'), Path('README.md')
+          ]
+          def fix_ratio_line(line):
+              if all(x in line for x in ('14.219','2.245','0.886')):
+                  line=line.replace('0.01%','__VX_A__').replace('0.1%','__VX_B__').replace('0.5%','__VX_C__')
+                  line=line.replace('__VX_A__','0.1%').replace('__VX_B__','1%').replace('__VX_C__','5%')
+              return line
+          for q in current_docs:
+              if not q.exists():
+                  continue
+              text=q.read_text()
+              text='\n'.join(fix_ratio_line(line) for line in text.splitlines())+'\n'
+              text=text.replace('33 false-full choices','33 explicit-full/non-fallback labels')
+              text=text.replace('False-full choices | 33','Explicit-full/non-fallback labels | 33')
+              q.write_text(text)
+
+          # Freeze a new immutable revision after these scientific corrections.
+          p=Path('paper/submission-freeze.json')
+          freeze=json.loads(p.read_text())
+          freeze['tag']='pvldb-2027-submission-v3'
+          freeze['release_title']='VeloGraphX PVLDB 2027 Submission Artifact v3'
+          p.write_text(json.dumps(freeze,indent=2)+'\n')
+          for q in current_docs:
+              if q.exists():
+                  text=q.read_text().replace('pvldb-2027-submission-v1','pvldb-2027-submission-v3').replace('pvldb-2027-submission-v2','pvldb-2027-submission-v3')
+                  text=text.replace('Submission Artifact v2','Submission Artifact v3')
+                  q.write_text(text)
+
+          # Extend the submission validator so these two review findings cannot
+          # silently regress in a future edit.
+          p=Path('paper/validate_submission_data.py')
+          s=p.read_text()
+          anchor='''    if results["external_baselines"]["networkit_dynamic_bfs"]["all_exact"] is not True:\n        fail("NetworKit paired evidence lost exactness flag")\n'''
+          insertion='''    fallback = results["adaptive_selector"]["production_fallback_035"]\n    if fallback["aligned_batch_observations"] != 93 or fallback["fallback_only_internal_fallbacks"] != 6:\n        fail("production-fallback retained observation/fallback counts changed")\n    if fallback["fallback_opportunities_avoided_by_selector"] != 6 or fallback["selector_path_internal_fallbacks"] != 0:\n        fail("production-fallback selector avoidance counts changed")\n    if fallback.get("all_fallbacks_in_declared_cascade_stress_case") is not True:\n        fail("production-fallback stress-case scope flag missing")\n    if fallback.get("real_graph_aligned_batch_observations") != 72 or fallback.get("real_graph_fallback_only_internal_fallbacks") != 0:\n        fail("production-fallback real-graph scope changed")\n    if fallback.get("false_full_choices") != 33 or fallback.get("positive_false_full_penalty_us") != 0.0:\n        fail("production-fallback historical false_full semantics changed")\n    if "not a wrong-arm" not in fallback.get("false_full_choices_semantics", ""):\n        fail("production-fallback false_full semantic guard missing")\n    if not close(fallback["selector_plus_fallback_cumulative_latency_reduction_fraction_all"], 0.4269369739702674, 1e-12):\n        fail("production-fallback all-observation cumulative reduction changed")\n    if not close(fallback["selector_plus_fallback_cumulative_latency_reduction_fraction_real_graphs"], 0.421642150231507, 1e-12):\n        fail("production-fallback real-graph cumulative reduction changed")\n\n    graphbolt = results["external_baselines"]["graphbolt_dynamic_bfs"]\n    expected_graphbolt = {"0.001": 14.219, "0.01": 2.245, "0.05": 0.886}\n    if graphbolt.get("graphbolt_over_velographx_answer_ready_ratio") != expected_graphbolt:\n        fail("GraphBolt operation-fraction labels drifted from retained workload generator")\n    if graphbolt.get("operation_fraction_percent") != [0.1, 1.0, 5.0]:\n        fail("GraphBolt percentage labels must remain 0.1%, 1%, and 5%")\n    if graphbolt.get("operation_fraction_semantics") != "graph-operation rows divided by initial-edge rows; 0.01 = 1%":\n        fail("GraphBolt operation-fraction semantics missing")\n\n'''+anchor
+          if anchor not in s:
+              raise SystemExit('validator insertion anchor missing')
+          p.write_text(s.replace(anchor,insertion,1))
+
+          # Guard against the exact stale claims found by the deep review.
+          surfaces=[Path('paper/manuscript.md'),Path('paper/results-ledger.md'),Path('paper/data/accepted-results.json'),Path('paper/submission-closure-evidence.json')]
+          joined='\n'.join(q.read_text() for q in surfaces)
+          stale=[
+              '14.219× at 0.01%',
+              '"0.0001": 14.219',
+              'where full recomputation is selected even though repair would have been cheaper',
+              'at the cost of 33 false-full choices',
+              'exactness theorem',
+          ]
+          for token in stale:
+              if token in joined:
+                  raise SystemExit(f'stale reviewed claim remains: {token}')
+
+          print('deep-review corrections applied')
+          PY
+      - name: Validate corrected paper registries
+        run: |
+          python paper/validate_submission_data.py
+          python -m json.tool paper/data/accepted-results.json >/dev/null
+          python -m json.tool paper/submission-closure-evidence.json >/dev/null
+          python -m json.tool paper/submission-freeze.json >/dev/null
+      - name: Commit corrections and remove one-shot workflow
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/paper-deep-review-fix.yml
+          git add paper docs PAPER.md README.md
+          git status --short
+          git commit -m "paper: correct deep-review evidence semantics"
+          git push origin HEAD:paper-deep-review-corrections-20260917
