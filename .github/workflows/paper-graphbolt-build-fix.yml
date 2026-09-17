@@ -19,16 +19,39 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+
           p = Path('paper/vldb/prepare_submission.py')
-          s = p.read_text()
-          old_a = "Matched dynamic BFS, 0.01\\% updates & GraphBolt/VeloGraphX latency & {graphbolt['0.0001']:.3f}$\\times$ & VeloGraphX \\\\\\"
-          new_a = "Matched dynamic BFS, 0.1\\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.001']:.3f}$\\times$ & VeloGraphX \\\\\\"
-          old_b = "Matched dynamic BFS, 0.5\\% updates & GraphBolt/VeloGraphX latency & {graphbolt['0.005']:.3f}$\\times$ & GraphBolt \\\\\\"
-          new_b = "Matched dynamic BFS, 1\\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.01']:.3f}$\\times$ & VeloGraphX \\\\\\\nMatched dynamic BFS, 5\\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.05']:.3f}$\\times$ & GraphBolt \\\\\\"
-          if s.count(old_a) != 1 or s.count(old_b) != 1:
-              raise SystemExit(f'GraphBolt table anchors mismatch: a={s.count(old_a)} b={s.count(old_b)}')
-          p.write_text(s.replace(old_a, new_a).replace(old_b, new_b))
+          lines = p.read_text().splitlines()
+          out = []
+          replaced_001 = 0
+          replaced_05 = 0
+
+          for line in lines:
+              stripped = line.strip()
+              if stripped.startswith('Matched dynamic BFS, 0.01') and "graphbolt['0.0001']" in line:
+                  out.append(r"Matched dynamic BFS, 0.1\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.001']:.3f}$\times$ & VeloGraphX \\")
+                  replaced_001 += 1
+              elif stripped.startswith('Matched dynamic BFS, 0.5') and "graphbolt['0.005']" in line:
+                  out.append(r"Matched dynamic BFS, 1\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.01']:.3f}$\times$ & VeloGraphX \\")
+                  out.append(r"Matched dynamic BFS, 5\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.05']:.3f}$\times$ & GraphBolt \\")
+                  replaced_05 += 1
+              else:
+                  out.append(line)
+
+          if replaced_001 != 1 or replaced_05 != 1:
+              raise SystemExit(
+                  f'GraphBolt table row mismatch: 0.01-row={replaced_001}, 0.5-row={replaced_05}'
+              )
+
+          p.write_text('\n'.join(out) + '\n')
           PY
+      - name: Verify corrected table source
+        run: |
+          grep -F "graphbolt['0.001']" paper/vldb/prepare_submission.py
+          grep -F "graphbolt['0.01']" paper/vldb/prepare_submission.py
+          grep -F "graphbolt['0.05']" paper/vldb/prepare_submission.py
+          ! grep -F "graphbolt['0.0001']" paper/vldb/prepare_submission.py
+          ! grep -F "graphbolt['0.005']" paper/vldb/prepare_submission.py
       - name: Commit correction and remove one-shot workflow
         run: |
           git config user.name github-actions[bot]
