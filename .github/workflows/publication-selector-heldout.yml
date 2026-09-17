@@ -1,0 +1,201 @@
+name: Publication Selector Frozen Held-out Evaluation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/publication-selector-heldout.yml'
+      - 'benchmarks/publication_policy_bfs.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/prepare_temporal_edge_stream.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/summarize_publication_policy.py'
+      - 'include/velographx/**'
+      - 'src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+  COLLEGEMSG_MD5: cac6751a872aa91d1d1fe24cede118dd
+
+jobs:
+  heldout:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Freeze current selector source before any data download
+        run: |
+          mkdir -p build/heldout
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "publication_policy_blob=$(git rev-parse HEAD:benchmarks/publication_policy_bfs.cpp)"
+            echo "selector=publication-preflight-v1"
+            echo "evaluation_protocol=one-shot-no-retuning"
+            echo "roots_and_batch_sizes_are_declared_in_workflow_before_execution=true"
+          } > build/heldout/freeze.txt
+          grep -q 'publication-preflight-v1' benchmarks/publication_policy_bfs.cpp
+      - name: Build frozen current publication selector
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_bfs.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs
+      - name: Acquire genuine temporal CollegeMsg stream
+        run: |
+          mkdir -p build/heldout/datasets build/heldout/graphs build/heldout/runs build/heldout/summary
+          curl --fail --location --retry 4 \
+            https://snap.stanford.edu/data/CollegeMsg.txt.gz \
+            -o build/heldout/datasets/CollegeMsg.txt.gz
+          gzip -dc build/heldout/datasets/CollegeMsg.txt.gz > build/heldout/datasets/CollegeMsg.txt
+          test "$(md5sum build/heldout/datasets/CollegeMsg.txt | awk '{print $1}')" = "$COLLEGEMSG_MD5"
+          python tools/prepare_temporal_edge_stream.py \
+            --input build/heldout/datasets/CollegeMsg.txt \
+            --output build/heldout/graphs/CollegeMsg.txt \
+            --report build/heldout/CollegeMsg-temporal.json \
+            --expected-md5 "$COLLEGEMSG_MD5" \
+            --expected-vertices 1899 --expected-events 59835 >/dev/null
+          sha256sum build/heldout/datasets/CollegeMsg.txt.gz \
+            build/heldout/datasets/CollegeMsg.txt \
+            build/heldout/graphs/CollegeMsg.txt > build/heldout/CollegeMsg-checksums.txt
+      - name: Acquire separate unseen Amazon0312 graph
+        run: |
+          curl --fail --location --retry 4 \
+            https://snap.stanford.edu/data/amazon0312.txt.gz \
+            -o build/heldout/datasets/amazon0312.txt.gz
+          gzip -dc build/heldout/datasets/amazon0312.txt.gz > build/heldout/datasets/amazon0312.txt
+          RAW_SHA=$(sha256sum build/heldout/datasets/amazon0312.txt | awk '{print $1}')
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/heldout/datasets/amazon0312.txt \
+            --output build/heldout/graphs/amazon0312.txt \
+            --report build/heldout/amazon0312-normalization.json \
+            --expected-sha256 "$RAW_SHA" --expected-vertices 400727 --expected-edges 3200440 >/dev/null
+          sha256sum build/heldout/datasets/amazon0312.txt.gz \
+            build/heldout/datasets/amazon0312.txt \
+            build/heldout/graphs/amazon0312.txt > build/heldout/amazon0312-checksums.txt
+      - name: Execute predeclared unseen graph/root/update regimes without retuning
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          # These roots and regimes are fixed in source before execution. Results
+          # are retained whether favorable or unfavorable. No threshold changes are
+          # permitted by this workflow.
+          configs = [
+              # Raw source is timestamp ordered. Under VeloGraphX simple-graph
+              # semantics, repeated interactions remain idempotent edge updates;
+              # sliding-window removals represent expiry requests, not observed
+              # message-deletion events.
+              ('CollegeMsg-r1262', 'CollegeMsg', 1262, 0.70, [128,512,2048], 'temporal'),
+              ('CollegeMsg-r267',  'CollegeMsg', 267,  0.70, [128,512,2048], 'temporal'),
+              ('CollegeMsg-r1341', 'CollegeMsg', 1341, 0.70, [128,512,2048], 'temporal'),
+              ('amazon0312-r20802',  'amazon0312', 20802,  0.98, [1024,4096,16384], 'unseen-topology'),
+              ('amazon0312-r234567', 'amazon0312', 234567, 0.98, [1024,4096,16384], 'unseen-topology'),
+          ]
+          manifest=[]
+          for label, graph, root, rate, batches, kind in configs:
+              manifest.append({'label':label,'graph':graph,'root':root,'import_rate':rate,'batches':batches,'kind':kind})
+              for batch in batches:
+                  for rep in range(1,4):
+                      out=Path(f'build/heldout/runs/{label}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs', f'build/heldout/graphs/{graph}.txt',
+                              str(root), str(rate), str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d=json.load(out.open())
+                      assert d['selector']=='publication-preflight-v1'
+                      assert d['all_policies_exact'], (label,batch,rep)
+                      assert all(p['exact'] for p in d['policies'])
+          Path('build/heldout/predeclared-regimes.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          PY
+      - name: Summarize held-out generalization with no acceptance tuning gate
+        run: |
+          python tools/summarize_publication_policy.py \
+            --input-dir build/heldout/runs \
+            --output build/heldout/summary/all-regimes.json \
+            > build/heldout/summary/stdout.json
+          python - <<'PY'
+          import json, statistics
+          from pathlib import Path
+          d=json.load(open('build/heldout/summary/all-regimes.json'))
+          assert d['all_results_exact']
+          adaptive=[r for r in d['rows'] if r['policy']=='adaptive']
+          temporal=[r for r in adaptive if r['dataset'].startswith('CollegeMsg-')]
+          unseen=[r for r in adaptive if r['dataset'].startswith('amazon0312-')]
+          def agg(rows):
+              return {
+                  'regimes':len(rows),
+                  'equal_regime_mean_regret':statistics.mean(r['mean_regret'] for r in rows),
+                  'worst_regime_mean_regret':max(r['mean_regret'] for r in rows),
+                  'worst_regime_p95_regret':max(r['p95_regret'] for r in rows),
+                  'sample_weighted_wrong_arm_rate':sum(r['wrong_arm_rate']*r['samples'] for r in rows)/sum(r['samples'] for r in rows),
+              }
+          summary={
+              'schema_version':1,
+              'artifact_type':'velographx-frozen-current-selector-heldout-summary',
+              'selector':'publication-preflight-v1',
+              'all_exact':True,
+              'no_retuning_after_results':True,
+              'all':agg(adaptive),
+              'timestamp_ordered_collegemsg':agg(temporal),
+              'unseen_amazon0312':agg(unseen),
+              'temporal_semantics_note':'CollegeMsg source events retain timestamp order. VeloGraphX uses simple-graph idempotent updates; window removals are induced expiry requests, not observed message deletions.',
+          }
+          Path('build/heldout/summary/paper-metrics.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+      - name: Capture final immutable provenance
+        run: |
+          {
+            cat build/heldout/freeze.txt
+            echo "college_msg_uncompressed_md5=$COLLEGEMSG_MD5"
+            echo "amazon0312_source_url=https://snap.stanford.edu/data/amazon0312.txt.gz"
+            echo "repetitions_per_regime=3"
+            echo "one_thread=true"
+            echo "results_retained_without_acceptance_threshold=true"
+          } > build/heldout/pins.txt
+          cat build/heldout/amazon0312-checksums.txt >> build/heldout/pins.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: publication-selector-frozen-heldout
+          path: build/heldout/
+          retention-days: 90
+      - name: Comment PR with held-out result
+        if: github.event_name == 'pull_request' && always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if test -f build/heldout/summary/paper-metrics.json; then
+            python - <<'PY' > /tmp/heldout-comment.md
+          import json
+          d=json.load(open('build/heldout/summary/paper-metrics.json'))
+          print('### Frozen current-selector held-out evaluation')
+          print()
+          print(f"- Exact: **{d['all_exact']}**; no post-result retuning: **{d['no_retuning_after_results']}**")
+          for label,key in [('All held-out regimes','all'),('Timestamp-ordered CollegeMsg','timestamp_ordered_collegemsg'),('Unseen Amazon0312','unseen_amazon0312')]:
+              r=d[key]
+              print(f"- {label}: {r['regimes']} regimes; equal-regime mean regret **{100*r['equal_regime_mean_regret']:.2f}%**; worst-regime mean **{100*r['worst_regime_mean_regret']:.2f}%**; worst-regime p95 **{100*r['worst_regime_p95_regret']:.2f}%**")
+          print()
+          print('CollegeMsg uses genuine timestamp arrival order; repeated interactions are idempotent under simple-graph semantics and window removals are induced expiries, not observed deletions.')
+          PY
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/heldout-comment.md
+          fi
