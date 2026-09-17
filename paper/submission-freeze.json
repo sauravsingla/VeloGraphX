@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "artifact_type": "velographx-submission-freeze",
+  "venue": "PVLDB Volume 20 / 2027",
+  "tag": "pvldb-2027-submission-v1",
+  "release_title": "VeloGraphX PVLDB 2027 Submission Artifact v1",
+  "paper_title": "VeloGraphX: Adaptive Exact Analytics for Evolving Graphs",
+  "primary_selector": "publication-preflight-v1",
+  "freeze_policy": "The release tag must point to the merged submission-readiness commit after all required CI evidence jobs pass. The release archive, checksums, evidence registries, and reproduction instructions are immutable submission artifacts.",
+  "doi_archive": {
+    "provider": "Zenodo",
+    "metadata_file": ".zenodo.json",
+    "automatic_if": "ZENODO_ACCESS_TOKEN repository secret or GitHub-Zenodo release integration is configured",
+    "required_before_final_submission": true
+  }
+}

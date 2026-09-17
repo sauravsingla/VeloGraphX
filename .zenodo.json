@@ -1,0 +1,21 @@
+{
+  "title": "VeloGraphX: Adaptive Exact Analytics for Evolving Graphs",
+  "description": "Submission-era frozen research artifact for VeloGraphX, a C++20 system that exposes exact localized repair and full recomputation as selectable physical execution strategies over a common mutable graph substrate. The archive includes source, correctness tests, benchmark contracts, publication evidence registries, and reproducibility instructions. Quantitative claims remain scoped to the retained evidence and timing contracts.",
+  "creators": [
+    {
+      "name": "Singla, Saurav"
+    }
+  ],
+  "keywords": [
+    "dynamic graphs",
+    "graph analytics",
+    "incremental computation",
+    "exact analytics",
+    "adaptive execution",
+    "C++20",
+    "reproducibility"
+  ],
+  "license": "Apache-2.0",
+  "upload_type": "software",
+  "access_right": "open"
+}

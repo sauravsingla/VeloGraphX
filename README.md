@@ -4,37 +4,22 @@
 
 ### Correctness-First Dynamic Graph Analytics for Evolving Graphs
 
-<hr width="78%">
-
-<h3 align="center">
-  <a href="docs/architecture.md">Architecture</a> |
-  <a href="python/README.md">Python</a> |
-  <a href="docs/benchmark-methodology.md">Benchmarks</a> |
-  <a href="https://github.com/sauravsingla/VeloGraphX/releases">Releases</a> |
-  <a href="https://github.com/sauravsingla/VeloGraphX/discussions">Discussions</a>
-</h3>
+[Architecture](docs/architecture.md) · [Python](python/README.md) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/sauravsingla/VeloGraphX?style=flat&logo=github)](https://github.com/sauravsingla/VeloGraphX/stargazers)
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
 [![Release](https://img.shields.io/github/v/release/sauravsingla/VeloGraphX)](https://github.com/sauravsingla/VeloGraphX/releases/latest)
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/w/sauravsingla/VeloGraphX)](https://github.com/sauravsingla/VeloGraphX/graphs/commit-activity)
-[![GitHub contributors](https://img.shields.io/github/contributors/sauravsingla/VeloGraphX)](https://github.com/sauravsingla/VeloGraphX/graphs/contributors)
-[![Good first issues](https://img.shields.io/github/issues/sauravsingla/VeloGraphX/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/sauravsingla/VeloGraphX/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-
-⭐ **If VeloGraphX helps you analyze evolving graphs faster, [give us a star](https://github.com/sauravsingla/VeloGraphX) — it helps more developers and researchers discover the project.**
 
 </div>
 
 ## About
 
-VeloGraphX is a **high-performance C++20 engine for graph analytics on large, continuously evolving graphs**.
+VeloGraphX is a **C++20 engine for analytics on large, continuously evolving graphs**. Its central systems idea is to keep two semantically equivalent execution choices available for an evolving analytic: **localized maintenance of affected state** and **full recomputation**. A pre-repair policy can choose between them using graph/update structure and prior measured execution cost instead of assuming that either incremental processing or recomputation is always preferable.
 
-Instead of assuming incremental computation is always faster, VeloGraphX explicitly decides whether to **repair only the affected state** or **recompute the result from scratch**, based on update locality, affected work, graph scale, and observed execution cost.
-
-This makes VeloGraphX useful for workloads where graph structure changes continuously and analytical results need to stay current — including relationship networks, fraud and transaction graphs, knowledge graphs, infrastructure graphs, dependency networks, and graph-systems research.
+The paper-facing claim is deliberately narrow: **the preferred execution strategy changes with graph and update regime, so an evolving-graph engine should expose the repair/recompute crossover as an observable physical-plan choice.** VeloGraphX does not claim universal superiority over other graph systems.
 
 <p align="center">
   <img src="docs/assets/velographx-flow.svg" alt="VeloGraphX dynamic analytics flow" width="90%">
@@ -42,163 +27,101 @@ This makes VeloGraphX useful for workloads where graph structure changes continu
 
 ### Key features
 
-- **Adaptive incremental execution**: Automatically choose between localized repair and full recomputation instead of assuming one strategy always wins.
-- **Dynamic graph storage**: Segmented CSR, packed delta arenas, sparse row patches, forward/reverse adjacency, overlay cancellation, and explicit canonical CSR consolidation.
-- **Correctness-first analytics**: Dynamic and maintained execution paths for BFS / unweighted SSSP, weighted SSSP, connected components, triangle counting, k-core, and validated PageRank maintenance.
-- **High-performance CPU execution**: Multicore scheduling, SIMD-oriented intersections, NUMA-aware policies, compression, partition caching, and asynchronous partition loading.
-- **Storage-independent algorithms**: Graph-access abstractions decouple analytics from the native storage layer and enable execution over CSR and foreign graph representations.
-- **C++ engine with Python API**: Performance-critical execution stays in native C++20 while Python bindings provide a convenient interface for applications and experimentation.
-- **Reproducible systems evaluation**: Pinned datasets and competitors, correctness gates, machine-readable artifacts, explicit timing contracts, and documented negative results.
+- **Adaptive exact-plan execution for BFS**: choose localized exact repair or exact full recomputation before repair begins; conservative internal fallback remains a separate safety/performance mechanism.
+- **Dynamic graph storage**: segmented CSR, packed delta arenas, sparse row patches, forward/reverse adjacency, overlay cancellation, and explicit canonical CSR consolidation.
+- **Correctness-first analytics**: exact maintained BFS/unweighted SSSP, connected components, triangle counting, and k-core; weighted SSSP preserves exact distances with conservative recomputation fallback; PageRank uses residual/tolerance validation with conservative fallback rather than a mathematical exactness claim.
+- **CPU execution and interoperability**: multicore kernels, compression and partitioning support, graph-access abstractions, a native C++ API, and Python bindings.
+- **Reproducible systems evaluation**: checksum-pinned datasets, pinned competitor revisions, explicit timing contracts, exactness gates, retained raw repetitions, machine-readable evidence registries, and documented negative results.
 
-## Results at a Glance
+## Publication evidence at a glance
 
-> **Benchmark note:** GitHub-hosted measurements are reproducible engineering evidence, not publication-grade controlled-hardware claims. VeloGraphX intentionally reports both wins and losses.
+> **Evidence boundary:** GitHub-hosted runs are reproducible hosted evidence. Claims that require stable many-core, NUMA, hardware-counter, NVMe, or machine-specific peak-performance conditions remain outside the headline scope unless separately executed on controlled hardware.
 
-| Evidence | Verified result |
+| Evidence | Current audited result |
 | --- | --- |
-| Dynamic exactness stress | **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches** |
-| Adaptive execution | **108/108 exact · 1.66% mean selector overhead from regime-best**; exact BFS repair was **1.83× / 1.24× faster than full recomputation** at 0.1% / 1% updates, while full recomputation was **2.45× faster** at 5% |
-| Exact dynamic triangles vs published reference | **15/15 exact** · **40.95× / 6.94× / 3.48× lower answer-ready latency** at 1% / 5% / 10% update batches |
-| Native static BFS / SSSP vs GAP + LAGraph | BFS: **VeloGraphX fastest at 1/2/4T** — **1.60×–2.04× vs GAP** and **9.4×–11.8× vs LAGraph**. SSSP: **GAP fastest**; VeloGraphX **2.6×–3.0× faster than LAGraph** but **7.0×–8.5× slower than GAP** |
-| Dynamic BFS vs NetworKit | `web-Google`: **~1.38× faster VeloGraphX** · `ca-GrQc`: **~1.35× faster NetworKit**; all **30 paired executions exact** |
-| 100M+ graph maintenance | `com-Orkut`: **3,072,441 vertices · 234,370,166 directed arcs**; scale-aware policy delivered **2.25× maintenance-amortized throughput** and **59.6% less consolidation time**, with **~6.6% higher peak RSS** |
-| Multicore scaling at 4 threads | BFS **2.74×** · CC **2.50×** · triangles **2.24×** |
-| Compression | **3.25×–3.78× smaller**, with a documented traversal-performance trade-off |
+| Primary adaptive BFS selector | **1,610 sequential batch observations** across **9 graph/update regimes** and **45 graph-regime repetitions**; all outputs exact. **3.939% equal-regime mean oracle regret**, **2.309% sample-weighted regret**, **1.739% sample-weighted wrong-arm rate**, and about **0.286 µs** sample-weighted decision cost. The largest `web-Google` regime is retained as a visible tail at **17.477% mean** and **54.424% p95** regret. |
+| Dynamic BFS vs NetworKit | `web-Google`: VeloGraphX about **1.38× lower latency**; `ca-GrQc`: NetworKit about **1.35× lower latency**; all **30 paired executions exact**. |
+| Dynamic BFS vs RisGraph | In the retained separate `web-Google` campaign, **RisGraph is about 1.90× faster** than VeloGraphX localized repair. This campaign is not combined with the NetworKit campaign into a synthetic ranking. |
+| Static BFS / weighted SSSP vs GAP + LAGraph | BFS: VeloGraphX **1.60×–2.04× vs GAP** and **9.4×–11.8× vs LAGraph** in the tested hosted 1–4-thread cases. Weighted SSSP: **GAP wins**; VeloGraphX is **2.6×–3.0× faster than LAGraph** but **7.0×–8.5× slower than GAP**. |
+| Exact dynamic triangles vs published exact reference | **15/15 paired comparisons exact**; **40.95× / 6.94× / 3.48× lower median answer-ready latency** than the pinned GoldenCounter exact reference at 1% / 5% / 10% insertion batches on the evaluated workload. |
+| 100M+ storage maintenance | On `com-Orkut` (234.4M directed arcs), a bounded 1.50× storage envelope produced **2.25× maintenance-amortized throughput** and **59.6% less consolidation time** than the 1.25× envelope, at about **6.6% higher peak RSS**. |
+| Dynamic exactness stress | **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches** in the retained engineering stress result. |
 
-The benchmark record deliberately includes cases where competitors win. GAP is substantially faster on the tested static SSSP workload, NetworKit wins on the tested `ca-GrQc` dynamic-BFS workload, full recomputation wins when repair scope becomes too large, and the 100M+ scale-aware storage policy trades a larger bounded memory envelope for lower maintenance cost.
+The authoritative paper-facing mapping from each quantitative statement to its retained run, artifact, checksum, timing contract, and claim boundary is in [PAPER.md](PAPER.md), [paper/results-ledger.md](paper/results-ledger.md), and [benchmarks/paper-evidence.json](benchmarks/paper-evidence.json). Historical development numbers are not substitutes for the current publication-selector result above.
 
-See the [benchmark methodology](docs/benchmark-methodology.md), [hosted native competitor evidence](docs/hosted-native-competitors.md), [published exact triangle baseline](docs/same-run-published-baseline.md), [100M+ canonicalization evidence](docs/canonicalization-ab-evidence.md), [competitor benchmarking](docs/competitor-benchmarking.md), and [limitations](docs/limitations.md) for claim boundaries and reproduction details.
+## Submission-closure experiments
 
-## Getting Started
+The repository contains dedicated reviewer-facing workflows for the remaining high-value questions around the paper thesis:
 
-Install VeloGraphX from PyPI:
+- production **0.35 affected-region fallback** replay, including measured repair→full double-work accounting;
+- **frozen-selector held-out evaluation**, including a genuine timestamp-ordered `CollegeMsg` stream;
+- **one-mechanism-at-a-time selector feature ablation** under a shared harness;
+- a matched **real-dataset GraphBolt dynamic-BFS comparison** using the pinned official artifact runtime and a shared retained mutation stream; and
+- an immutable **submission freeze / DOI-capable archive** path with Zenodo metadata.
+
+Until a new experiment has completed, been audited, and been entered into the paper evidence registry, it is treated as validation infrastructure rather than a manuscript result.
+
+## Getting started
+
+Install from PyPI:
 
 ```bash
 python -m pip install velographx
 ```
 
-Then create and update a graph:
+Minimal Python example:
 
 ```python
 import velographx as vx
 
 g = vx.Graph(4, False)
-
 updates = vx.UpdateBatch()
 updates.add(0, 1)
 updates.add(1, 2)
-
 g.apply(updates)
 
 bfs = vx.IncrementalBFS(g, 0)
 print(bfs.distances)
 ```
 
-The Python package uses the same native **C++20 engine** underneath.
-
-Release CI builds and smoke-tests CPython **3.9–3.14** wheels across Linux, Windows, macOS Intel, and Apple Silicon, together with a validated source distribution.
-
-For more setup options and examples, see:
-
-- [Python API and installation](python/README.md)
-- [C++ examples](examples/)
-- [Architecture](docs/architecture.md)
-- [Dynamic storage design](docs/dynamic-storage.md)
-- [Benchmark methodology](docs/benchmark-methodology.md)
-- [Competitor benchmarking](docs/competitor-benchmarking.md)
-- [Security](SECURITY.md)
-- [Release notes](CHANGELOG.md)
-
-<details>
-<summary><b>Build the C++ engine from source</b></summary>
-
-Source builds require **CMake ≥ 3.20** and a **C++20 compiler**.
+Build the C++ engine from source:
 
 ```bash
 git clone https://github.com/sauravsingla/VeloGraphX.git
 cd VeloGraphX
-
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-Run the examples:
+## Algorithm contracts
 
-```bash
-./build/velographx_example
-./build/velographx_dynamic_example
-```
-
-Minimal C++ API:
-
-```cpp
-#include "velographx/algorithms.hpp"
-
-velographx::CsrGraph graph(
-    {{0, 1}, {1, 2}, {2, 3}},
-    false
-);
-
-auto distance = velographx::bfs_distances(graph, 0);
-auto triangles = velographx::triangle_count(graph);
-```
-
-</details>
-
-## Algorithms
-
-| Algorithm | Full / Reference | Dynamic / Incremental | Contract |
+| Algorithm | Full / reference | Dynamic / maintained | Contract |
 | --- | :---: | :---: | --- |
 | BFS / unweighted SSSP | ✓ | ✓ | Exact distances |
 | Weighted SSSP | ✓ | ✓ | Exact distances with conservative recomputation fallback |
 | Connected components | ✓ | ✓ | Exact maintained connectivity |
 | Triangle count | ✓ | ✓ | Exact count |
 | k-core | ✓ | ✓ | Exact core-number maintenance |
-| PageRank | ✓ | ✓ | Localized maintenance with residual/tolerance validation and conservative fallback |
+| PageRank | ✓ | ✓ | Residual/tolerance-validated maintenance with conservative fallback; not presented as mathematically exact |
 
-## Research and Benchmarking
+## Research and benchmarking
 
-VeloGraphX treats benchmarking as part of the system design rather than only as a headline performance exercise.
+VeloGraphX treats benchmark provenance and negative results as part of the system contract. Useful reviewer-facing references include:
 
-The repository includes deterministic update streams and correctness validation, pinned public datasets and competitor revisions, repeated measurements and machine-readable benchmark artifacts, incremental-vs-recompute crossover experiments, storage and algorithm ablation studies, controlled-hardware experiment specifications, thread-scaling and NUMA experiment plans, and explicit publication and evidence boundaries.
-
-Additional hosted engineering campaigns include GraphBolt / DZiG update-regime comparisons, Epinions multi-root dynamic BFS, and the executable same-machine VeloGraphX / NetworKit / RisGraph campaign. These remain in the detailed benchmark record rather than the headline table so that claim maturity and timing contracts stay explicit.
-
-Useful references:
-
+- [Paper artifact guide](PAPER.md)
+- [Results ledger](paper/results-ledger.md)
 - [Benchmark methodology](docs/benchmark-methodology.md)
 - [Hosted native competitor evidence](docs/hosted-native-competitors.md)
 - [Published exact triangle baseline](docs/same-run-published-baseline.md)
 - [100M+ canonicalization evidence](docs/canonicalization-ab-evidence.md)
-- [Ablation study](docs/ablation-study.md)
 - [GraphBolt / DZiG + GAPBS benchmark contract](docs/graphbolt-dzig-gap-benchmark-contract.md)
-- [Three-system dynamic BFS campaign contract](docs/three-system-dynamic-bfs-campaign.md)
-- [Canonical publication campaign](docs/canonical-publication-campaign.md)
-- [Controlled-hardware execution](docs/controlled-hardware-execution.md)
-- [Limitations](docs/limitations.md)
+- [Controlled-hardware execution boundary](docs/controlled-hardware-execution.md)
+- [Current limitations](docs/limitations.md)
 
-## Contributing
+## Project status and citation
 
-We welcome contributions and collaborations around **dynamic graph algorithms, CPU optimization, mutable graph storage, benchmark reproducibility, interoperability, Python APIs, and documentation**.
-
-See the [Contributing Guide](CONTRIBUTING.md) to get started.
-
-New to VeloGraphX? Browse the [good first issues](https://github.com/sauravsingla/VeloGraphX/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) or join [GitHub Discussions](https://github.com/sauravsingla/VeloGraphX/discussions) to share a workload, idea, benchmark, or feature proposal.
-
-## Project Status
-
-VeloGraphX is an **active research and engineering project**.
-
-The current package release is **v0.8.2**. APIs may continue to evolve before 1.0, so users running reproducible experiments should pin a release or commit.
-
-The project currently provides a C++20 engine, a standard pip-installable Python package, cross-platform release wheels, reproducible benchmark infrastructure, and correctness-focused dynamic graph analytics.
-
-## Citation
-
-If you use VeloGraphX in research, please cite the repository and the specific release used in your experiments.
-
-Citation metadata is maintained in [`CITATION.cff`](CITATION.cff).
+VeloGraphX is an active research and engineering project. APIs may evolve before 1.0; reproducible experiments should pin the exact release tag or commit SHA. Submission-era archival metadata is maintained in `.zenodo.json` and `paper/submission-freeze.json`; a DOI must only be added to `CITATION.cff` after an external archival service actually mints it.
 
 ```bibtex
 @software{singla_velographx_2026,
@@ -210,10 +133,4 @@ Citation metadata is maintained in [`CITATION.cff`](CITATION.cff).
 }
 ```
 
-For reproducibility, include the VeloGraphX release tag or commit SHA used for your experiments.
-
-## License
-
-VeloGraphX is licensed under the **Apache License 2.0**.
-
-See the [LICENSE](LICENSE) file for details.
+VeloGraphX is licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).

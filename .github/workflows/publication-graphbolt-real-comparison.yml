@@ -1,0 +1,197 @@
+name: Publication GraphBolt Real-Dataset Dynamic BFS Comparison
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/publication-graphbolt-real-comparison.yml'
+      - 'benchmarks/graphbolt_contract_bfs.cpp'
+      - 'tools/prepare_graphbolt_workload.py'
+      - 'tools/parse_graphbolt_dzig_output.py'
+      - 'tools/verify_graphbolt_bfs_output.py'
+      - 'tools/summarize_graphbolt_comparison.py'
+      - 'tools/prepare_dataset.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'datasets/manifest.public-small.json'
+      - 'include/velographx/**'
+      - 'src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  GRAPHBOLT_SHA: 2d56f39cb17c85d624bee6a63f8fc34a8f149a36
+  EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+  ROOT: '763'
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+
+jobs:
+  matched-comparison:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Build VeloGraphX matched-workload harness
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/graphbolt_contract_bfs.cpp build/vx/libvelographx.a -pthread \
+            -o build/velographx_graphbolt_contract_bfs
+      - name: Prepare checksum-pinned Epinions simple directed graph
+        run: |
+          mkdir -p build/graphbolt/datasets build/graphbolt/source build/graphbolt/workloads build/graphbolt/runs build/graphbolt/summary
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json \
+            --output-dir build/graphbolt/datasets --dataset soc-Epinions1 >/dev/null
+          gzip -dc build/graphbolt/datasets/soc-Epinions1.gz > build/graphbolt/source/epinions-source.txt
+          test "$(sha256sum build/graphbolt/source/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/graphbolt/source/epinions-source.txt \
+            --output build/graphbolt/source/soc-Epinions1.txt \
+            --report build/graphbolt/source/normalization.json \
+            --expected-sha256 "$EPINIONS_TEXT_SHA256" \
+            --expected-vertices 75879 --expected-edges 508837 >/dev/null
+      - name: Prepare three identical deterministic mutation regimes for both systems
+        run: |
+          python tools/prepare_graphbolt_workload.py \
+            --input build/graphbolt/source/soc-Epinions1.txt \
+            --output-dir build/graphbolt/workloads/f0001 --seed 20260917 --operation-fraction 0.001
+          python tools/prepare_graphbolt_workload.py \
+            --input build/graphbolt/source/soc-Epinions1.txt \
+            --output-dir build/graphbolt/workloads/f001 --seed 20260917 --operation-fraction 0.01
+          python tools/prepare_graphbolt_workload.py \
+            --input build/graphbolt/source/soc-Epinions1.txt \
+            --output-dir build/graphbolt/workloads/f005 --seed 20260917 --operation-fraction 0.05
+          sha256sum build/graphbolt/workloads/*/initial.edges build/graphbolt/workloads/*/graphbolt.stream > build/graphbolt/workload-checksums.txt
+      - name: Run VeloGraphX five times per matched regime
+        run: |
+          for tag in f0001 f001 f005; do
+            for rep in 1 2 3 4 5; do
+              build/velographx_graphbolt_contract_bfs \
+                "build/graphbolt/workloads/$tag/initial.edges" \
+                "build/graphbolt/workloads/$tag/graphbolt.stream" "$ROOT" \
+                > "build/graphbolt/runs/vx__${tag}__${rep}.json"
+              python -c "import json; d=json.load(open('build/graphbolt/runs/vx__${tag}__${rep}.json')); assert d['exact']"
+            done
+          done
+      - name: Build pinned official GraphBolt/DZiG artifact once and execute matched streams
+        run: |
+          docker run --rm \
+            -e DEBIAN_FRONTEND=noninteractive \
+            -e GRAPHBOLT_SHA="$GRAPHBOLT_SHA" \
+            -e ROOT="$ROOT" \
+            -v "$PWD/build/graphbolt:/evidence" \
+            ubuntu:18.04 bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates git build-essential gcc-7 g++-7 cmake make
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 70
+              update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 70
+              ln -sf /usr/bin/g++-7 /usr/local/bin/g++-5
+              git clone --filter=blob:none https://github.com/pdclab/graphbolt.git /tmp/graphbolt
+              git -C /tmp/graphbolt checkout --detach "$GRAPHBOLT_SHA"
+              test "$(git -C /tmp/graphbolt rev-parse HEAD)" = "$GRAPHBOLT_SHA"
+              cd /tmp/graphbolt
+              sh install_mimalloc.sh
+              make -C tools/converters SNAPtoAdjConverter
+              make -C apps clean
+              make -C apps BFS
+              cp apps/BFS /tmp/graphbolt-bfs
+              export LD_PRELOAD=/tmp/graphbolt/lib/mimalloc/out/release/libmimalloc.so
+              for tag in f0001 f001 f005; do
+                tools/converters/SNAPtoAdjConverter "/evidence/workloads/$tag/initial.edges" "/evidence/workloads/$tag/initial.adj"
+                OPS=$(wc -l < "/evidence/workloads/$tag/graphbolt.stream")
+                for rep in 1 2 3 4 5; do
+                  /tmp/graphbolt-bfs -source "$ROOT" -numberOfUpdateBatches 1 -nEdges "$OPS" \
+                    -streamPath "/evidence/workloads/$tag/graphbolt.stream" \
+                    -fixedBatchSize -enforceEdgeValidity -simple \
+                    -outputFile "/evidence/runs/gb-output-${tag}-${rep}" \
+                    "/evidence/workloads/$tag/initial.adj" \
+                    | tee "/evidence/runs/gb-log-${tag}-${rep}.txt"
+                done
+              done
+              printf "graphbolt_sha=%s\ncompiler=g++-7\nruntime=ubuntu:18.04\nmimalloc=v1.6.0\ncilk_plus=true\n" "$GRAPHBOLT_SHA" > /evidence/graphbolt-runtime.txt
+            '
+      - name: Parse every GraphBolt run and independently verify exact BFS output
+        run: |
+          for tag in f0001 f001 f005; do
+            OPS=$(wc -l < "build/graphbolt/workloads/$tag/graphbolt.stream")
+            for rep in 1 2 3 4 5; do
+              python tools/parse_graphbolt_dzig_output.py \
+                --input "build/graphbolt/runs/gb-log-${tag}-${rep}.txt" \
+                --output "build/graphbolt/runs/gb__${tag}__${rep}.json" \
+                --expected-batches 1 --expected-operations "$OPS"
+              test -f "build/graphbolt/runs/gb-output-${tag}-${rep}1"
+              python tools/verify_graphbolt_bfs_output.py \
+                --initial "build/graphbolt/workloads/$tag/initial.edges" \
+                --stream "build/graphbolt/workloads/$tag/graphbolt.stream" \
+                --graphbolt-output "build/graphbolt/runs/gb-output-${tag}-${rep}1" \
+                --source "$ROOT" \
+                --output "build/graphbolt/runs/gb-exact__${tag}__${rep}.json"
+              python -c "import json; assert json.load(open('build/graphbolt/runs/gb-exact__${tag}__${rep}.json'))['exact']"
+            done
+          done
+      - name: Summarize paired same-allocation comparison
+        run: |
+          python tools/summarize_graphbolt_comparison.py \
+            --root "$ROOT" \
+            --vx-glob 'build/graphbolt/runs/vx__*.json' \
+            --graphbolt-glob 'build/graphbolt/runs/gb__*.json' \
+            --output build/graphbolt/summary/summary.json \
+            | tee build/graphbolt/summary/stdout.json
+      - name: Capture claim boundary and immutable pins
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "graphbolt_sha=$GRAPHBOLT_SHA"
+            echo "dataset=soc-Epinions1"
+            echo "source_text_sha256=$EPINIONS_TEXT_SHA256"
+            echo "root=$ROOT"
+            echo "operation_fractions=0.001,0.01,0.05"
+            echo "shuffle_seed=20260917"
+            echo "repetitions_per_fraction=5"
+            echo "timing=one answer-ready dynamic BFS batch"
+            echo "same_github_host_allocation=true"
+            echo "toolchains_differ_by_official_artifact_requirement=true"
+            echo "universal_performance_claim=false"
+          } > build/graphbolt/pins.txt
+          lscpu > build/graphbolt/host-lscpu.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: publication-graphbolt-real-dataset-comparison
+          path: build/graphbolt/
+          retention-days: 90
+      - name: Comment PR with scoped paired results
+        if: github.event_name == 'pull_request' && always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if test -f build/graphbolt/summary/summary.json; then
+            python - <<'PY' > /tmp/graphbolt-comment.md
+          import json
+          d=json.load(open('build/graphbolt/summary/summary.json'))
+          print('### Matched real-dataset GraphBolt/DZiG comparison')
+          print()
+          print(f"VeloGraphX exact: **{d['all_velographx_results_exact']}**; GraphBolt final BFS is independently verified on every retained run.")
+          print()
+          print('| Operation fraction | Paired reps | GraphBolt / VeloGraphX answer-ready ratio |')
+          print('|---|---:|---:|')
+          for r in d['rows']:
+              print(f"| `{r['operation_fraction_tag']}` | {r['paired_repetitions']} | {r['paired_graphbolt_over_velographx_ratio_median']:.3f}× |")
+          print()
+          print('Ratio >1 means lower VeloGraphX latency; <1 means lower GraphBolt latency. Both consume the same checksum-retained mutation stream on the same hosted allocation. GraphBolt uses its pinned legacy artifact runtime, so the claim remains scoped rather than universal.')
+          PY
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/graphbolt-comment.md
+          fi

@@ -1,0 +1,140 @@
+name: Freeze PVLDB Submission Artifact
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'paper/submission-freeze.json'
+      - '.zenodo.json'
+      - '.github/workflows/submission-freeze-release.yml'
+      - 'tools/publish_submission_to_zenodo.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ZENODO_ACCESS_TOKEN: ${{ secrets.ZENODO_ACCESS_TOKEN }}
+
+jobs:
+  freeze:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read freeze contract
+        id: freeze
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          d=json.load(open('paper/submission-freeze.json'))
+          print('tag='+d['tag'])
+          print('title='+d['release_title'])
+          PY
+      - name: Create immutable annotated submission tag if absent
+        env:
+          TAG: ${{ steps.freeze.outputs.tag }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA" || {
+              echo "Existing tag $TAG points to a different commit; refusing to move an immutable submission tag." >&2
+              exit 1
+            }
+          else
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git tag -a "$TAG" "$GITHUB_SHA" -m "VeloGraphX PVLDB submission freeze $TAG"
+            git push origin "$TAG"
+          fi
+      - name: Build deterministic source archive and checksums
+        env:
+          TAG: ${{ steps.freeze.outputs.tag }}
+        run: |
+          mkdir -p build/submission-freeze
+          git archive --format=tar.gz --prefix="VeloGraphX-${TAG}/" \
+            -o "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" "$TAG"
+          sha256sum "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" \
+            > build/submission-freeze/SHA256SUMS.txt
+          {
+            echo "tag=$TAG"
+            echo "commit=$(git rev-list -n 1 "$TAG")"
+            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > build/submission-freeze/provenance.txt
+      - name: Create or verify GitHub submission release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.freeze.outputs.tag }}
+          TITLE: ${{ steps.freeze.outputs.title }}
+        run: |
+          cat > build/submission-freeze/release-notes.md <<EOF
+          # VeloGraphX submission freeze
+
+          This release freezes the exact source tree used for the PVLDB Volume 20 / 2027 submission package.
+
+          - Tag: \`$TAG\`
+          - Commit: \`$(git rev-list -n 1 "$TAG")\`
+          - Primary selector: \`publication-preflight-v1\`
+          - Evidence map: \`PAPER.md\`, \`paper/results-ledger.md\`, \`docs/paper-evidence-index.md\`, and \`benchmarks/paper-evidence.json\`
+          - Reproduction entry point: \`REPRODUCIBILITY.md\` and \`scripts/reproduce_minimal.sh\`
+
+          Quantitative claims remain scoped to the retained campaign IDs, hashes, timing contracts, exactness gates, and limitations recorded in the repository. The attached tarball and SHA-256 checksum provide an immutable reviewer/reuse snapshot.
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" \
+              build/submission-freeze/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" \
+              "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" \
+              build/submission-freeze/SHA256SUMS.txt \
+              --title "$TITLE" --notes-file build/submission-freeze/release-notes.md
+          fi
+      - name: Publish exact archive to Zenodo when repository credential is configured
+        if: env.ZENODO_ACCESS_TOKEN != ''
+        env:
+          TAG: ${{ steps.freeze.outputs.tag }}
+        run: |
+          python tools/publish_submission_to_zenodo.py \
+            --bundle "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" \
+            --metadata .zenodo.json \
+            --freeze paper/submission-freeze.json \
+            --output build/submission-freeze/zenodo-result.json
+      - name: Record DOI archive status when token is absent
+        if: env.ZENODO_ACCESS_TOKEN == ''
+        run: |
+          cat > build/submission-freeze/zenodo-status.json <<'EOF'
+          {
+            "status": "credential_not_configured",
+            "required_secret": "ZENODO_ACCESS_TOKEN",
+            "alternative": "Enable the Zenodo GitHub integration for the repository; .zenodo.json is already included in the tagged release.",
+            "artifact_integrity": "The GitHub release/tag and SHA-256 archive are still created; DOI publication requires external Zenodo authorization."
+          }
+          EOF
+      - name: Attach Zenodo status/record to GitHub release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.freeze.outputs.tag }}
+        run: |
+          if test -f build/submission-freeze/zenodo-result.json; then
+            gh release upload "$TAG" build/submission-freeze/zenodo-result.json --clobber
+            DOI=$(python -c "import json; print(json.load(open('build/submission-freeze/zenodo-result.json')).get('doi') or '')")
+            if test -n "$DOI"; then
+              gh release edit "$TAG" --notes "$(cat build/submission-freeze/release-notes.md)
+
+          Zenodo DOI: https://doi.org/$DOI"
+            fi
+          elif test -f build/submission-freeze/zenodo-status.json; then
+            gh release upload "$TAG" build/submission-freeze/zenodo-status.json --clobber
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pvldb-submission-freeze
+          path: build/submission-freeze/
+          retention-days: 90
