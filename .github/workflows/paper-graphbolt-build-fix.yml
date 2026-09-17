@@ -1,0 +1,40 @@
+name: Sync GraphBolt paper table labels
+
+on:
+  push:
+    branches: [paper-deep-review-corrections-20260917]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: paper-deep-review-corrections-20260917
+      - name: Update generated external-baseline table
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('paper/vldb/prepare_submission.py')
+          s=p.read_text()
+          old="""Matched dynamic BFS, 0.01\\% updates & GraphBolt/VeloGraphX latency & {graphbolt['0.0001']:.3f}$\\times$ & VeloGraphX \\\\
+Matched dynamic BFS, 0.5\\% updates & GraphBolt/VeloGraphX latency & {graphbolt['0.005']:.3f}$\\times$ & GraphBolt \\\\"""
+          new="""Matched dynamic BFS, 0.1\\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.001']:.3f}$\\times$ & VeloGraphX \\\\
+Matched dynamic BFS, 1\\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.01']:.3f}$\\times$ & VeloGraphX \\\\
+Matched dynamic BFS, 5\\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.05']:.3f}$\\times$ & GraphBolt \\\\"""
+          if s.count(old) != 1:
+              raise SystemExit('GraphBolt table anchor mismatch')
+          p.write_text(s.replace(old,new))
+          PY
+      - name: Commit and remove one-shot workflow
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/paper-graphbolt-build-fix.yml
+          git add paper/vldb/prepare_submission.py
+          git commit -m "paper: sync GraphBolt build table with corrected fractions"
+          git push origin HEAD:paper-deep-review-corrections-20260917
