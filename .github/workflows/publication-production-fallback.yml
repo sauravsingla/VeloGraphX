@@ -1,0 +1,203 @@
+name: Publication Production Fallback Evidence
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/publication-production-fallback.yml'
+      - 'benchmarks/production_fallback_bfs.cpp'
+      - 'benchmarks/publication_policy_bfs.cpp'
+      - 'benchmarks/adaptive_policy_bfs.cpp'
+      - 'tools/summarize_production_fallback.py'
+      - 'tools/prepare_dataset.py'
+      - 'tools/prepare_pinned_edge_stream.py'
+      - 'tools/prepare_symmetric_pinned_edge_stream.py'
+      - 'datasets/manifest.public-small.json'
+      - 'include/velographx/**'
+      - 'src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  OMP_NUM_THREADS: '1'
+  OMP_PROC_BIND: 'true'
+  SIMPLE_UPDATE_FRACTION: '0.01'
+  PRODUCTION_FALLBACK_FRACTION: '0.35'
+  EPINIONS_TEXT_SHA256: 3e42b000e66cada74053ac7f8b24de291f9837264421dc2f3730b45cc58d17b1
+
+jobs:
+  fallback-evidence:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Build publication and production-fallback harnesses
+        run: |
+          cmake -S . -B build/vx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVELOGRAPHX_BUILD_TESTS=OFF \
+            -DVELOGRAPHX_BUILD_BENCHMARKS=OFF
+          cmake --build build/vx --target velographx -j 2
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/publication_policy_bfs.cpp build/vx/libvelographx.a -pthread \
+            -o build/publication_policy_bfs
+          c++ -O3 -DNDEBUG -std=c++20 -Iinclude \
+            benchmarks/production_fallback_bfs.cpp build/vx/libvelographx.a -pthread \
+            -o build/production_fallback_bfs
+      - name: Prepare checksum-pinned real graphs
+        run: |
+          mkdir -p build/fallback/datasets build/fallback/graphs build/fallback/runs build/fallback/schedules build/fallback/selector
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/fallback/datasets --dataset web-Google >/dev/null
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/fallback/datasets --dataset ca-GrQc >/dev/null
+          python tools/prepare_dataset.py --manifest datasets/manifest.public-small.json --output-dir build/fallback/datasets --dataset soc-Epinions1 >/dev/null
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/fallback/datasets/web-Google.txt \
+            --output build/fallback/graphs/web-Google.txt \
+            --report build/fallback/web-Google-normalization.json \
+            --expected-sha256 8c0f453f1eb1e24ad145e36e542b129083237e96e585abae768927bdb70167d1 \
+            --expected-vertices 875713 --expected-edges 5105039 >/dev/null
+          python tools/prepare_symmetric_pinned_edge_stream.py \
+            --input build/fallback/datasets/ca-GrQc.txt \
+            --output build/fallback/graphs/ca-GrQc.txt \
+            --report build/fallback/ca-GrQc-normalization.json \
+            --expected-sha256 513efa8bb5c6d3d739797ca028d4a26a7df6bc20adcf3e722e18d1bcdb0e62d5 \
+            --expected-vertices 5242 --expected-source-rows 28980 --expected-self-loops 12 \
+            --expected-nonloop-pair-multiplicity 2 --expected-unique-nonloop-pairs 14484 >/dev/null
+          gzip -dc build/fallback/datasets/soc-Epinions1.gz > build/fallback/epinions-source.txt
+          test "$(sha256sum build/fallback/epinions-source.txt | awk '{print $1}')" = "$EPINIONS_TEXT_SHA256"
+          python tools/prepare_pinned_edge_stream.py \
+            --input build/fallback/epinions-source.txt \
+            --output build/fallback/graphs/soc-Epinions1.txt \
+            --report build/fallback/soc-Epinions1-normalization.json \
+            --expected-sha256 "$EPINIONS_TEXT_SHA256" \
+            --expected-vertices 75879 --expected-edges 508837 >/dev/null
+      - name: Build deterministic destructive-cascade stress graph
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('build/fallback/graphs/cascade-220k.txt')
+          with p.open('w') as f:
+              for u in range(220000):
+                  f.write(f'{u} {u+1}\n')
+          PY
+          sha256sum build/fallback/graphs/cascade-220k.txt > build/fallback/cascade-checksum.txt
+      - name: Run selector trace then replay production fallback
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          configs = [
+              ('ca-GrQc', 'ca-GrQc', 1974, 0.75, [1536,4096]),
+              ('soc-Epinions1', 'soc-Epinions1', 71391, 0.90, [6144,24576]),
+              ('web-Google', 'web-Google', 391806, 0.99, [24576,49152]),
+              # Deliberate cascade stress: first expiry removes shortest-parent support
+              # immediately below root on a >200K-vertex path. The workload is retained
+              # as a mechanism stress case, not represented as a natural graph.
+              ('cascade-220k', 'cascade-220k', 0, 0.99, [512,2048]),
+          ]
+          for label, graph, root, rate, batches in configs:
+              for batch in batches:
+                  for rep in range(1,4):
+                      selector_path=Path(f'build/fallback/selector/{label}__{batch}__{rep}.json')
+                      with selector_path.open('w') as f:
+                          subprocess.run([
+                              'build/publication_policy_bfs',
+                              f'build/fallback/graphs/{graph}.txt', str(root), str(rate),
+                              str(batch), os.environ['SIMPLE_UPDATE_FRACTION']
+                          ], stdout=f, check=True)
+                      d=json.load(selector_path.open())
+                      assert d['all_policies_exact']
+                      adaptive=next(p for p in d['policies'] if p['name']=='adaptive')
+                      assert adaptive['exact']
+                      schedule=Path(f'build/fallback/schedules/{label}__{batch}__{rep}.txt')
+                      with schedule.open('w') as f:
+                          for i,(full,decision) in enumerate(zip(adaptive['explicit_full'],adaptive['decision_us'])):
+                              cost=float(decision)+(float(adaptive['selector_setup_us']) if i==0 else 0.0)
+                              f.write(f'{1 if full else 0} {cost:.17g}\n')
+                      out=Path(f'build/fallback/runs/{label}__{batch}__{rep}.json')
+                      with out.open('w') as f:
+                          subprocess.run([
+                              'build/production_fallback_bfs',
+                              f'build/fallback/graphs/{graph}.txt', str(root), str(rate),
+                              str(batch), os.environ['PRODUCTION_FALLBACK_FRACTION'], str(schedule)
+                          ], stdout=f, check=True)
+                      r=json.load(out.open())
+                      assert r['all_policies_exact'], (label,batch,rep)
+                      assert abs(r['fallback_fraction']-0.35) < 1e-12
+          PY
+      - name: Summarize actual fallback double-work evidence
+        run: |
+          mkdir -p build/fallback/summary
+          python tools/summarize_production_fallback.py \
+            --input-dir build/fallback/runs \
+            --output build/fallback/summary/summary.json \
+            | tee build/fallback/summary/stdout.json
+          python - <<'PY'
+          import json
+          d=json.load(open('build/fallback/summary/summary.json'))
+          assert d['all_results_exact']
+          cascade=[r for r in d['rows'] if r['dataset']=='cascade-220k']
+          assert cascade, d
+          assert sum(r['fallback_only_internal_fallback_count'] for r in cascade) > 0, d
+          assert sum(r['avoided_fallback_opportunities'] for r in cascade) > 0, d
+          print(json.dumps({
+              'all_exact':d['all_results_exact'],
+              'fallback_only_internal_fallback_count':d['fallback_only_internal_fallback_count'],
+              'selector_avoided_fallback_opportunities':d['selector_avoided_fallback_opportunities'],
+              'selector_remaining_internal_fallback_count':d['selector_remaining_internal_fallback_count'],
+              'selector_false_full_count':d['selector_false_full_count'],
+              'observed_fallback_double_work_us':d['observed_fallback_double_work_us'],
+              'observed_avoided_double_work_us':d['observed_avoided_double_work_us'],
+          },indent=2))
+          PY
+      - name: Capture immutable scope
+        run: |
+          {
+            echo "velographx_sha=$(git rev-parse HEAD)"
+            echo "selector=publication-preflight-v1"
+            echo "production_fallback_fraction=$PRODUCTION_FALLBACK_FRACTION"
+            echo "verification_excluded_from_timing=true"
+            echo "cascade_is_mechanism_stress_not_natural_graph=true"
+            echo "real_graphs=ca-GrQc,soc-Epinions1,web-Google"
+            echo "repetitions_per_regime=3"
+            echo "one_thread=true"
+          } > build/fallback/pins.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: publication-production-fallback-evidence
+          path: build/fallback/
+          retention-days: 90
+      - name: Comment PR with retained summary
+        if: github.event_name == 'pull_request' && always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if test -f build/fallback/summary/summary.json; then
+            python - <<'PY' > /tmp/fallback-comment.md
+          import json
+          d=json.load(open('build/fallback/summary/summary.json'))
+          print('### Production 0.35 fallback evidence')
+          print()
+          print(f"- Exact: **{d['all_results_exact']}** across {d['samples']} aligned batch observations")
+          print(f"- Fallback-only internal fallbacks: **{d['fallback_only_internal_fallback_count']}**")
+          print(f"- Fallback opportunities avoided by frozen pre-repair selector: **{d['selector_avoided_fallback_opportunities']}**")
+          print(f"- Remaining selector-path internal fallbacks: **{d['selector_remaining_internal_fallback_count']}**")
+          print(f"- False-full choices: **{d['selector_false_full_count']}**")
+          print(f"- Conservatively observed fallback double work: **{d['observed_fallback_double_work_us']/1000:.3f} ms**")
+          print(f"- Conservatively observed double work avoided: **{d['observed_avoided_double_work_us']/1000:.3f} ms**")
+          print()
+          print('The 220K cascade is explicitly a mechanism stress case; real-graph rows are retained separately in the artifact.')
+          PY
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/fallback-comment.md
+          fi
