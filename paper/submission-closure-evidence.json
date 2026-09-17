@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "generated_from_head": "be8ca8be81d18028db0c38fdbbd87c260d9cb73c",
+  "generated_at_utc": "2026-09-17T15:07:00Z",
+  "policy_freeze": "publication-preflight-v1",
+  "post_result_retuning": false,
+  "campaigns": [
+    {
+      "id": "production-fallback-035",
+      "run_id": 35237513376,
+      "artifact_id": 10503926632,
+      "artifact_sha256": "26c37720fef6524ee68e816a095f7dd591c5cfd93c2f112a8de7ebd8874a621a",
+      "exact": true,
+      "aligned_batch_observations": 93,
+      "fallback_only_internal_fallbacks": 6,
+      "fallback_opportunities_avoided": 6,
+      "selector_path_internal_fallbacks": 0,
+      "false_full_choices": 33,
+      "observed_fallback_double_work_ms": 17.323,
+      "observed_double_work_avoided_ms": 17.323,
+      "claim_boundary": "The 220K destructive-cascade row is a mechanism stress case; natural-workload frequency is not claimed."
+    },
+    {
+      "id": "frozen-heldout-selector",
+      "run_id": 35237513595,
+      "artifact_id": 10504131673,
+      "artifact_sha256": "3cc4394693818450523fc56a9bb4368f7e26365d19077f2835a915a2bc312452",
+      "exact": true,
+      "post_result_retuning": false,
+      "all_heldout": {"regimes": 15, "equal_regime_mean_regret_percent": 21.32, "worst_regime_mean_regret_percent": 185.83, "worst_regime_p95_regret_percent": 311.88},
+      "college_msg_timestamp_ordered": {"regimes": 9, "equal_regime_mean_regret_percent": 34.52, "worst_regime_mean_regret_percent": 185.83, "worst_regime_p95_regret_percent": 311.88, "semantics": "Repeated interactions are idempotent under simple-graph semantics; sliding-window removals are induced expiries, not observed deletions."},
+      "amazon0312_unseen": {"regimes": 6, "equal_regime_mean_regret_percent": 1.52, "worst_regime_mean_regret_percent": 2.29, "worst_regime_p95_regret_percent": 9.44},
+      "claim_boundary": "The current selector does not demonstrate uniformly low-regret out-of-sample generalization; the negative CollegeMsg result must remain visible."
+    },
+    {
+      "id": "clean-feature-ablation",
+      "run_id": 35237513377,
+      "artifact_id": 10504591544,
+      "artifact_sha256": "a0aa985cd3f64d2e340938ba0111ec017076e24412665213bd4a9f4d5bf3601d",
+      "exact": true,
+      "policies": {
+        "adaptive": {"equal_regime_mean_regret_percent": 4.82, "worst_regime_mean_percent": 18.76, "worst_regime_p95_percent": 58.39},
+        "adaptive_no_structural": {"equal_regime_mean_regret_percent": 8.16, "worst_regime_mean_percent": 42.16, "worst_regime_p95_percent": 131.88},
+        "adaptive_no_affected": {"equal_regime_mean_regret_percent": 4.20, "worst_regime_mean_percent": 17.53, "worst_regime_p95_percent": 56.07},
+        "adaptive_no_uncertainty": {"equal_regime_mean_regret_percent": 142.97, "worst_regime_mean_percent": 1160.11, "worst_regime_p95_percent": 3558.37},
+        "simple_threshold": {"equal_regime_mean_regret_percent": 17.24, "worst_regime_mean_percent": 59.65, "worst_regime_p95_percent": 141.10},
+        "always_incremental": {"equal_regime_mean_regret_percent": 11.45, "worst_regime_mean_percent": 59.03, "worst_regime_p95_percent": 131.93},
+        "always_full": {"equal_regime_mean_regret_percent": 632.00, "worst_regime_mean_percent": 1756.90, "worst_regime_p95_percent": 4451.34}
+      },
+      "claim_boundary": "Structural preflight and uncertainty are supported by this ablation; previous-affected-work is not independently supported because its removal slightly improves aggregate metrics."
+    },
+    {
+      "id": "graphbolt-real-dataset-dynamic-bfs",
+      "run_id": 35237513587,
+      "artifact_id": 10503851688,
+      "artifact_sha256": "6d3a756040276aa4c49f4820bf31d3d0b60025affcc024cd9bb04cb2eddc9b59",
+      "velographx_exact": true,
+      "graphbolt_final_bfs_independently_verified": true,
+      "paired_repetitions_per_fraction": 5,
+      "graphbolt_over_velographx_answer_ready_ratio": {"0.0001": 14.219, "0.001": 2.245, "0.005": 0.886},
+      "ratio_semantics": "Above 1 means VeloGraphX lower answer-ready latency; below 1 means GraphBolt lower answer-ready latency.",
+      "claim_boundary": "Same hosted allocation and shared checksum-retained mutation stream; pinned legacy GraphBolt artifact runtime; not a universal ranking."
+    }
+  ]
+}
