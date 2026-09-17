@@ -5,7 +5,8 @@
     "hosted_scope": "Same-run or paired hosted evidence supports scoped relative claims, not universal peak-performance claims.",
     "cross_run_absolute_ranking": false,
     "dynamic_exactness_required": true,
-    "retain_negative_results": true
+    "retain_negative_results": true,
+    "post_result_retuning_of_frozen_selector": false
   },
   "adaptive_selector": {
     "historical_source_selector": "bounded-one-sided-warmup-v5",
@@ -50,6 +51,63 @@
       "sample_weighted_mean_decision_us": 1.1011766,
       "role": "focused tail-regression evidence"
     },
+    "production_fallback_035": {
+      "run_id": 35237513376,
+      "artifact_id": 10503926632,
+      "artifact_sha256": "26c37720fef6524ee68e816a095f7dd591c5cfd93c2f112a8de7ebd8874a621a",
+      "aligned_batch_observations": 93,
+      "all_exact": true,
+      "fallback_only_internal_fallbacks": 6,
+      "fallback_opportunities_avoided_by_selector": 6,
+      "selector_path_internal_fallbacks": 0,
+      "false_full_choices": 33,
+      "observed_fallback_double_work_ms": 17.323,
+      "observed_double_work_avoided_ms": 17.323,
+      "claim_boundary": "The 220K destructive-cascade row is a mechanism stress case; this campaign demonstrates the mechanism and measured avoided work, not its natural-workload frequency."
+    },
+    "frozen_heldout": {
+      "run_id": 35237513595,
+      "artifact_id": 10504131673,
+      "artifact_sha256": "3cc4394693818450523fc56a9bb4368f7e26365d19077f2835a915a2bc312452",
+      "all_exact": true,
+      "post_result_retuning": false,
+      "all_heldout": {
+        "regimes": 15,
+        "equal_regime_mean_regret": 0.2132,
+        "worst_regime_mean_regret": 1.8583,
+        "worst_regime_p95_regret": 3.1188
+      },
+      "college_msg_timestamp_ordered": {
+        "regimes": 9,
+        "equal_regime_mean_regret": 0.3452,
+        "worst_regime_mean_regret": 1.8583,
+        "worst_regime_p95_regret": 3.1188,
+        "semantics": "Observed timestamp arrival order is preserved. Repeated interactions are idempotent under simple-graph semantics; sliding-window removals are induced expiries rather than observed deletions."
+      },
+      "amazon0312_unseen": {
+        "regimes": 6,
+        "equal_regime_mean_regret": 0.0152,
+        "worst_regime_mean_regret": 0.0229,
+        "worst_regime_p95_regret": 0.0944
+      },
+      "claim_boundary": "The frozen selector does not show uniformly low-regret out-of-sample generalization; the CollegeMsg negative result is mandatory in the manuscript."
+    },
+    "clean_feature_ablation": {
+      "run_id": 35237513377,
+      "artifact_id": 10504591544,
+      "artifact_sha256": "a0aa985cd3f64d2e340938ba0111ec017076e24412665213bd4a9f4d5bf3601d",
+      "all_exact": true,
+      "policies": {
+        "adaptive": {"equal_regime_mean_regret": 0.0482, "worst_regime_mean_regret": 0.1876, "worst_regime_p95_regret": 0.5839},
+        "adaptive_no_structural": {"equal_regime_mean_regret": 0.0816, "worst_regime_mean_regret": 0.4216, "worst_regime_p95_regret": 1.3188},
+        "adaptive_no_affected": {"equal_regime_mean_regret": 0.0420, "worst_regime_mean_regret": 0.1753, "worst_regime_p95_regret": 0.5607},
+        "adaptive_no_uncertainty": {"equal_regime_mean_regret": 1.4297, "worst_regime_mean_regret": 11.6011, "worst_regime_p95_regret": 35.5837},
+        "simple_threshold": {"equal_regime_mean_regret": 0.1724, "worst_regime_mean_regret": 0.5965, "worst_regime_p95_regret": 1.4110},
+        "always_incremental": {"equal_regime_mean_regret": 0.1145, "worst_regime_mean_regret": 0.5903, "worst_regime_p95_regret": 1.3193},
+        "always_full": {"equal_regime_mean_regret": 6.3200, "worst_regime_mean_regret": 17.5690, "worst_regime_p95_regret": 44.5134}
+      },
+      "claim_boundary": "Structural preflight and uncertainty are supported by the ablation. Previous-affected-work is not claimed as independently beneficial because removing it slightly improves aggregate metrics in this campaign."
+    },
     "historical_development_v3": {
       "mean_regret_percent": 3.148,
       "p95_batch_regret_percent": 19.780,
@@ -59,6 +117,20 @@
     }
   },
   "external_baselines": {
+    "graphbolt_dynamic_bfs": {
+      "run_id": 35237513587,
+      "artifact_id": 10503851688,
+      "artifact_sha256": "6d3a756040276aa4c49f4820bf31d3d0b60025affcc024cd9bb04cb2eddc9b59",
+      "paired_repetitions_per_fraction": 5,
+      "velographx_exact": true,
+      "graphbolt_final_bfs_independently_verified": true,
+      "graphbolt_over_velographx_answer_ready_ratio": {
+        "0.0001": 14.219,
+        "0.001": 2.245,
+        "0.005": 0.886
+      },
+      "claim_boundary": "Same hosted allocation and shared checksum-retained mutation stream using a pinned legacy GraphBolt artifact runtime; workload-scoped comparison, not a universal ranking."
+    },
     "networkit_dynamic_bfs": {
       "run_id": 33542995289,
       "artifact_id": 9814639042,
