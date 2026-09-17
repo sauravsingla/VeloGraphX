@@ -1,0 +1,37 @@
+name: Polish deep-review audit semantics
+
+on:
+  push:
+    branches: [paper-deep-review-corrections-20260917]
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: paper-deep-review-corrections-20260917
+      - name: Correct reviewer-audit interpretation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('paper/reviewer-audit.md')
+          s=p.read_text()
+          old='''The production 0.35 campaign directly compares fallback-only behavior with the same frozen selector path. Across 93 exact aligned observations, fallback-only falls back six times; the pre-repair selector avoids all six opportunities and 17.323 ms of conservatively measured double work, while retaining 33 explicit-full/non-fallback labels.\n\n**Required paper response:** keep both the benefit and the cost visible. Do not generalize the 220K cascade stress case to natural-workload frequency.'''
+          new='''The production 0.35 campaign directly compares fallback-only behavior with the same frozen selector path. Across 93 exact aligned observations, fallback-only falls back six times and the pre-repair selector avoids all six opportunities plus 17.323 ms of conservatively measured double work. All six fallback events occur in the declared 220K cascade stress case; the 72 real-graph observations have zero 0.35 fallbacks. The retained 33 `false_full` labels are explicit-full/non-fallback labels rather than wrong-arm assertions, and their positive latency penalty is zero. Selector+fallback reduces cumulative answer-ready latency by 42.7% over all retained observations and 42.2% on the real-graph subset.\n\n**Required paper response:** keep the stress-case scope and historical field semantics explicit. Do not generalize fallback frequency to natural workloads, and do not describe the 33 labels as performance mistakes.'''
+          if s.count(old)!=1:
+              raise SystemExit('reviewer-audit anchor mismatch')
+          p.write_text(s.replace(old,new))
+          PY
+      - name: Commit and remove one-shot workflow
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/paper-deep-review-polish.yml
+          git add paper/reviewer-audit.md
+          git commit -m "paper: clarify fallback audit semantics"
+          git push origin HEAD:paper-deep-review-corrections-20260917
