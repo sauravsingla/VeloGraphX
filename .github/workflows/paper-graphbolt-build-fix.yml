@@ -3,6 +3,7 @@ name: Sync GraphBolt paper table labels
 on:
   push:
     branches: [paper-deep-review-corrections-20260917]
+  workflow_dispatch:
 
 permissions:
   contents: write
