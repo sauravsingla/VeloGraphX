@@ -1,71 +1,84 @@
 # Current limitations
 
-VeloGraphX implements dynamic, incremental, CPU-optimization, interoperability, and reproducibility capabilities, but several areas still require broader evaluation or dedicated hardware. This document separates implemented engineering capability from publication-grade evidence.
+VeloGraphX implements a broad dynamic-graph systems stack, but the **paper-facing evidence is deliberately narrower than the implementation**. This document is synchronized with the current manuscript and separates what is demonstrated from what remains open.
 
-## SIMD and architecture-specific kernels
+## Selector generalization
 
-Architecture-specific neighbor-intersection paths are implemented for AVX2, AVX-512, and ARM NEON, with runtime ISA detection and scalar fallback. Differential testing protects correctness.
+The main paper studies repair-versus-recompute selection most deeply for exact dynamic BFS.
 
-The remaining limitation is evaluation coverage across dedicated x86/ARM systems, graph degree distributions, compilers, and microarchitectures. Hosted CI is engineering evidence, not proof of universal SIMD speedup.
+The historical three-graph program contains 1,610 exact adaptive batch observations and low average oracle regret, but it is not a fresh out-of-sample generalization result. The frozen no-retuning holdout makes the limitation explicit:
 
-## Incremental algorithm coverage
+- unseen `Amazon0312`: 1.52% equal-regime mean regret;
+- timestamp-ordered `CollegeMsg`: 34.52% equal-regime mean regret, with a much larger worst-regime tail.
 
-Localized or incremental update paths are implemented for BFS / unweighted SSSP, weighted SSSP, triangle counting, connected components, k-core, and PageRank-related workflows. The engine can fall back to full recomputation when localized repair is unsafe or unlikely to be worthwhile.
+The architecture therefore generalizes more strongly than the current hand-designed selector. VeloGraphX does **not** claim a universal near-oracle policy.
 
-The project therefore does not claim that every update is always repaired incrementally. An executable same-machine campaign now sweeps seven update fractions from 0.0001% through 10% across web, social, road, R-MAT and larger-social graphs, but the crossover remains uncharacterized until its retained artifacts pass audit; see [`three-system-dynamic-bfs-campaign.md`](three-system-dynamic-bfs-campaign.md).
+## Production fallback frequency
 
-## Weighted dynamic graphs
+The production-style replay uses the normal 0.35 affected-region fallback and is exact across 93 aligned observations.
 
-Weighted graph updates and weighted SSSP are implemented. Destructive weighted changes may require conservative full recomputation when a safe localized repair is unavailable. Broader public-dataset evaluation and external comparison remain future work.
+All six observed fallback-only fallbacks occur in the declared 220K destructive-cascade stress case. The 72 retained observations from `ca-GrQc`, `soc-Epinions1`, and `web-Google` trigger no 0.35 internal fallback.
 
-## NUMA and multicore scaling
+The experiment demonstrates that a pre-repair choice can avoid already-started repair work when fallback would occur; it does **not** estimate the natural frequency of such fallbacks in real workloads.
 
-The engine includes topology discovery, affinity, first-touch behavior, NUMA-aware placement, local queues, work stealing, push/pull frontiers and adaptive scheduling.
+## Incremental algorithm scope
 
-True multi-socket NUMA behavior and stable many-core scaling have not yet been established at publication grade. Those claims require dedicated hardware, controlled pinning/frequency, remote-memory measurements and identical-hardware competitor runs.
+Localized or maintained paths exist for BFS / unweighted SSSP, weighted SSSP, triangle counting, connected components, k-core, and PageRank-related workflows.
 
-## Out-of-core execution and compression
+The strongest mathematical exactness argument and adaptive-plan evaluation in the paper are for BFS. Weighted SSSP may conservatively recompute after destructive weighted changes. PageRank is residual/tolerance validated with conservative fallback and is **not** presented as mathematically exact.
 
-Out-of-core infrastructure includes partition files, mmap/fallback reads, asynchronous loading, bounded caching, readahead and optional Linux `io_uring` prefetch. Compression includes delta, variable-byte, blocked variable-byte and fixed-width adjacency coding.
+A selector policy that works for BFS is not assumed to transfer unchanged to every analytic.
 
-Research-scale NVMe performance and universally optimal codec thresholds are not yet established. Both require dedicated hardware and broader workload calibration.
+## External-system comparisons
 
-## Python interoperability
+External comparisons are intentionally scoped to compatible timing and correctness contracts.
 
-Python bindings support NumPy, SciPy CSR and Apache Arrow ingestion when optional dependencies are available. The API is suitable for experimentation but is not yet a frozen long-term compatibility surface.
+- The accepted NetworKit campaign uses NetworKit 11.2.1, one thread, two graph families, three fixed roots per dataset, and five paired repetitions per root. VeloGraphX wins the retained `web-Google` workload while NetworKit wins `ca-GrQc`.
+- The retained RisGraph result comes from a separate hosted campaign and is not merged with NetworKit into an absolute three-system ranking.
+- The matched GraphBolt experiment uses a pinned artifact runtime and the same retained mutation stream. Its GraphBolt/VeloGraphX answer-ready ratio is 14.219x at 0.1%, 2.245x at 1%, and 0.886x at 5% operation fraction, so the winner reverses at the largest tested fraction.
+- GAP/LAGraph results are hosted 1--4-thread context. VeloGraphX wins the evaluated BFS cases, while GAP wins weighted SSSP.
 
-## Competitor evaluation
+These results support workload-specific crossover claims, not universal system rankings.
 
-The repository has same-semantics dynamic-BFS evidence against RisGraph and NetworKit 11.2.1 `DynBFS`. The canonical NetworKit campaign is native C++, uses one OpenMP thread, runs both systems on the same three fixed roots per dataset with five paired repetitions per root, and requires exact correctness plus nontrivial reachability before timing is accepted. See [`external-dynamic-baselines.md`](external-dynamic-baselines.md).
+## Hardware scope
 
-The latest accepted canonical campaign is GitHub Actions `33542995289`, VeloGraphX head `d042a993896e0b21be7dd6b9717895a0f4213430`, artifact `9814639042`, SHA-256 `acf743bcac2542660fa050d70105e5e1e5f79d9e22ef1ec7324cf1e147ae5f12`. The mean of root means was **27.182 ms vs 37.458 ms NetworKit on web-Google (0.730× mean paired VX/NK)** and **0.1115 ms vs 0.08274 ms on ca-GrQc (1.350× mean paired VX/NK)**. All 30 paired executions were exact.
+The engine contains multicore scheduling, topology discovery, affinity/NUMA machinery, SIMD kernels, compression, partition files, asynchronous loading, and optional Linux `io_uring` prefetch.
 
-The focused ca-GrQc campaign removed repeated neighbor materialization from the BFS hot path through exact merged traversal, reused repair and update-key workspaces, and raised the minimum live-delta population required before percentage-triggered global maintenance to 16,384. A same-run A/B measured **272.045 µs → 115.771 µs** on ca-GrQc while web-Google slightly improved; all A/B executions were exact and the candidate passed all 27 tests. The final canonical ca-GrQc result is **111.035 µs**, about 71% below the earlier clean 388.4 µs baseline.
+The current paper does **not** claim:
 
-The canonical comparison uses ca-GrQc roots 4282/2465/1974 and web-Google roots 481807/771121/391806 for both systems. VeloGraphX wins all three web-Google roots; NetworKit wins all three ca-GrQc roots. The earlier VeloGraphX-only multi-root run (`33301366020`, artifact `9729058306`) remains the provenance record for deterministic, timing-independent root selection.
+- stable 8/16/32+ core scaling;
+- controlled multi-socket NUMA superiority;
+- hardware-counter advantages;
+- research-scale NVMe/out-of-core superiority;
+- universal SIMD or codec thresholds; or
+- machine-independent peak throughput.
 
-Important limits remain:
+Those claims require dedicated controlled hardware and same-machine competitor runs. Hosted evidence is sufficient for the paper's scoped exactness, crossover, ablation, and paired relative-comparison claims because the manuscript states that boundary explicitly.
 
-- hosted CI is not dedicated performance hardware;
-- the canonical external campaign uses one thread and two public graph families;
-- the multi-root NetworKit comparison remains hosted-CI, single-thread evidence on two graph families;
-- the RisGraph result is from a separate hosted runner and cannot be merged into an absolute three-system ranking;
-- the unified same-machine three-system workflow is an executable evidence campaign, not accepted numerical evidence until all matrix artifacts pass exactness and provenance audit;
-- another checksum-pinned medium graph family would improve generality; and
-- publication-grade evidence still requires dedicated same-machine runs, broader update regimes, multicore scaling, hardware-counter analysis and independent reproduction.
+## Storage evidence
 
-Teseo/GFE, Aspen, Terrace, LiveGraph, GraphOne, STINGER and LLAMA have been screened as serious dynamic-graph systems, but their public contracts do not match exact BFS-state maintenance after every identical batch. They remain outside the primary dynamic-BFS latency table.
+The large storage result is a measured time/memory trade-off on `com-Orkut`, not a universal canonicalization policy. A wider 1.50x storage envelope reduced consolidation frequency and time and improved maintenance-amortized throughput at higher peak memory, but other graphs and hardware may prefer different bounds.
 
-## Public-dataset and large-scale evidence
+## Temporal semantics
 
-Current engineering evidence includes exact 100M-edge-class triangle validation, 10M/100M storage measurements, repeated steady-state maintenance, a 100M+-class canonicalization-policy A/B, the repeated native two-dataset dynamic-BFS campaign, and exact three-root evidence on both current BFS datasets.
+The held-out `CollegeMsg` campaign preserves observed interaction arrival order. Repeated interactions are idempotent under VeloGraphX's simple-graph semantics, and sliding-window removals are induced expiries rather than observed deletion events.
 
-The project does not yet establish broad publication-grade results across many graph families, many-core scaling, controlled multi-socket NUMA, comprehensive hardware counters, research-scale compression calibration or dedicated NVMe evaluation. The same-machine VeloGraphX/RisGraph/NetworKit contract is now automated, but hosted executions remain engineering evidence and must be rerun unchanged on dedicated hardware for publication claims.
+It is therefore a genuine temporal-order stress test of the selector, but not a model of every temporal-graph semantics.
 
-## Benchmark interpretation
+## Python/API maturity
 
-Hosted CI validates correctness, benchmark contracts, reproducibility tooling and engineering behavior on documented workloads. It is **not** a publication-grade performance environment.
+Python bindings support NumPy, SciPy CSR, and Apache Arrow ingestion when optional dependencies are available. The package is still pre-1.0 and the public API is not yet a frozen long-term compatibility surface.
 
-Performance should be promoted only when dataset provenance, checksums, machine/toolchain details, competitor revisions, repetitions/statistics, correctness checks and retained artifacts are captured by the documented workflow.
+## Reproducibility and archival status
 
-For the detailed status matrix, see [`prompt-coverage.md`](prompt-coverage.md). For hosted-CI evidence and its boundaries, see [`ci-scale-evidence.md`](ci-scale-evidence.md).
+The repository records accepted evidence through run IDs, artifact IDs, digests, timing contracts, exactness gates, and machine-readable ledgers.
+
+The submission-freeze workflow now also copies the selected core raw evidence bundles out of GitHub Actions retention into the immutable paper release, verifies their recorded SHA-256 digests, anonymously re-downloads the public source archive, and performs a clean-room minimal reproduction.
+
+The remaining external archival dependency is the DOI-capable Zenodo publication. A DOI must not be added to `CITATION.cff` until Zenodo (or another archival provider) actually mints one.
+
+## Workflow history
+
+The repository intentionally retains historical research workflows because their names and run IDs are part of the provenance record. They are not all current merge gates or recommended entry points.
+
+See [`workflow-catalog.md`](workflow-catalog.md) for the supported core workflows, current paper-evidence workflows, and historical/development workflow families.
