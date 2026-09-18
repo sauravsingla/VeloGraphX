@@ -6,7 +6,7 @@
   "release_title": "VeloGraphX PVLDB 2027 Submission Artifact v4",
   "paper_title": "VeloGraphX: Adaptive Exact Analytics for Evolving Graphs",
   "primary_selector": "publication-preflight-v1",
-  "correction_scope": "Post-v3 repository-readiness cleanup: synchronize reviewer-facing status documents, persist selected raw paper evidence outside GitHub Actions retention, add anonymous/clean-room freeze verification, keep paper artifacts separate from the latest software release, document workflow status, and harden work-stealing task-exception accounting. No selector retuning, benchmark-result replacement, or manuscript quantitative-claim change.",
+  "correction_scope": "Post-v3 repository-readiness cleanup: synchronize reviewer-facing status documents, persist the selected headline/supporting raw paper evidence outside GitHub Actions retention, add anonymous/clean-room freeze verification, keep paper artifacts separate from the latest software release, document workflow status, and harden work-stealing task-exception accounting. No selector retuning, benchmark-result replacement, or manuscript quantitative-claim change.",
   "freeze_policy": "The release tag must point to the merged final manuscript-synchronized commit after all required CI, PVLDB paper-build, evidence-contract, and security checks pass. Submission tags are immutable; a newer freeze supersedes an older freeze rather than moving an existing tag. The release archive, checksums, evidence registries, manuscript, and reproduction instructions form the immutable submission artifact.",
   "doi_archive": {
     "provider": "Zenodo",
@@ -50,6 +50,62 @@
       "artifact_id": 10503851688,
       "artifact_name": "publication-graphbolt-real-dataset-comparison",
       "sha256": "6d3a756040276aa4c49f4820bf31d3d0b60025affcc024cd9bb04cb2eddc9b59"
+    },
+    {
+      "label": "networkit-comparison",
+      "run_id": 33542995289,
+      "artifact_id": 9814639042,
+      "artifact_name": "velographx-native-networkit-multidataset",
+      "sha256": "acf743bcac2542660fa050d70105e5e1e5f79d9e22ef1ec7324cf1e147ae5f12"
+    },
+    {
+      "label": "gap-lagraph-static",
+      "run_id": 33418520303,
+      "artifact_id": 9768499895,
+      "artifact_name": "velographx-davis-native-baseline-evidence",
+      "sha256": "a8580906f1b6d1ac431f2bdf969a4a00f00d5ff4bf31f554b5e8731606e1c34c"
+    },
+    {
+      "label": "risgraph-comparison",
+      "run_id": 33286241439,
+      "artifact_id": 9724535579,
+      "artifact_name": "velographx-external-risgraph-web-google",
+      "sha256": "ce0ad5ba22f0190ea6fe5f55226364f6749ed9844fb6c01f5ce494c604123de2"
+    },
+    {
+      "label": "goldencounter-triangles",
+      "run_id": 33248107299,
+      "artifact_id": 9713495404,
+      "artifact_name": "velographx-same-run-published-baseline",
+      "sha256": "f032b9382130eac154c40c7f1f54af07363a2a9e1bc4190beb3d0af0ad830021"
+    },
+    {
+      "label": "orkut-canonicalization",
+      "run_id": 33265264254,
+      "artifact_id": 9718634869,
+      "artifact_name": "velographx-canonicalization-ab-orkut",
+      "sha256": "f3d17c882d26a1f5561e891c8d430bf11289e1be02cc03bdc0cab64be6f6e942"
+    },
+    {
+      "label": "triangle-crossover-gnutella",
+      "run_id": 34927599394,
+      "artifact_id": 10381010037,
+      "artifact_name": "velographx-multi-crossover-p2p-Gnutella08",
+      "sha256": "171727df8327519da4d45d4827df855c93b63131df12a1d5e001bc7e7dac54ae"
+    },
+    {
+      "label": "triangle-crossover-facebook",
+      "run_id": 34927599394,
+      "artifact_id": 10380526227,
+      "artifact_name": "velographx-multi-crossover-facebook-combined",
+      "sha256": "6c31bd3032123d91c400715fe598ec820f93290a0b0673d9f94947a13014b3d6"
+    },
+    {
+      "label": "triangle-crossover-hepth",
+      "run_id": 34927599394,
+      "artifact_id": 10379783827,
+      "artifact_name": "velographx-multi-crossover-ca-HepTh",
+      "sha256": "f710ca8e08b6b90f25784a7868c2d33ee116608f6439da7e2b19fd33344175f9"
     }
   ]
 }
