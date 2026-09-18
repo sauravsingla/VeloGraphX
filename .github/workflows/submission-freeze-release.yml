@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 env:
   ZENODO_ACCESS_TOKEN: ${{ secrets.ZENODO_ACCESS_TOKEN }}
@@ -19,23 +20,27 @@ env:
 jobs:
   freeze:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Read freeze contract
         id: freeze
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json
-          d=json.load(open('paper/submission-freeze.json'))
-          print('tag='+d['tag'])
-          print('title='+d['release_title'])
+          d = json.load(open('paper/submission-freeze.json'))
+          print('tag=' + d['tag'])
+          print('title=' + d['release_title'])
+          print('software_tag=' + d['software_release_tag'])
           PY
+
       - name: Create immutable annotated submission tag if absent
         env:
           TAG: ${{ steps.freeze.outputs.tag }}
@@ -51,6 +56,7 @@ jobs:
             git tag -a "$TAG" "$GITHUB_SHA" -m "VeloGraphX PVLDB submission freeze $TAG"
             git push origin "$TAG"
           fi
+
       - name: Build deterministic source archive and checksums
         env:
           TAG: ${{ steps.freeze.outputs.tag }}
@@ -65,6 +71,52 @@ jobs:
             echo "commit=$(git rev-list -n 1 "$TAG")"
             echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > build/submission-freeze/provenance.txt
+
+      - name: Persist selected raw paper evidence outside Actions retention
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.freeze.outputs.tag }}
+        run: |
+          mkdir -p build/submission-freeze/evidence
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          freeze = json.loads(Path('paper/submission-freeze.json').read_text())
+          out = {
+              'schema_version': 1,
+              'artifact_type': 'velographx-retained-paper-evidence',
+              'release_tag': freeze['tag'],
+              'artifacts': freeze['retained_evidence_assets'],
+          }
+          Path('build/submission-freeze/EVIDENCE_MANIFEST.json').write_text(
+              json.dumps(out, indent=2) + '\n'
+          )
+          with Path('build/submission-freeze/evidence-assets.tsv').open('w') as fh:
+              for item in freeze['retained_evidence_assets']:
+                  fh.write(
+                      f"{item['label']}\t{item['artifact_id']}\t{item['sha256']}\n"
+                  )
+          PY
+
+          while IFS=$'\t' read -r label artifact_id expected_sha; do
+            out="build/submission-freeze/evidence/${label}-artifact-${artifact_id}.zip"
+            echo "Archiving Actions artifact ${artifact_id} -> ${out}"
+            curl -fL --retry 5 --retry-all-errors --retry-delay 2 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              -o "${out}"
+            echo "${expected_sha}  ${out}" | sha256sum -c -
+          done < build/submission-freeze/evidence-assets.tsv
+
+          tar -czf "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar.gz" \
+            -C build/submission-freeze \
+            "VeloGraphX-${TAG}.tar.gz" provenance.txt EVIDENCE_MANIFEST.json evidence
+
+          sha256sum "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar.gz" \
+            >> build/submission-freeze/SHA256SUMS.txt
+
       - name: Create or verify GitHub submission release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -81,29 +133,72 @@ jobs:
           - Primary selector: \`publication-preflight-v1\`
           - Evidence map: \`PAPER.md\`, \`paper/results-ledger.md\`, \`docs/paper-evidence-index.md\`, and \`benchmarks/paper-evidence.json\`
           - Reproduction entry point: \`REPRODUCIBILITY.md\` and \`scripts/reproduce_minimal.sh\`
+          - Retained raw evidence: \`VeloGraphX-$TAG-evidence-bundle.tar.gz\` plus \`EVIDENCE_MANIFEST.json\`
 
-          Quantitative claims remain scoped to the retained campaign IDs, hashes, timing contracts, exactness gates, and limitations recorded in the repository. The attached tarball and SHA-256 checksum provide an immutable reviewer/reuse snapshot.
+          Quantitative claims remain scoped to the retained campaign IDs, hashes, timing contracts, exactness gates, and limitations recorded in the repository. The source archive, evidence bundle, and SHA-256 checksums provide an immutable reviewer/reuse snapshot.
           EOF
+
+          assets=(
+            "build/submission-freeze/VeloGraphX-${TAG}.tar.gz"
+            "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar.gz"
+            "build/submission-freeze/SHA256SUMS.txt"
+            "build/submission-freeze/EVIDENCE_MANIFEST.json"
+          )
+
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" \
-              "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" \
-              build/submission-freeze/SHA256SUMS.txt --clobber
+            gh release upload "$TAG" "${assets[@]}" --clobber
           else
-            gh release create "$TAG" \
-              "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" \
-              build/submission-freeze/SHA256SUMS.txt \
+            gh release create "$TAG" "${assets[@]}" \
               --title "$TITLE" --notes-file build/submission-freeze/release-notes.md
           fi
-      - name: Publish exact archive to Zenodo when repository credential is configured
+
+      - name: Keep software release distinct from paper artifact releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.freeze.outputs.tag }}
+          SOFTWARE_TAG: ${{ steps.freeze.outputs.software_tag }}
+        run: |
+          PAPER_ID=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)
+          SOFTWARE_ID=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${SOFTWARE_TAG}" --jq .id)
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${PAPER_ID}" \
+            -f make_latest=false >/dev/null
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${SOFTWARE_ID}" \
+            -f make_latest=true >/dev/null
+
+      - name: Verify anonymous release access and clean-room reproduction
+        env:
+          TAG: ${{ steps.freeze.outputs.tag }}
+        run: |
+          public_archive="/tmp/VeloGraphX-${TAG}.tar.gz"
+          public_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/VeloGraphX-${TAG}.tar.gz"
+
+          # No Authorization header is used here: this is the logged-out/public-link check.
+          curl -fL --retry 8 --retry-all-errors --retry-delay 3 \
+            "${public_url}" -o "${public_archive}"
+
+          expected=$(sha256sum "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" | awk '{print $1}')
+          actual=$(sha256sum "${public_archive}" | awk '{print $1}')
+          test "${expected}" = "${actual}"
+
+          rm -rf /tmp/velographx-cleanroom /tmp/velographx-cleanroom-build /tmp/velographx-cleanroom-artifacts
+          mkdir -p /tmp/velographx-cleanroom
+          tar -xzf "${public_archive}" -C /tmp/velographx-cleanroom
+          cd "/tmp/velographx-cleanroom/VeloGraphX-${TAG}"
+          VELOGRAPHX_BUILD_DIR=/tmp/velographx-cleanroom-build \
+          VELOGRAPHX_ARTIFACT_DIR=/tmp/velographx-cleanroom-artifacts \
+            sh scripts/reproduce_minimal.sh
+
+      - name: Publish exact archival bundle to Zenodo when repository credential is configured
         if: env.ZENODO_ACCESS_TOKEN != ''
         env:
           TAG: ${{ steps.freeze.outputs.tag }}
         run: |
           python tools/publish_submission_to_zenodo.py \
-            --bundle "build/submission-freeze/VeloGraphX-${TAG}.tar.gz" \
+            --bundle "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar.gz" \
             --metadata .zenodo.json \
             --freeze paper/submission-freeze.json \
             --output build/submission-freeze/zenodo-result.json
+
       - name: Record DOI archive status when token is absent
         if: env.ZENODO_ACCESS_TOKEN == ''
         run: |
@@ -112,9 +207,10 @@ jobs:
             "status": "credential_not_configured",
             "required_secret": "ZENODO_ACCESS_TOKEN",
             "alternative": "Enable the Zenodo GitHub integration for the repository; .zenodo.json is already included in the tagged release.",
-            "artifact_integrity": "The GitHub release/tag and SHA-256 archive are still created; DOI publication requires external Zenodo authorization."
+            "artifact_integrity": "The GitHub release/tag, selected retained evidence bundle, public-download verification, clean-room reproduction, and SHA-256 checks are still completed; DOI publication requires external Zenodo authorization."
           }
           EOF
+
       - name: Attach Zenodo status/record to GitHub release
         if: always()
         env:
@@ -132,6 +228,7 @@ jobs:
           elif test -f build/submission-freeze/zenodo-status.json; then
             gh release upload "$TAG" build/submission-freeze/zenodo-status.json --clobber
           fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

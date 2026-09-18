@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -42,7 +43,9 @@ class WorkStealingPool {
   WorkStealingPool& operator=(const WorkStealingPool&) = delete;
 
   ~WorkStealingPool() {
-    wait_idle();
+    // Destructors must not propagate exceptions from user tasks. Public
+    // wait_idle()/parallel_for() still surface the first task failure.
+    wait_idle_no_throw();
     stop_.store(true, std::memory_order_release);
     cv_.notify_all();
     for (auto& worker : workers_) if (worker.joinable()) worker.join();
@@ -79,22 +82,12 @@ class WorkStealingPool {
     wait_idle();
   }
 
+  // Drain all submitted work. If one or more tasks fail, the pool records the
+  // first exception, completes accounting for every task, and rethrows only
+  // after the pool becomes idle. This keeps the pool reusable after failure.
   void wait_idle() {
-    while (outstanding_.load(std::memory_order_acquire) != 0) {
-      Task task;
-      if (pop_any(task)) {
-        task();
-        executed_.fetch_add(1, std::memory_order_relaxed);
-        if (outstanding_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-          idle_cv_.notify_all();
-        }
-        continue;
-      }
-      std::unique_lock<std::mutex> lock(wait_mutex_);
-      idle_cv_.wait_for(lock, std::chrono::milliseconds(1), [this] {
-        return outstanding_.load(std::memory_order_acquire) == 0;
-      });
-    }
+    drain_until_idle();
+    rethrow_pending_exception();
   }
 
   WorkStealingStats stats() const noexcept {
@@ -111,6 +104,61 @@ class WorkStealingPool {
   }
 
  private:
+  void record_exception(std::exception_ptr error) noexcept {
+    try {
+      std::lock_guard<std::mutex> lock(exception_mutex_);
+      if (!first_exception_) first_exception_ = std::move(error);
+    } catch (...) {
+      // A task exception must never escape a worker thread merely because the
+      // exception-recording path itself encountered an exceptional runtime
+      // condition.
+    }
+  }
+
+  void complete_task(Task& task) noexcept {
+    try {
+      task();
+    } catch (...) {
+      record_exception(std::current_exception());
+    }
+    executed_.fetch_add(1, std::memory_order_relaxed);
+    if (outstanding_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      idle_cv_.notify_all();
+    }
+  }
+
+  void drain_until_idle() {
+    while (outstanding_.load(std::memory_order_acquire) != 0) {
+      Task task;
+      if (pop_any(task)) {
+        complete_task(task);
+        continue;
+      }
+      std::unique_lock<std::mutex> lock(wait_mutex_);
+      idle_cv_.wait_for(lock, std::chrono::milliseconds(1), [this] {
+        return outstanding_.load(std::memory_order_acquire) == 0;
+      });
+    }
+  }
+
+  void wait_idle_no_throw() noexcept {
+    try {
+      drain_until_idle();
+    } catch (...) {
+      // Destruction is a non-reporting boundary. Call wait_idle() explicitly
+      // when task failures need to be observed by the caller.
+    }
+  }
+
+  void rethrow_pending_exception() {
+    std::exception_ptr error;
+    {
+      std::lock_guard<std::mutex> lock(exception_mutex_);
+      error = std::exchange(first_exception_, {});
+    }
+    if (error) std::rethrow_exception(error);
+  }
+
   struct Queue {
     std::mutex mutex;
     std::deque<Task> tasks;
@@ -165,9 +213,7 @@ class WorkStealingPool {
     while (!stop_.load(std::memory_order_acquire)) {
       Task task;
       if (pop_local(index, task) || steal(index, task)) {
-        task();
-        executed_.fetch_add(1, std::memory_order_relaxed);
-        if (outstanding_.fetch_sub(1, std::memory_order_acq_rel) == 1) idle_cv_.notify_all();
+        complete_task(task);
         continue;
       }
       std::unique_lock<std::mutex> lock(cv_mutex_);
@@ -192,6 +238,8 @@ class WorkStealingPool {
   std::condition_variable cv_;
   std::mutex wait_mutex_;
   std::condition_variable idle_cv_;
+  std::mutex exception_mutex_;
+  std::exception_ptr first_exception_;
 };
 
 }  // namespace velographx

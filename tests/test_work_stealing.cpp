@@ -4,6 +4,8 @@
 #include <cassert>
 #include <chrono>
 #include <cstddef>
+#include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -49,6 +51,32 @@ int main() {
   std::vector<std::size_t> values(2048, 0);
   pool.parallel_for(0, values.size(), [&values](std::size_t i) { values[i] = i + 1; });
   for (std::size_t i = 0; i < values.size(); ++i) assert(values[i] == i + 1);
+
+  // Task failures are reported to the caller only after all outstanding work
+  // is accounted for. A failed task must not terminate a worker or poison the
+  // pool for later submissions.
+  pool.submit([] { throw std::runtime_error("expected task failure"); }, 0);
+  bool saw_task_failure = false;
+  try {
+    pool.wait_idle();
+  } catch (const std::runtime_error& error) {
+    saw_task_failure = std::string(error.what()) == "expected task failure";
+  }
+  assert(saw_task_failure);
+
+  std::atomic<bool> ran_after_failure{false};
+  pool.submit([&ran_after_failure] {
+    ran_after_failure.store(true, std::memory_order_release);
+  }, 0);
+  pool.wait_idle();
+  assert(ran_after_failure.load(std::memory_order_acquire));
+
+  // Destruction is intentionally non-reporting: callers that need task
+  // exceptions must call wait_idle()/parallel_for() explicitly.
+  {
+    WorkStealingPool destructor_pool(2);
+    destructor_pool.submit([] { throw std::runtime_error("unobserved task failure"); });
+  }
 
   const auto stats = pool.stats();
   assert(stats.submitted > 1000);
