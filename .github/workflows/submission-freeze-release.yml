@@ -110,11 +110,11 @@ jobs:
             echo "${expected_sha}  ${out}" | sha256sum -c -
           done < build/submission-freeze/evidence-assets.tsv
 
-          tar -cf "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar" \
+          tar -czf "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar.gz" \
             -C build/submission-freeze \
             "VeloGraphX-${TAG}.tar.gz" provenance.txt EVIDENCE_MANIFEST.json evidence
 
-          sha256sum "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar" \
+          sha256sum "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar.gz" \
             >> build/submission-freeze/SHA256SUMS.txt
 
       - name: Create or verify GitHub submission release
@@ -140,7 +140,7 @@ jobs:
 
           assets=(
             "build/submission-freeze/VeloGraphX-${TAG}.tar.gz"
-            "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar"
+            "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar.gz"
             "build/submission-freeze/SHA256SUMS.txt"
             "build/submission-freeze/EVIDENCE_MANIFEST.json"
           )
@@ -194,7 +194,7 @@ jobs:
           TAG: ${{ steps.freeze.outputs.tag }}
         run: |
           python tools/publish_submission_to_zenodo.py \
-            --bundle "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar" \
+            --bundle "build/submission-freeze/VeloGraphX-${TAG}-evidence-bundle.tar.gz" \
             --metadata .zenodo.json \
             --freeze paper/submission-freeze.json \
             --output build/submission-freeze/zenodo-result.json
