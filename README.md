@@ -4,11 +4,12 @@
 
 ### Correctness-First Dynamic Graph Analytics for Evolving Graphs
 
-[Architecture](docs/architecture.md) · [Python](python/README.md) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
+[Architecture](docs/architecture.md) · [Python](python/README.md) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/sauravsingla/VeloGraphX?style=flat&logo=github)](https://github.com/sauravsingla/VeloGraphX/stargazers)
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
-[![Release](https://img.shields.io/github/v/release/sauravsingla/VeloGraphX)](https://github.com/sauravsingla/VeloGraphX/releases/latest)
+[![Software release](https://img.shields.io/badge/software-v0.8.2-blue)](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.2)
+[![PVLDB artifact](https://img.shields.io/badge/PVLDB%20artifact-v4-purple)](https://github.com/sauravsingla/VeloGraphX/releases/tag/pvldb-2027-submission-v4)
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -51,7 +52,7 @@ The authoritative paper-facing mapping from each quantitative statement to its r
 
 ## Submission-closure experiments
 
-The repository contains dedicated reviewer-facing workflows for the remaining high-value questions around the paper thesis:
+The repository contains dedicated reviewer-facing workflows for the audited submission-closure questions around the paper thesis:
 
 - production **0.35 affected-region fallback** replay, including measured repair→full double-work accounting;
 - **frozen-selector held-out evaluation**, including a genuine timestamp-ordered `CollegeMsg` stream;
@@ -59,7 +60,7 @@ The repository contains dedicated reviewer-facing workflows for the remaining hi
 - a matched **real-dataset GraphBolt dynamic-BFS comparison** using the pinned official artifact runtime and a shared retained mutation stream; and
 - an immutable **submission freeze / DOI-capable archive** path with Zenodo metadata.
 
-Until a new experiment has completed, been audited, and been entered into the paper evidence registry, it is treated as validation infrastructure rather than a manuscript result.
+These closure campaigns are already audited and mapped into the paper evidence registry. Historical development workflows remain in the repository for provenance, but the supported entry points are separated from historical campaigns in [the workflow catalog](docs/workflow-catalog.md). A new experiment is not a manuscript result until it completes the same audit and registry process.
 
 ## Getting started
 
@@ -121,7 +122,7 @@ VeloGraphX treats benchmark provenance and negative results as part of the syste
 
 ## Project status and citation
 
-VeloGraphX is an active research and engineering project. APIs may evolve before 1.0; reproducible experiments should pin the exact release tag or commit SHA. Submission-era archival metadata is maintained in `.zenodo.json` and `paper/submission-freeze.json`; a DOI must only be added to `CITATION.cff` after an external archival service actually mints it.
+VeloGraphX is an active research and engineering project. APIs may evolve before 1.0; reproducible experiments should pin the exact release tag or commit SHA. **Software releases and paper-artifact freezes are intentionally separate:** `v0.8.2` is the current software release, while `pvldb-2027-submission-v4` is the reviewer/reproducibility snapshot. The freeze workflow keeps the software release as GitHub's `latest` release, persists the selected raw paper evidence outside Actions retention, and performs an anonymous clean-room reproduction check. Submission-era archival metadata is maintained in `.zenodo.json` and `paper/submission-freeze.json`; a DOI must only be added to `CITATION.cff` after an external archival service actually mints it.
 
 ```bibtex
 @software{singla_velographx_2026,
