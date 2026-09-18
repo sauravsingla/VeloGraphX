@@ -119,6 +119,8 @@ VeloGraphX treats benchmark provenance and negative results as part of the syste
 - [GraphBolt / DZiG + GAPBS benchmark contract](docs/graphbolt-dzig-gap-benchmark-contract.md)
 - [Controlled-hardware execution boundary](docs/controlled-hardware-execution.md)
 - [Current limitations](docs/limitations.md)
+- [Workflow catalog](docs/workflow-catalog.md)
+- [Submission archival status](docs/submission-archive.md)
 
 ## Project status and citation
 
