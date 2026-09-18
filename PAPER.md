@@ -179,7 +179,7 @@ The paper's defensible contribution is narrower: exact repair and full recomputa
 
 ## Submission freeze and DOI boundary
 
-The intended immutable submission tag is `pvldb-2027-submission-v1`, defined in [`paper/submission-freeze.json`](paper/submission-freeze.json). Zenodo metadata is maintained in [`.zenodo.json`](.zenodo.json), and the repository contains a submission-artifact release workflow.
+The intended immutable submission tag is `pvldb-2027-submission-v3`, defined in [`paper/submission-freeze.json`](paper/submission-freeze.json). Zenodo metadata is maintained in [`.zenodo.json`](.zenodo.json), and the repository contains a submission-artifact release workflow.
 
 A DOI must **not** be invented or inserted before an external DOI-capable archive actually mints it. The repository-side freeze path is complete; DOI publication additionally requires the configured Zenodo token or GitHub–Zenodo release integration documented by the workflow.
 

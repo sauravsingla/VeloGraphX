@@ -71,13 +71,15 @@ Use only as focused regression evidence, not as a substitute for cross-dataset v
 | Fallback-only internal fallbacks | 6 |
 | Fallback opportunities avoided by frozen pre-repair selector | 6 |
 | Remaining selector-path internal fallbacks | 0 |
-| False-full choices | 33 |
+| Explicit-full/non-fallback labels (historical `false_full` field) | 33 |
 | Conservatively observed fallback double work | 17.323 ms |
 | Conservatively observed double work avoided | 17.323 ms |
 
-**Interpretation:** this campaign closes the gap intentionally left by the clean-oracle-arm primary selector harness. Under the production 0.35 affected-region fallback, pre-repair selection avoided all six observed fallback opportunities in the aligned campaign and therefore avoided the conservatively measured 17.323 ms of repair-discovery-then-full work.
+**Interpretation:** this campaign closes the gap intentionally left by the clean-oracle-arm primary selector harness. Under the production 0.35 affected-region fallback, pre-repair selection avoided all six observed fallback opportunities and therefore avoided the conservatively measured 17.323 ms of repair-discovery-then-full work. All six fallback events occur in the declared 220K destructive-cascade stress case; the 72 real-graph observations have zero 0.35 fallbacks. Across all 93 observations, selector+fallback reduces cumulative answer-ready latency by 42.7% relative to fallback-only (1.745× ratio); on real graphs alone the reduction is 42.2% (1.729×).
 
-**Required caveat:** the 220K destructive cascade is a mechanism stress case. Do not present its frequency as representative of a natural workload; real-graph rows are retained separately.
+**Historical field semantics:** the 33 `false_full` labels mean explicit full was selected on a batch where fallback-only did not internally fall back. They are not a wrong-arm count; the retained positive false-full penalty is 0 µs.
+
+**Required caveat:** the 220K destructive cascade demonstrates the fallback mechanism, not its natural-workload frequency. Cumulative latency totals are campaign-scoped and sample-weighted.
 
 ## Submission-closure Table/Figure B — frozen held-out generalization
 
@@ -135,7 +137,7 @@ Preserve run boundaries; do not combine absolute times from unrelated campaigns.
 | VeloGraphX vs RisGraph | `33286241439` | `9724535579` | RisGraph remains ≈1.90× faster on the documented hosted `web-Google` run; VeloGraphX repair beats its own legacy full path | Separate run from NetworKit |
 | VeloGraphX vs GAP + LAGraph, BFS | `33418520303` | `9768499895` | VeloGraphX wins tested hosted 1/2/4-thread BFS cases: 1.60×–2.04× vs GAP, 9.4×–11.8× vs LAGraph | Not a many-core claim |
 | VeloGraphX vs GAP + LAGraph, weighted SSSP | `33418520303` | `9768499895` | GAP wins; VeloGraphX 2.6×–3.0× faster than LAGraph but 7.0×–8.5× slower than GAP | Retain competitor win |
-| VeloGraphX vs pinned GraphBolt real-dataset BFS | `35237513587` | `10503851688` | GraphBolt/VeloGraphX answer-ready ratio = 14.219× at 0.01%, 2.245× at 0.1%, 0.886× at 0.5%; five paired reps each; outputs verified | Same hosted allocation/shared mutation stream; pinned legacy GraphBolt runtime; retain winner reversal |
+| VeloGraphX vs pinned GraphBolt real-dataset BFS | `35237513587` | `10503851688` | GraphBolt/VeloGraphX answer-ready ratio = 14.219× at 0.1%, 2.245× at 1%, 0.886× at 5%; five paired reps each; outputs verified | Same hosted allocation/shared mutation stream; pinned legacy GraphBolt runtime; retain winner reversal |
 
 For the GraphBolt ratios, values above 1 mean VeloGraphX lower latency; the 0.886× value means GraphBolt is faster at the largest tested fraction.
 
@@ -196,7 +198,7 @@ Five repetitions are retained at 13 update fractions per dataset and every incre
 
 ## Submission freeze
 
-The intended immutable submission tag is `pvldb-2027-submission-v1` as recorded in `submission-freeze.json`. `.zenodo.json` contains DOI-archive metadata. A DOI can be added to citation metadata only after Zenodo or another DOI-capable archive actually mints one.
+The intended immutable submission tag is `pvldb-2027-submission-v3` as recorded in `submission-freeze.json`. `.zenodo.json` contains DOI-archive metadata. A DOI can be added to citation metadata only after Zenodo or another DOI-capable archive actually mints one.
 
 ## Results still excluded from headline claims
 

@@ -152,6 +152,33 @@ def main() -> None:
     if "'soc-Epinions1': ('soc-Epinions1', 71391, 0.90, [384, 1536, 6144])" not in workflow:
         fail("soc-Epinions1 audited import fraction is no longer 0.90 in the selector workflow")
 
+    fallback = results["adaptive_selector"]["production_fallback_035"]
+    if fallback["aligned_batch_observations"] != 93 or fallback["fallback_only_internal_fallbacks"] != 6:
+        fail("production-fallback retained observation/fallback counts changed")
+    if fallback["fallback_opportunities_avoided_by_selector"] != 6 or fallback["selector_path_internal_fallbacks"] != 0:
+        fail("production-fallback selector avoidance counts changed")
+    if fallback.get("all_fallbacks_in_declared_cascade_stress_case") is not True:
+        fail("production-fallback stress-case scope flag missing")
+    if fallback.get("real_graph_aligned_batch_observations") != 72 or fallback.get("real_graph_fallback_only_internal_fallbacks") != 0:
+        fail("production-fallback real-graph scope changed")
+    if fallback.get("false_full_choices") != 33 or fallback.get("positive_false_full_penalty_us") != 0.0:
+        fail("production-fallback historical false_full semantics changed")
+    if "not a wrong-arm" not in fallback.get("false_full_choices_semantics", ""):
+        fail("production-fallback false_full semantic guard missing")
+    if not close(fallback["selector_plus_fallback_cumulative_latency_reduction_fraction_all"], 0.4269369739702674, 1e-12):
+        fail("production-fallback all-observation cumulative reduction changed")
+    if not close(fallback["selector_plus_fallback_cumulative_latency_reduction_fraction_real_graphs"], 0.421642150231507, 1e-12):
+        fail("production-fallback real-graph cumulative reduction changed")
+
+    graphbolt = results["external_baselines"]["graphbolt_dynamic_bfs"]
+    expected_graphbolt = {"0.001": 14.219, "0.01": 2.245, "0.05": 0.886}
+    if graphbolt.get("graphbolt_over_velographx_answer_ready_ratio") != expected_graphbolt:
+        fail("GraphBolt operation-fraction labels drifted from retained workload generator")
+    if graphbolt.get("operation_fraction_percent") != [0.1, 1.0, 5.0]:
+        fail("GraphBolt percentage labels must remain 0.1%, 1%, and 5%")
+    if graphbolt.get("operation_fraction_semantics") != "graph-operation rows divided by initial-edge rows; 0.01 = 1%":
+        fail("GraphBolt operation-fraction semantics missing")
+
     if results["external_baselines"]["networkit_dynamic_bfs"]["all_exact"] is not True:
         fail("NetworKit paired evidence lost exactness flag")
     if results["exact_triangles_published_reference"]["all_exact"] is not True:

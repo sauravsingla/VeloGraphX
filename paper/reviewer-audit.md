@@ -44,9 +44,9 @@ The frozen held-out campaign is exact with no post-result retuning, but the two 
 
 **Severity:** now low.
 
-The production 0.35 campaign directly compares fallback-only behavior with the same frozen selector path. Across 93 exact aligned observations, fallback-only falls back six times; the pre-repair selector avoids all six opportunities and 17.323 ms of conservatively measured double work, while retaining 33 false-full choices.
+The production 0.35 campaign directly compares fallback-only behavior with the same frozen selector path. Across 93 exact aligned observations, fallback-only falls back six times and the pre-repair selector avoids all six opportunities plus 17.323 ms of conservatively measured double work. All six fallback events occur in the declared 220K cascade stress case; the 72 real-graph observations have zero 0.35 fallbacks. The retained 33 `false_full` labels are explicit-full/non-fallback labels rather than wrong-arm assertions, and their positive latency penalty is zero. Selector+fallback reduces cumulative answer-ready latency by 42.7% over all retained observations and 42.2% on the real-graph subset.
 
-**Required paper response:** keep both the benefit and the cost visible. Do not generalize the 220K cascade stress case to natural-workload frequency.
+**Required paper response:** keep the stress-case scope and historical field semantics explicit. Do not generalize fallback frequency to natural workloads, and do not describe the 33 labels as performance mistakes.
 
 **Status:** closed.
 

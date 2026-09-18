@@ -218,8 +218,9 @@ def external_baseline_table(results: dict) -> str:
 \toprule
 Workload & Comparison & Evaluated result & Winner \\
 \midrule
-Matched dynamic BFS, 0.01\% updates & GraphBolt/VeloGraphX latency & {graphbolt['0.0001']:.3f}$\times$ & VeloGraphX \\
-Matched dynamic BFS, 0.5\% updates & GraphBolt/VeloGraphX latency & {graphbolt['0.005']:.3f}$\times$ & GraphBolt \\
+Matched dynamic BFS, 0.1\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.001']:.3f}$\times$ & VeloGraphX \\
+Matched dynamic BFS, 1\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.01']:.3f}$\times$ & VeloGraphX \\
+Matched dynamic BFS, 5\% operations & GraphBolt/VeloGraphX latency & {graphbolt['0.05']:.3f}$\times$ & GraphBolt \\
 Dynamic BFS, web-Google & VeloGraphX vs NetworKit & {web:.2f}$\times$ lower latency & VeloGraphX \\
 Dynamic BFS, ca-GrQc & VeloGraphX vs NetworKit & {grqc:.2f}$\times$ lower latency for NetworKit & NetworKit \\
 Static BFS, hosted 1--4 threads & VeloGraphX vs GAP & {bfs_gap[0]:.2f}--{bfs_gap[1]:.2f}$\times$ & VeloGraphX \\
