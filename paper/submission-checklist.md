@@ -88,7 +88,7 @@ Required final paper surfaces:
 - [x] Deterministic figure generator reads committed paper evidence.
 - [x] Submission-freeze metadata and Zenodo metadata are present.
 - [x] Release workflow for the intended submission tag is present.
-- [x] Freeze workflow copies the five selected core raw paper artifacts out of GitHub Actions retention into the immutable submission release and verifies their recorded SHA-256 digests.
+- [x] Freeze workflow copies the selected headline/supporting raw paper artifacts out of GitHub Actions retention into the immutable submission release and verifies their recorded SHA-256 digests.
 - [x] Immutable submission releases exist and are never moved; this post-v3 cleanup advances the current reviewer snapshot to `pvldb-2027-submission-v4`.
 - [ ] Mint and verify the DOI-capable archival record; do not fabricate a DOI before the archive issues it.
 - [x] Freeze workflow extracts the public release source archive into a fresh directory and runs `scripts/reproduce_minimal.sh` as a clean-room reproduction gate.
