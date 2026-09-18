@@ -128,12 +128,12 @@ jobs:
 
           This release freezes the exact source tree used for the PVLDB Volume 20 / 2027 submission package.
 
-          - Tag: `$TAG`
-          - Commit: `$(git rev-list -n 1 "$TAG")`
-          - Primary selector: `publication-preflight-v1`
-          - Evidence map: `PAPER.md`, `paper/results-ledger.md`, `docs/paper-evidence-index.md`, and `benchmarks/paper-evidence.json`
-          - Reproduction entry point: `REPRODUCIBILITY.md` and `scripts/reproduce_minimal.sh`
-          - Retained raw evidence: `VeloGraphX-$TAG-evidence-bundle.tar` plus `EVIDENCE_MANIFEST.json`
+          - Tag: \`$TAG\`
+          - Commit: \`$(git rev-list -n 1 "$TAG")\`
+          - Primary selector: \`publication-preflight-v1\`
+          - Evidence map: \`PAPER.md\`, \`paper/results-ledger.md\`, \`docs/paper-evidence-index.md\`, and \`benchmarks/paper-evidence.json\`
+          - Reproduction entry point: \`REPRODUCIBILITY.md\` and \`scripts/reproduce_minimal.sh\`
+          - Retained raw evidence: \`VeloGraphX-$TAG-evidence-bundle.tar.gz\` plus \`EVIDENCE_MANIFEST.json\`
 
           Quantitative claims remain scoped to the retained campaign IDs, hashes, timing contracts, exactness gates, and limitations recorded in the repository. The source archive, evidence bundle, and SHA-256 checksums provide an immutable reviewer/reuse snapshot.
           EOF
