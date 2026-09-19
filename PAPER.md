@@ -143,9 +143,9 @@ The ablation supports two concrete statements under this frozen harness: structu
 
 | Operation fraction | GraphBolt / VeloGraphX answer-ready latency ratio |
 | --- | ---: |
-| 0.01% | 14.219× |
-| 0.1% | 2.245× |
-| 0.5% | 0.886× |
+| 0.1% | 14.219× |
+| 1% | 2.245× |
+| 5% | 0.886× |
 
 A ratio above 1 means lower VeloGraphX latency; below 1 means lower GraphBolt latency. The winner reversal at the largest evaluated fraction is retained. Both systems consume the same checksum-retained mutation stream on the same hosted allocation. Because GraphBolt uses its pinned legacy artifact runtime, this is a scoped same-run result rather than a universal system ranking.
 
