@@ -11,8 +11,14 @@
   "doi_archive": {
     "provider": "Zenodo",
     "metadata_file": ".zenodo.json",
+    "status": "published",
+    "doi": "10.5281/zenodo.22842292",
+    "doi_url": "https://doi.org/10.5281/zenodo.22842292",
+    "archived_tag": "pvldb-2027-submission-v4",
+    "publication_method": "manual Zenodo deposit from GitHub release assets",
     "automatic_if": "ZENODO_ACCESS_TOKEN repository secret or GitHub-Zenodo release integration is configured",
-    "required_before_final_submission": true
+    "required_before_final_submission": true,
+    "satisfied": true
   },
   "software_release_tag": "v0.8.2",
   "retained_evidence_assets": [
