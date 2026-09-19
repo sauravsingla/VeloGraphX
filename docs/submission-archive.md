@@ -5,7 +5,8 @@ VeloGraphX keeps software releases and paper-artifact freezes separate.
 - **Software release:** `v0.8.2`
 - **Current paper freeze contract:** `pvldb-2027-submission-v4`
 - **DOI provider:** Zenodo
-- **DOI status:** pending external authorization; no DOI is claimed until one is actually minted
+- **DOI status:** published
+- **Published DOI:** [`10.5281/zenodo.22842292`](https://doi.org/10.5281/zenodo.22842292)
 
 ## What the paper freeze preserves
 
@@ -16,6 +17,8 @@ The freeze workflow creates an immutable annotated tag and GitHub release for th
 3. an evidence manifest;
 4. a persistent evidence bundle containing the selected raw GitHub Actions artifacts used by the central paper results; and
 5. either the real Zenodo publication result or an explicit status file saying that Zenodo authorization is not configured.
+
+For `pvldb-2027-submission-v4`, the release's `zenodo-status.json` records the automated-workflow state, and the submission artifact was subsequently published to Zenodo as a manual deposit from the GitHub release assets at [DOI 10.5281/zenodo.22842292](https://doi.org/10.5281/zenodo.22842292). The immutable GitHub tag and release assets remain unchanged.
 
 The selected retained raw artifacts are:
 
@@ -49,11 +52,6 @@ Paper freezes are archival snapshots, not product releases. The freeze workflow 
 
 ## DOI boundary
 
-The repository cannot mint a DOI without external Zenodo authorization. When `ZENODO_ACCESS_TOKEN` (or a compatible GitHub-Zenodo integration) is configured, the same freeze workflow uploads the evidence-bearing archival bundle to Zenodo and records the returned DOI.
+The archival dependency for `pvldb-2027-submission-v4` is satisfied by the published Zenodo record [DOI 10.5281/zenodo.22842292](https://doi.org/10.5281/zenodo.22842292). `CITATION.cff` now records the DOI, while the immutable v4 GitHub tag, source archive, evidence bundle, manifest, and checksums remain unchanged.
 
-Until then:
-
-- `CITATION.cff` intentionally contains no DOI;
-- the GitHub tag/release/checksums remain valid;
-- the DOI checklist item remains open; and
-- no placeholder or guessed DOI should be published.
+The DOI identifies this archived software/reproducibility artifact. It is not a PVLDB publication DOI and does not imply venue acceptance. Future paper freezes may be archived automatically when `ZENODO_ACCESS_TOKEN` or the GitHub-Zenodo release integration is configured; each new freeze should receive its own archival record rather than moving or rewriting the v4 tag.
