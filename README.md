@@ -64,18 +64,21 @@ These closure campaigns are already audited and mapped into the paper evidence r
 
 ## Getting started
 
+### Python
+
 Install from PyPI:
 
 ```bash
 python -m pip install velographx
 ```
 
-Minimal Python example:
+Minimal example:
 
 ```python
 import velographx as vx
 
 g = vx.Graph(4, False)
+
 updates = vx.UpdateBatch()
 updates.add(0, 1)
 updates.add(1, 2)
@@ -85,11 +88,14 @@ bfs = vx.IncrementalBFS(g, 0)
 print(bfs.distances)
 ```
 
-Build the C++ engine from source:
+### C++ / build from source
+
+For native C++ development or building VeloGraphX locally:
 
 ```bash
 git clone https://github.com/sauravsingla/VeloGraphX.git
 cd VeloGraphX
+
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
