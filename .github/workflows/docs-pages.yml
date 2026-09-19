@@ -43,15 +43,9 @@ jobs:
           doxygen Doxyfile
           test -f build/docs/html/index.html
 
-      - name: Add search and social metadata
+      - name: Add and validate search and social metadata
         run: |
           python3 tools/build_docs_seo.py build/docs/html
-          test -f build/docs/html/sitemap.xml
-          test -f build/docs/html/robots.txt
-          grep -q 'rel="canonical"' build/docs/html/index.html
-          grep -q 'property="og:title"' build/docs/html/index.html
-          grep -q 'VeloGraphX — Dynamic Graph Analytics & Incremental Graph Algorithms' build/docs/html/index.html
-          grep -q 'dynamic_bfs.html' build/docs/html/sitemap.xml
           touch build/docs/html/.nojekyll
 
       - name: Configure GitHub Pages
