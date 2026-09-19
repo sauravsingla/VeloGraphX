@@ -4,7 +4,7 @@
 
 ### High-Performance Dynamic Graph Analytics in C++20 + Python
 
-[Docs](docs/index.md) · [Python](python/README.md) · [PyPI](https://pypi.org/project/velographx/) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Zenodo DOI](https://doi.org/10.5281/zenodo.22842292) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
+[Docs](https://sauravsingla.github.io/VeloGraphX/) · [Python](python/README.md) · [PyPI](https://pypi.org/project/velographx/) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Zenodo DOI](https://doi.org/10.5281/zenodo.22842292) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/sauravsingla/VeloGraphX?style=flat&logo=github)](https://github.com/sauravsingla/VeloGraphX/stargazers)
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
