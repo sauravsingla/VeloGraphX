@@ -145,6 +145,49 @@ def write_robots(root: Path) -> None:
     (root / "robots.txt").write_text(robots, encoding="utf-8")
 
 
+def validate_output(root: Path) -> None:
+    required = list(CUSTOM)
+    missing = [name for name in required if not (root / name).is_file()]
+    if missing:
+        raise SystemExit("expected SEO landing pages were not generated: " + ", ".join(missing))
+
+    required_fragments = (
+        '<meta name="description"',
+        '<link rel="canonical"',
+        '<meta property="og:title"',
+        '<meta property="og:description"',
+        '<meta property="og:url"',
+        '<meta name="twitter:card"',
+    )
+
+    for relative, (title, _description) in CUSTOM.items():
+        document = (root / relative).read_text(encoding="utf-8")
+        absent = [fragment for fragment in required_fragments if fragment not in document]
+        if absent:
+            raise SystemExit(f"missing SEO metadata in {relative}: {', '.join(absent)}")
+        if title not in html.unescape(document):
+            raise SystemExit(f"expected page title not found in {relative}: {title}")
+        canonical = canonical_for(relative)
+        if canonical not in html.unescape(document):
+            raise SystemExit(f"expected canonical URL not found in {relative}: {canonical}")
+
+    sitemap_path = root / "sitemap.xml"
+    robots_path = root / "robots.txt"
+    if not sitemap_path.is_file() or not robots_path.is_file():
+        raise SystemExit("sitemap.xml or robots.txt was not generated")
+
+    sitemap = html.unescape(sitemap_path.read_text(encoding="utf-8"))
+    for relative in CUSTOM:
+        canonical = canonical_for(relative)
+        if canonical not in sitemap:
+            raise SystemExit(f"landing page missing from sitemap: {canonical}")
+
+    robots = robots_path.read_text(encoding="utf-8")
+    expected_sitemap = "Sitemap: " + BASE_URL + "sitemap.xml"
+    if expected_sitemap not in robots:
+        raise SystemExit("robots.txt does not advertise the sitemap")
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: build_docs_seo.py <doxygen-html-dir>", file=sys.stderr)
@@ -161,13 +204,9 @@ def main() -> int:
     urls = [process_page(root, page) for page in pages]
     write_sitemap(root, urls)
     write_robots(root)
+    validate_output(root)
 
-    required = ["index.html", *[name for name in CUSTOM if name != "index.html"]]
-    missing = [name for name in required if not (root / name).is_file()]
-    if missing:
-        raise SystemExit("expected SEO landing pages were not generated: " + ", ".join(missing))
-
-    print(f"SEO metadata added to {len(pages)} HTML pages")
+    print(f"SEO metadata validated on {len(pages)} HTML pages; sitemap and robots.txt generated")
     return 0
 
 
