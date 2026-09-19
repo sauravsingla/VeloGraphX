@@ -50,18 +50,6 @@ The paper-facing claim is deliberately narrow: **the preferred execution strateg
 
 The authoritative paper-facing mapping from each quantitative statement to its retained run, artifact, checksum, timing contract, and claim boundary is in [PAPER.md](PAPER.md), [paper/results-ledger.md](paper/results-ledger.md), and [benchmarks/paper-evidence.json](benchmarks/paper-evidence.json). Historical development numbers are not substitutes for the current publication-selector result above.
 
-## Submission-closure experiments
-
-The repository contains dedicated reviewer-facing workflows for the audited submission-closure questions around the paper thesis:
-
-- production **0.35 affected-region fallback** replay, including measured repair→full double-work accounting;
-- **frozen-selector held-out evaluation**, including a genuine timestamp-ordered `CollegeMsg` stream;
-- **one-mechanism-at-a-time selector feature ablation** under a shared harness;
-- a matched **real-dataset GraphBolt dynamic-BFS comparison** using the pinned official artifact runtime and a shared retained mutation stream; and
-- an immutable **submission freeze / DOI-backed archive** path with Zenodo metadata and a published v4 record.
-
-These closure campaigns are already audited and mapped into the paper evidence registry. Historical development workflows remain in the repository for provenance, but the supported entry points are separated from historical campaigns in [the workflow catalog](docs/workflow-catalog.md). A new experiment is not a manuscript result until it completes the same audit and registry process.
-
 ## Getting started
 
 ### Python
@@ -114,7 +102,7 @@ ctest --test-dir build --output-on-failure
 
 ## Research and benchmarking
 
-VeloGraphX treats benchmark provenance and negative results as part of the system contract. Useful reviewer-facing references include:
+VeloGraphX treats benchmark provenance and negative results as part of the system contract. Reviewer-facing references include:
 
 - [Paper artifact guide](PAPER.md)
 - [Results ledger](paper/results-ledger.md)
@@ -130,7 +118,7 @@ VeloGraphX treats benchmark provenance and negative results as part of the syste
 
 ## Project status and citation
 
-VeloGraphX is an active research and engineering project. APIs may evolve before 1.0; reproducible experiments should pin the exact release tag or commit SHA. **Software releases and paper-artifact freezes are intentionally separate:** `v0.8.2` is the current software release, while `pvldb-2027-submission-v4` is the reviewer/reproducibility snapshot. The freeze workflow keeps the software release as GitHub's `latest` release, persists the selected raw paper evidence outside Actions retention, and performs an anonymous clean-room reproduction check. The exact `pvldb-2027-submission-v4` snapshot is archived on Zenodo at [DOI 10.5281/zenodo.22842292](https://doi.org/10.5281/zenodo.22842292); submission-era archival metadata is maintained in `.zenodo.json` and `paper/submission-freeze.json`.
+VeloGraphX is an active research and engineering project. APIs may evolve before 1.0; reproducible experiments should pin the exact release tag or commit SHA. `v0.8.2` is the current software release, while `pvldb-2027-submission-v4` is the frozen reviewer/reproducibility snapshot archived at [DOI 10.5281/zenodo.22842292](https://doi.org/10.5281/zenodo.22842292). See [submission archival status](docs/submission-archive.md) for archive and provenance details.
 
 For the software generally:
 
