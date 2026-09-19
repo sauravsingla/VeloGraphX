@@ -2,14 +2,14 @@
 
 # VeloGraphX
 
-### Correctness-First Dynamic Graph Analytics for Evolving Graphs
+### High-Performance Dynamic Graph Analytics in C++20 + Python
 
-[Architecture](docs/architecture.md) · [Python](python/README.md) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
+[Architecture](docs/architecture.md) · [Python](python/README.md) · [PyPI](https://pypi.org/project/velographx/) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/sauravsingla/VeloGraphX?style=flat&logo=github)](https://github.com/sauravsingla/VeloGraphX/stargazers)
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
 [![Software release](https://img.shields.io/badge/software-v0.8.2-blue)](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.2)
-[![PVLDB artifact](https://img.shields.io/badge/PVLDB%20artifact-v4-purple)](https://github.com/sauravsingla/VeloGraphX/releases/tag/pvldb-2027-submission-v4)
+[![PVLDB submission artifact](https://img.shields.io/badge/PVLDB%20submission%20artifact-v4-purple)](https://github.com/sauravsingla/VeloGraphX/releases/tag/pvldb-2027-submission-v4)
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -18,7 +18,7 @@
 
 ## About
 
-VeloGraphX is a **C++20 engine for analytics on large, continuously evolving graphs**. Its central systems idea is to keep two semantically equivalent execution choices available for an evolving analytic: **localized maintenance of affected state** and **full recomputation**. A pre-repair policy can choose between them using graph/update structure and prior measured execution cost instead of assuming that either incremental processing or recomputation is always preferable.
+VeloGraphX is a **high-performance C++20 and Python engine for dynamic graph analytics on large, continuously evolving graphs**. It supports BFS/unweighted SSSP, weighted SSSP, connected components, triangle counting, k-core, and PageRank through dynamic maintenance and full-recomputation paths. Its central systems idea is to keep two semantically equivalent execution choices available for an evolving analytic: **localized maintenance of affected state** and **full recomputation**. A pre-repair policy can choose between them using graph/update structure and prior measured execution cost instead of assuming that either incremental processing or recomputation is always preferable.
 
 The paper-facing claim is deliberately narrow: **the preferred execution strategy changes with graph and update regime, so an evolving-graph engine should expose the repair/recompute crossover as an observable physical-plan choice.** VeloGraphX does not claim universal superiority over other graph systems.
 
