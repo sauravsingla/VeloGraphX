@@ -2,6 +2,8 @@
 
 VeloGraphX is a C++20 dynamic graph analytics engine with Python bindings. This page is the documentation entry point; the project README remains the concise overview and quick start.
 
+The generated API documentation is published through the repository's GitHub Pages workflow.
+
 ## User guides
 
 - [Architecture](architecture.md)
