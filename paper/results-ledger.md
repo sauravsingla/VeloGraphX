@@ -198,7 +198,7 @@ Five repetitions are retained at 13 update fractions per dataset and every incre
 
 ## Submission freeze
 
-The intended immutable submission tag is `pvldb-2027-submission-v3` as recorded in `submission-freeze.json`. `.zenodo.json` contains DOI-archive metadata. A DOI can be added to citation metadata only after Zenodo or another DOI-capable archive actually mints one.
+The immutable submission tag is `pvldb-2027-submission-v4`, as recorded in `submission-freeze.json`. The exact v4 software/reproducibility artifact is published on Zenodo at DOI `10.5281/zenodo.22842292`. This DOI identifies the archived submission artifact; it is not a PVLDB publication DOI and does not imply venue acceptance.
 
 ## Results still excluded from headline claims
 
