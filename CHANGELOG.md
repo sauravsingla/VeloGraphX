@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.8.2 - 2026-09-09
+
+- Added production-ready Python packaging with `scikit-build-core` and `pybind11` for the existing C++20 engine.
+- Published `velographx` to PyPI with validated wheels for CPython 3.9–3.14 across manylinux x86_64, Windows x64, macOS Intel, and macOS Apple Silicon, plus a source distribution.
+- Added installed-wheel and source-distribution smoke validation, including dynamic BFS correctness and package/version checks.
+- Added secure PyPI publication through GitHub Actions OIDC Trusted Publishing and the protected `pypi` environment instead of a long-lived API token.
+- Expanded the Python-accessible surface for graph updates, incremental BFS, connected components, triangle counting, k-core, PageRank, and weighted SSSP while preserving the existing native C++ architecture.
+
+## 0.8.1 - 2026-09-03
+
+- Improved CI and release-workflow reliability following the v0.8.0 release.
+- Prevented release-tag pushes from unintentionally triggering Adaptive BFS research and performance-validation workflows.
+- Restricted applicable Adaptive BFS validation workflows to their intended branch/path triggers and moved the legacy selector calibration workflow to manual execution.
+- Preserved existing benchmark acceptance thresholds, correctness checks, and frozen research workflows.
+- Kept the v0.8.0 core dynamic-graph functionality and public APIs unchanged; this release was workflow/CI maintenance rather than an algorithmic change.
+
 ## 0.8.0 - 2026-09-03
 
 - Replaced the dynamic graph's `vector<vector<VertexId>>` compact base with fixed-size segmented CSR storage and contiguous zero-copy rows.
