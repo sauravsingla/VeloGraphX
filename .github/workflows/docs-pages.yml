@@ -32,16 +32,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install Doxygen
+      - name: Install documentation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends doxygen
+          sudo apt-get install -y --no-install-recommends doxygen librsvg2-bin
 
       - name: Build C++ API documentation
         run: |
           mkdir -p build/docs
           doxygen Doxyfile
           test -f build/docs/html/index.html
+          test -f build/docs/html/velographx-social-card.svg
+          rsvg-convert -w 1200 -h 630 build/docs/html/velographx-social-card.svg > build/docs/html/velographx-social-card.png
+          test -s build/docs/html/velographx-social-card.png
 
       - name: Add and validate search and social metadata
         run: |
