@@ -68,7 +68,15 @@ GENERATE_TESTLIST      = YES
 GENERATE_BUGLIST       = YES
 GENERATE_DEPRECATEDLIST= YES
 
-INPUT                   = include/velographx docs/index.md
+INPUT                   = include/velographx \
+                          docs/index.md \
+                          docs/dynamic-bfs.md \
+                          docs/incremental-bfs.md \
+                          docs/dynamic-graph-algorithms.md \
+                          docs/incremental-graph-analytics.md \
+                          docs/dynamic-connected-components.md \
+                          docs/dynamic-triangle-counting.md \
+                          docs/cpp-graph-analytics-library.md
 INPUT_ENCODING          = UTF-8
 FILE_PATTERNS           = *.h *.hpp *.md
 RECURSIVE               = YES
