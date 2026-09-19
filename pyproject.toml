@@ -53,7 +53,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/sauravsingla/VeloGraphX"
 Repository = "https://github.com/sauravsingla/VeloGraphX"
-Documentation = "https://github.com/sauravsingla/VeloGraphX#readme"
+Documentation = "https://github.com/sauravsingla/VeloGraphX/blob/main/docs/index.md"
 Issues = "https://github.com/sauravsingla/VeloGraphX/issues"
 Releases = "https://github.com/sauravsingla/VeloGraphX/releases"
 Changelog = "https://github.com/sauravsingla/VeloGraphX/blob/main/CHANGELOG.md"
