@@ -4,12 +4,13 @@
 
 ### High-Performance Dynamic Graph Analytics in C++20 + Python
 
-[Architecture](docs/architecture.md) · [Python](python/README.md) · [PyPI](https://pypi.org/project/velographx/) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
+[Architecture](docs/architecture.md) · [Python](python/README.md) · [PyPI](https://pypi.org/project/velographx/) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Zenodo DOI](https://doi.org/10.5281/zenodo.22842292) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/sauravsingla/VeloGraphX?style=flat&logo=github)](https://github.com/sauravsingla/VeloGraphX/stargazers)
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
 [![Software release](https://img.shields.io/badge/software-v0.8.2-blue)](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.2)
 [![PVLDB submission artifact](https://img.shields.io/badge/PVLDB%20submission%20artifact-v4-purple)](https://github.com/sauravsingla/VeloGraphX/releases/tag/pvldb-2027-submission-v4)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22842292.svg)](https://doi.org/10.5281/zenodo.22842292)
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -58,7 +59,7 @@ The repository contains dedicated reviewer-facing workflows for the audited subm
 - **frozen-selector held-out evaluation**, including a genuine timestamp-ordered `CollegeMsg` stream;
 - **one-mechanism-at-a-time selector feature ablation** under a shared harness;
 - a matched **real-dataset GraphBolt dynamic-BFS comparison** using the pinned official artifact runtime and a shared retained mutation stream; and
-- an immutable **submission freeze / DOI-capable archive** path with Zenodo metadata.
+- an immutable **submission freeze / DOI-backed archive** path with Zenodo metadata and a published v4 record.
 
 These closure campaigns are already audited and mapped into the paper evidence registry. Historical development workflows remain in the repository for provenance, but the supported entry points are separated from historical campaigns in [the workflow catalog](docs/workflow-catalog.md). A new experiment is not a manuscript result until it completes the same audit and registry process.
 
@@ -124,7 +125,9 @@ VeloGraphX treats benchmark provenance and negative results as part of the syste
 
 ## Project status and citation
 
-VeloGraphX is an active research and engineering project. APIs may evolve before 1.0; reproducible experiments should pin the exact release tag or commit SHA. **Software releases and paper-artifact freezes are intentionally separate:** `v0.8.2` is the current software release, while `pvldb-2027-submission-v4` is the reviewer/reproducibility snapshot. The freeze workflow keeps the software release as GitHub's `latest` release, persists the selected raw paper evidence outside Actions retention, and performs an anonymous clean-room reproduction check. Submission-era archival metadata is maintained in `.zenodo.json` and `paper/submission-freeze.json`; a DOI must only be added to `CITATION.cff` after an external archival service actually mints it.
+VeloGraphX is an active research and engineering project. APIs may evolve before 1.0; reproducible experiments should pin the exact release tag or commit SHA. **Software releases and paper-artifact freezes are intentionally separate:** `v0.8.2` is the current software release, while `pvldb-2027-submission-v4` is the reviewer/reproducibility snapshot. The freeze workflow keeps the software release as GitHub's `latest` release, persists the selected raw paper evidence outside Actions retention, and performs an anonymous clean-room reproduction check. The exact `pvldb-2027-submission-v4` snapshot is archived on Zenodo at [DOI 10.5281/zenodo.22842292](https://doi.org/10.5281/zenodo.22842292); submission-era archival metadata is maintained in `.zenodo.json` and `paper/submission-freeze.json`.
+
+For the software generally:
 
 ```bibtex
 @software{singla_velographx_2026,
@@ -133,6 +136,19 @@ VeloGraphX is an active research and engineering project. APIs may evolve before
   year    = {2026},
   url     = {https://github.com/sauravsingla/VeloGraphX},
   license = {Apache-2.0}
+}
+```
+
+For the exact PVLDB 2027 v4 research artifact:
+
+```bibtex
+@software{singla_velographx_pvldb_2027_v4,
+  author  = {Saurav Singla},
+  title   = {VeloGraphX: Adaptive Exact Analytics for Evolving Graphs},
+  year    = {2026},
+  version = {pvldb-2027-submission-v4},
+  doi     = {10.5281/zenodo.22842292},
+  url     = {https://doi.org/10.5281/zenodo.22842292}
 }
 ```
 
