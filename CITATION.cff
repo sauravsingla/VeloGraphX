@@ -1,11 +1,15 @@
 cff-version: 1.2.0
 title: VeloGraphX
-message: "If you use VeloGraphX in research, please cite the repository and the relevant release."
+message: "If you use VeloGraphX in research, please cite the repository and the relevant release. The PVLDB 2027 submission artifact is archived at DOI 10.5281/zenodo.22842292."
 type: software
 authors:
   - family-names: Singla
     given-names: Saurav
 repository-code: "https://github.com/sauravsingla/VeloGraphX"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.22842292"
+    description: "Archived PVLDB 2027 submission artifact (pvldb-2027-submission-v4)"
 license: Apache-2.0
 version: 0.8.2
 date-released: 2026-09-09
