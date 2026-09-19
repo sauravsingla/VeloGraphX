@@ -179,9 +179,9 @@ The paper's defensible contribution is narrower: exact repair and full recomputa
 
 ## Submission freeze and DOI boundary
 
-The intended immutable submission tag is `pvldb-2027-submission-v3`, defined in [`paper/submission-freeze.json`](paper/submission-freeze.json). Zenodo metadata is maintained in [`.zenodo.json`](.zenodo.json), and the repository contains a submission-artifact release workflow.
+The immutable submission tag is `pvldb-2027-submission-v4`, defined in [`paper/submission-freeze.json`](paper/submission-freeze.json). Zenodo metadata is maintained in [`.zenodo.json`](.zenodo.json), and the repository contains a submission-artifact release workflow.
 
-A DOI must **not** be invented or inserted before an external DOI-capable archive actually mints it. The repository-side freeze path is complete; DOI publication additionally requires the configured Zenodo token or GitHub–Zenodo release integration documented by the workflow.
+The exact v4 software/reproducibility artifact is archived on Zenodo at [DOI 10.5281/zenodo.22842292](https://doi.org/10.5281/zenodo.22842292). The DOI identifies the archived submission artifact; it is not a PVLDB publication DOI and does not imply venue acceptance. The immutable GitHub v4 tag and release assets remain unchanged.
 
 ## Evidence boundary
 
