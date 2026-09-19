@@ -10,7 +10,6 @@
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
 [![Software release](https://img.shields.io/badge/software-v0.8.2-blue)](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.2)
 [![PVLDB submission artifact](https://img.shields.io/badge/PVLDB%20submission%20artifact-v4-purple)](https://github.com/sauravsingla/VeloGraphX/releases/tag/pvldb-2027-submission-v4)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22842292.svg)](https://doi.org/10.5281/zenodo.22842292)
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
