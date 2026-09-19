@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 BASE_URL = "https://sauravsingla.github.io/VeloGraphX/"
 SITE_NAME = "VeloGraphX"
-SOCIAL_IMAGE_URL = BASE_URL + "velographx-social-card.svg"
+SOCIAL_IMAGE_URL = BASE_URL + "velographx-social-card.png"
 
 CUSTOM = {
     "index.html": (
@@ -209,8 +209,8 @@ def validate_output(root: Path, page_records: list[tuple[str, bool, str]]) -> No
     if missing:
         raise SystemExit("expected SEO landing pages were not generated: " + ", ".join(missing))
 
-    if not (root / "velographx-social-card.svg").is_file():
-        raise SystemExit("missing velographx-social-card.svg in generated documentation")
+    if not (root / "velographx-social-card.png").is_file():
+        raise SystemExit("missing velographx-social-card.png in generated documentation")
 
     required_fragments = (
         '<meta name="description"',
