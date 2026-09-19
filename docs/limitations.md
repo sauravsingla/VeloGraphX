@@ -75,7 +75,7 @@ The repository records accepted evidence through run IDs, artifact IDs, digests,
 
 The submission-freeze workflow now also copies the selected core raw evidence bundles out of GitHub Actions retention into the immutable paper release, verifies their recorded SHA-256 digests, anonymously re-downloads the public source archive, and performs a clean-room minimal reproduction.
 
-The remaining external archival dependency is the DOI-capable Zenodo publication. A DOI must not be added to `CITATION.cff` until Zenodo (or another archival provider) actually mints one.
+The external archival dependency is now satisfied for `pvldb-2027-submission-v4`: the submission artifact is published on Zenodo at [DOI 10.5281/zenodo.22842292](https://doi.org/10.5281/zenodo.22842292), and `CITATION.cff` records that identifier. This DOI identifies the archived software/reproducibility artifact; it is not a venue-publication DOI and does not imply PVLDB acceptance.
 
 ## Workflow history
 
