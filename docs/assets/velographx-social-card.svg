@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">VeloGraphX — Dynamic Graph Analytics</title>
+  <desc id="desc">Social preview card for the VeloGraphX C++20 and Python dynamic graph analytics project.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#172554"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
+  <circle cx="1040" cy="115" r="170" fill="#38bdf8" opacity="0.08"/>
+  <circle cx="1110" cy="520" r="240" fill="#818cf8" opacity="0.07"/>
+
+  <g transform="translate(78 76)">
+    <rect width="92" height="92" rx="22" fill="url(#accent)"/>
+    <g fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="25" cy="46" r="7" fill="#ffffff"/>
+      <circle cx="48" cy="24" r="7" fill="#ffffff"/>
+      <circle cx="68" cy="48" r="7" fill="#ffffff"/>
+      <circle cx="46" cy="69" r="7" fill="#ffffff"/>
+      <path d="M30 41l13-12M54 29l9 13M62 54L51 64M39 64L29 52"/>
+    </g>
+  </g>
+
+  <text x="194" y="121" fill="#e2e8f0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="42" font-weight="700">VeloGraphX</text>
+  <text x="78" y="245" fill="#ffffff" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="66" font-weight="750">Dynamic Graph Analytics</text>
+  <text x="78" y="323" fill="#cbd5e1" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="42" font-weight="500">Incremental graph algorithms in C++20 + Python</text>
+
+  <g transform="translate(78 390)" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="26" font-weight="600">
+    <rect width="166" height="54" rx="27" fill="#0f2f48" stroke="#38bdf8" stroke-opacity="0.55"/>
+    <text x="83" y="36" fill="#bae6fd" text-anchor="middle">Exact BFS</text>
+    <rect x="184" width="246" height="54" rx="27" fill="#172554" stroke="#818cf8" stroke-opacity="0.55"/>
+    <text x="307" y="36" fill="#c7d2fe" text-anchor="middle">Connected Components</text>
+    <rect x="448" width="224" height="54" rx="27" fill="#0f2f48" stroke="#38bdf8" stroke-opacity="0.55"/>
+    <text x="560" y="36" fill="#bae6fd" text-anchor="middle">Triangle Counting</text>
+    <rect x="690" width="134" height="54" rx="27" fill="#172554" stroke="#818cf8" stroke-opacity="0.55"/>
+    <text x="757" y="36" fill="#c7d2fe" text-anchor="middle">k-core</text>
+  </g>
+
+  <line x1="78" y1="510" x2="1122" y2="510" stroke="#334155"/>
+  <text x="78" y="564" fill="#94a3b8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="25">github.com/sauravsingla/VeloGraphX</text>
+  <text x="1122" y="564" fill="#94a3b8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="25" text-anchor="end">Research systems • Reproducible benchmarks</text>
+</svg>
