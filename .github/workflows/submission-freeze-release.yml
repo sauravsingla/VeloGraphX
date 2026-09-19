@@ -5,9 +5,6 @@ on:
     branches: [main]
     paths:
       - 'paper/submission-freeze.json'
-      - '.zenodo.json'
-      - '.github/workflows/submission-freeze-release.yml'
-      - 'tools/publish_submission_to_zenodo.py'
   workflow_dispatch:
 
 permissions:
