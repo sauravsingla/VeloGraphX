@@ -6,16 +6,16 @@ The generated API documentation is published through the repository's GitHub Pag
 
 ## User guides
 
-- [Architecture](architecture.md)
-- [Python bindings](../python/README.md)
-- [Benchmark methodology](benchmark-methodology.md)
-- [Current limitations](limitations.md)
-- [Reproducibility guide](../REPRODUCIBILITY.md)
-- [Paper artifact guide](../PAPER.md)
-- [Workflow catalog](workflow-catalog.md)
-- [Submission archival status](submission-archive.md)
-- [Security policy](../SECURITY.md)
-- [Contributing](../CONTRIBUTING.md)
+- [Architecture](https://github.com/sauravsingla/VeloGraphX/blob/main/docs/architecture.md)
+- [Python bindings](https://github.com/sauravsingla/VeloGraphX/blob/main/python/README.md)
+- [Benchmark methodology](https://github.com/sauravsingla/VeloGraphX/blob/main/docs/benchmark-methodology.md)
+- [Current limitations](https://github.com/sauravsingla/VeloGraphX/blob/main/docs/limitations.md)
+- [Reproducibility guide](https://github.com/sauravsingla/VeloGraphX/blob/main/REPRODUCIBILITY.md)
+- [Paper artifact guide](https://github.com/sauravsingla/VeloGraphX/blob/main/PAPER.md)
+- [Workflow catalog](https://github.com/sauravsingla/VeloGraphX/blob/main/docs/workflow-catalog.md)
+- [Submission archival status](https://github.com/sauravsingla/VeloGraphX/blob/main/docs/submission-archive.md)
+- [Security policy](https://github.com/sauravsingla/VeloGraphX/blob/main/SECURITY.md)
+- [Contributing](https://github.com/sauravsingla/VeloGraphX/blob/main/CONTRIBUTING.md)
 
 ## Generated C++ API reference
 
@@ -35,7 +35,7 @@ The Doxygen configuration includes the public headers and this documentation lan
 
 ## Python API
 
-The Python package exposes the native engine through pybind11. Installation, local builds, interoperability with NumPy/SciPy/Arrow, and supported Python versions are documented in the [Python bindings guide](../python/README.md).
+The Python package exposes the native engine through pybind11. Installation, local builds, interoperability with NumPy/SciPy/Arrow, and supported Python versions are documented in the [Python bindings guide](https://github.com/sauravsingla/VeloGraphX/blob/main/python/README.md).
 
 ## Research evidence
 
