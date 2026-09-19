@@ -2,6 +2,16 @@ name: Documentation Pages
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'Doxyfile'
+      - 'docs/**'
+      - 'include/velographx/**'
+      - 'python/README.md'
+      - 'README.md'
+      - 'REPRODUCIBILITY.md'
+      - 'PAPER.md'
 
 permissions:
   contents: read
