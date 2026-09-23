@@ -51,7 +51,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sauravsingla/VeloGraphX"
+Homepage = "https://sauravsingla.github.io/VeloGraphX/"
 Repository = "https://github.com/sauravsingla/VeloGraphX"
 Documentation = "https://sauravsingla.github.io/VeloGraphX/"
 Issues = "https://github.com/sauravsingla/VeloGraphX/issues"
