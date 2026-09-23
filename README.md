@@ -34,22 +34,6 @@ The paper-facing claim is deliberately narrow: **the preferred execution strateg
 - **CPU execution and interoperability**: multicore kernels, compression and partitioning support, graph-access abstractions, a native C++ API, and Python bindings.
 - **Reproducible systems evaluation**: checksum-pinned datasets, pinned competitor revisions, explicit timing contracts, exactness gates, retained raw repetitions, machine-readable evidence registries, and documented negative results.
 
-## Publication evidence at a glance
-
-> **Evidence boundary:** GitHub-hosted runs are reproducible hosted evidence. Claims that require stable many-core, NUMA, hardware-counter, NVMe, or machine-specific peak-performance conditions remain outside the headline scope unless separately executed on controlled hardware.
-
-| Evidence | Current audited result |
-| --- | --- |
-| Primary adaptive BFS selector | **1,610 sequential batch observations** across **9 graph/update regimes** and **45 graph-regime repetitions**; all outputs exact. **3.939% equal-regime mean oracle regret**, **2.309% sample-weighted regret**, **1.739% sample-weighted wrong-arm rate**, and about **0.286 µs** sample-weighted decision cost. The largest `web-Google` regime is retained as a visible tail at **17.477% mean** and **54.424% p95** regret. |
-| Dynamic BFS vs NetworKit | `web-Google`: VeloGraphX about **1.38× lower latency**; `ca-GrQc`: NetworKit about **1.35× lower latency**; all **30 paired executions exact**. |
-| Dynamic BFS vs RisGraph | In the retained separate `web-Google` campaign, **RisGraph is about 1.90× faster** than VeloGraphX localized repair. This campaign is not combined with the NetworKit campaign into a synthetic ranking. |
-| Static BFS / weighted SSSP vs GAP + LAGraph | BFS: VeloGraphX **1.60×–2.04× vs GAP** and **9.4×–11.8× vs LAGraph** in the tested hosted 1–4-thread cases. Weighted SSSP: **GAP wins**; VeloGraphX is **2.6×–3.0× faster than LAGraph** but **7.0×–8.5× slower than GAP**. |
-| Exact dynamic triangles vs published exact reference | **15/15 paired comparisons exact**; **40.95× / 6.94× / 3.48× lower median answer-ready latency** than the pinned GoldenCounter exact reference at 1% / 5% / 10% insertion batches on the evaluated workload. |
-| 100M+ storage maintenance | On `com-Orkut` (234.4M directed arcs), a bounded 1.50× storage envelope produced **2.25× maintenance-amortized throughput** and **59.6% less consolidation time** than the 1.25× envelope, at about **6.6% higher peak RSS**. |
-| Dynamic exactness stress | **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches** in the retained engineering stress result. |
-
-The authoritative paper-facing mapping from each quantitative statement to its retained run, artifact, checksum, timing contract, and claim boundary is in [PAPER.md](PAPER.md), [paper/results-ledger.md](paper/results-ledger.md), and [benchmarks/paper-evidence.json](benchmarks/paper-evidence.json). Historical development numbers are not substitutes for the current publication-selector result above.
-
 ## Getting started
 
 ### Python
@@ -88,6 +72,22 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+## Publication evidence at a glance
+
+> **Evidence boundary:** GitHub-hosted runs are reproducible hosted evidence. Claims that require stable many-core, NUMA, hardware-counter, NVMe, or machine-specific peak-performance conditions remain outside the headline scope unless separately executed on controlled hardware.
+
+| Evidence | Current audited result |
+| --- | --- |
+| Primary adaptive BFS selector | **1,610 sequential batch observations** across **9 graph/update regimes** and **45 graph-regime repetitions**; all outputs exact. **3.939% equal-regime mean oracle regret**, **2.309% sample-weighted regret**, **1.739% sample-weighted wrong-arm rate**, and about **0.286 µs** sample-weighted decision cost. The largest `web-Google` regime is retained as a visible tail at **17.477% mean** and **54.424% p95** regret. |
+| Dynamic BFS vs NetworKit | `web-Google`: VeloGraphX about **1.38× lower latency**; `ca-GrQc`: NetworKit about **1.35× lower latency**; all **30 paired executions exact**. |
+| Dynamic BFS vs RisGraph | In the retained separate `web-Google` campaign, **RisGraph is about 1.90× faster** than VeloGraphX localized repair. This campaign is not combined with the NetworKit campaign into a synthetic ranking. |
+| Static BFS / weighted SSSP vs GAP + LAGraph | BFS: VeloGraphX **1.60×–2.04× vs GAP** and **9.4×–11.8× vs LAGraph** in the tested hosted 1–4-thread cases. Weighted SSSP: **GAP wins**; VeloGraphX is **2.6×–3.0× faster than LAGraph** but **7.0×–8.5× slower than GAP**. |
+| Exact dynamic triangles vs published exact reference | **15/15 paired comparisons exact**; **40.95× / 6.94× / 3.48× lower median answer-ready latency** than the pinned GoldenCounter exact reference at 1% / 5% / 10% insertion batches on the evaluated workload. |
+| 100M+ storage maintenance | On `com-Orkut` (234.4M directed arcs), a bounded 1.50× storage envelope produced **2.25× maintenance-amortized throughput** and **59.6% less consolidation time** than the 1.25× envelope, at about **6.6% higher peak RSS**. |
+| Dynamic exactness stress | **2,000,000 updates · 0 BFS mismatches · 0 triangle mismatches** in the retained engineering stress result. |
+
+The authoritative paper-facing mapping from each quantitative statement to its retained run, artifact, checksum, timing contract, and claim boundary is in [PAPER.md](PAPER.md), [paper/results-ledger.md](paper/results-ledger.md), and [benchmarks/paper-evidence.json](benchmarks/paper-evidence.json). Historical development numbers are not substitutes for the current publication-selector result above.
 
 ## Algorithm contracts
 
