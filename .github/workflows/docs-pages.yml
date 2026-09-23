@@ -13,6 +13,7 @@ on:
       - 'REPRODUCIBILITY.md'
       - 'PAPER.md'
       - 'tools/build_docs_seo.py'
+      - 'google6f58f6dc503549cc.html'
       - '.github/workflows/docs-pages.yml'
 
 permissions:
@@ -49,6 +50,8 @@ jobs:
       - name: Add and validate search and social metadata
         run: |
           python3 tools/build_docs_seo.py build/docs/html
+          cp google6f58f6dc503549cc.html build/docs/html/google6f58f6dc503549cc.html
+          test -f build/docs/html/google6f58f6dc503549cc.html
           touch build/docs/html/.nojekyll
 
       - name: Configure GitHub Pages
