@@ -1,0 +1,147 @@
+name: Publish VeloGraphX benchmarks to Hugging Face
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "huggingface/**"
+      - "benchmarks/**"
+      - "datasets/**"
+      - "paper/data/**"
+      - "paper/results-ledger.md"
+      - "paper/submission-closure-evidence.json"
+      - "paper/submission-freeze.json"
+      - "paper/validate_submission_data.py"
+      - "paper/README.md"
+      - "docs/benchmark-methodology.md"
+      - "docs/paper-evidence-index.md"
+      - "docs/paper-claims.md"
+      - "docs/controlled-hardware-execution.md"
+      - "docs/publication-hardware-methodology.md"
+      - "docs/limitations.md"
+      - "docs/submission-archive.md"
+      - "docs/ablation-study.md"
+      - "docs/hosted-native-competitors.md"
+      - "docs/external-dynamic-baselines.md"
+      - "docs/canonical-publication-campaign.md"
+      - "docs/same-run-published-baseline.md"
+      - "docs/canonicalization-ab-evidence.md"
+      - "docs/networkit-fair-benchmark-contract.md"
+      - "docs/graphbolt-dzig-gap-benchmark-contract.md"
+      - "docs/research/bfs-selector-v3-h6-preregistration.md"
+      - "docs/research/bfs-selector-v3-h6-results.md"
+      - "docs/research/selector-v2-generalization-preregistration.md"
+      - "docs/research/selector-v2-generalization-results.md"
+      - "docs/research/post-pr71-reviewer-closure.md"
+      - "docs/research/post-pr71-reviewer-closure-results.md"
+      - "docs/research/repair-recompute-policy-evaluation.md"
+      - "docs/research/selector-tail-regret-incident.md"
+      - "scripts/reproduce_minimal.sh"
+      - "scripts/prepare_publication_datasets.py"
+      - "scripts/run_canonical_dataset_campaign.py"
+      - "scripts/run_capacity_campaign.py"
+      - "tools/build_huggingface_dataset.py"
+      - "tools/build_result_artifact.py"
+      - "tools/capture_benchmark_environment.py"
+      - "tools/summarize_adaptive_policy.py"
+      - "tools/summarize_bfs_selector_runs.py"
+      - "tools/summarize_publication_policy.py"
+      - "tools/summarize_selector_ablation.py"
+      - "tools/summarize_selector_v2.py"
+      - "tools/summarize_update_crossover.py"
+      - "tools/validate_benchmark_preflight.py"
+      - "tools/validate_campaign_readiness.py"
+      - "tools/validate_public_dataset_plan.py"
+      - "tools/validate_publication_measurements.py"
+      - "tools/validate_publication_readiness.py"
+      - "tools/validate_result_bundle.py"
+      - "tools/verify_public_dataset.py"
+      - "CITATION.cff"
+      - "LICENSE"
+      - "PAPER.md"
+      - "REPRODUCIBILITY.md"
+      - ".github/workflows/publish-huggingface.yml"
+
+concurrency:
+  group: publish-velographx-huggingface
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Check out VeloGraphX
+        uses: actions/checkout@v4
+
+      - name: Build Hugging Face dataset bundle
+        run: python tools/build_huggingface_dataset.py
+
+      - name: Validate bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s hf_bundle/README.md
+          test -s hf_bundle/data/current-selector-regimes.csv
+          test -s hf_bundle/data/accepted-results.json
+          test -s hf_bundle/_provenance/source_manifest.json
+          python - <<'PY'
+          import csv
+          import json
+          from pathlib import Path
+
+          root = Path("hf_bundle")
+          with (root / "data/current-selector-regimes.csv").open(newline="", encoding="utf-8") as f:
+              rows = list(csv.DictReader(f))
+          if not rows:
+              raise SystemExit("selector-regimes CSV is empty")
+
+          accepted = json.loads((root / "data/accepted-results.json").read_text(encoding="utf-8"))
+          if accepted.get("schema_version") is None:
+              raise SystemExit("accepted-results registry has no schema_version")
+
+          manifest = json.loads((root / "_provenance/source_manifest.json").read_text(encoding="utf-8"))
+          if manifest.get("source_commit") != "${{ github.sha }}":
+              raise SystemExit("provenance source commit does not match GitHub SHA")
+
+          print(f"Validated {len(rows)} selector regimes and {len(manifest['files'])} exported files")
+          PY
+
+      - name: Install Hugging Face CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -LsSf https://hf.co/cli/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Publish dataset through Trusted Publisher
+        env:
+          HF_OIDC_RESOURCE: datasets/sauravsingla08/velographx-benchmarks
+        shell: bash
+        run: |
+          set -euo pipefail
+          hf upload \
+            sauravsingla08/velographx-benchmarks \
+            ./hf_bundle \
+            . \
+            --repo-type dataset \
+            --commit-message "Publish VeloGraphX benchmarks from ${GITHUB_SHA::7}"
+
+      - name: Publication summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## Hugging Face publication complete"
+            echo
+            echo "- Dataset: https://huggingface.co/datasets/sauravsingla08/velographx-benchmarks"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Authentication: Hugging Face Trusted Publisher (OIDC)"
+            echo "- No long-lived Hugging Face token stored in GitHub"
+          } >> "$GITHUB_STEP_SUMMARY"
