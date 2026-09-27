@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Build the Hugging Face benchmark/reproducibility bundle from versioned VeloGraphX artifacts.
+"""Build the Hugging Face benchmark/reproducibility bundle from VeloGraphX.
 
-This exporter deliberately copies only repository-authored benchmark, provenance,
-methodology, and reproduction material. It does not download or redistribute
-third-party graph datasets and it does not generate benchmark measurements.
+The exporter copies versioned repository-authored benchmark, provenance,
+methodology, paper, and reproduction material. It deliberately does not copy
+the core C++/Python implementation tree, download third-party datasets, or
+generate benchmark measurements.
 """
 
 from __future__ import annotations
@@ -55,97 +56,32 @@ def main() -> None:
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
 
-    # Hugging Face dataset card and top-level archival metadata.
+    # Hugging Face Dataset Card and top-level archival metadata.
     copy_file("huggingface/README.md", "README.md")
-    for path in ("CITATION.cff", "LICENSE", "PAPER.md", "REPRODUCIBILITY.md"):
+    copy_file("README.md", "SOURCE_README.md")
+    for path in (
+        "CITATION.cff",
+        "LICENSE",
+        "PAPER.md",
+        "REPRODUCIBILITY.md",
+        "CHANGELOG.md",
+        ".zenodo.json",
+    ):
         copy_file(path)
 
-    # Viewer-friendly canonical data copied without modification.
+    # Viewer-friendly canonical data copied byte-for-byte from paper/data.
     copy_file("paper/data/current-selector-regimes.csv", "data/current-selector-regimes.csv")
     copy_file("paper/data/accepted-results.json", "data/accepted-results.json")
     copy_file("paper/data/final-review-derived.json", "data/final-review-derived.json")
 
-    # Full repository-authored benchmark and data-contract trees.
+    # Complete repository-authored benchmark/evidence trees. These are the
+    # evidence and reproduction layer, not a mirror of the core software tree.
     copy_tree("benchmarks", "artifacts/benchmarks")
     copy_tree("datasets", "artifacts/datasets")
-    copy_tree("paper/data", "artifacts/paper-data")
-
-    # Paper-facing ledgers and frozen submission provenance.
-    for path in (
-        "paper/results-ledger.md",
-        "paper/submission-closure-evidence.json",
-        "paper/submission-freeze.json",
-        "paper/validate_submission_data.py",
-        "paper/README.md",
-    ):
-        copy_file(path, f"artifacts/paper/{Path(path).name}")
-
-    # Methodology, evidence boundaries, limitations, and archival status.
-    methodology_docs = (
-        "docs/benchmark-methodology.md",
-        "docs/paper-evidence-index.md",
-        "docs/paper-claims.md",
-        "docs/controlled-hardware-execution.md",
-        "docs/publication-hardware-methodology.md",
-        "docs/limitations.md",
-        "docs/submission-archive.md",
-        "docs/ablation-study.md",
-        "docs/hosted-native-competitors.md",
-        "docs/external-dynamic-baselines.md",
-        "docs/canonical-publication-campaign.md",
-        "docs/same-run-published-baseline.md",
-        "docs/canonicalization-ab-evidence.md",
-        "docs/networkit-fair-benchmark-contract.md",
-        "docs/graphbolt-dzig-gap-benchmark-contract.md",
-    )
-    for path in methodology_docs:
-        copy_file(path, f"methodology/{Path(path).name}")
-
-    # Retained research-result and preregistration documents relevant to the
-    # adaptive selector. Negative results are included intentionally.
-    research_docs = (
-        "docs/research/bfs-selector-v3-h6-preregistration.md",
-        "docs/research/bfs-selector-v3-h6-results.md",
-        "docs/research/selector-v2-generalization-preregistration.md",
-        "docs/research/selector-v2-generalization-results.md",
-        "docs/research/post-pr71-reviewer-closure.md",
-        "docs/research/post-pr71-reviewer-closure-results.md",
-        "docs/research/repair-recompute-policy-evaluation.md",
-        "docs/research/selector-tail-regret-incident.md",
-    )
-    for path in research_docs:
-        copy_file(path, f"methodology/research/{Path(path).name}")
-
-    # Minimal reproduction and public-dataset preparation scripts.
-    reproduction_scripts = (
-        "scripts/reproduce_minimal.sh",
-        "scripts/prepare_publication_datasets.py",
-        "scripts/run_canonical_dataset_campaign.py",
-        "scripts/run_capacity_campaign.py",
-    )
-    for path in reproduction_scripts:
-        copy_file(path, f"reproduction/scripts/{Path(path).name}")
-
-    # Environment capture, result construction, summarization and validation.
-    reproduction_tools = (
-        "tools/build_result_artifact.py",
-        "tools/capture_benchmark_environment.py",
-        "tools/summarize_adaptive_policy.py",
-        "tools/summarize_bfs_selector_runs.py",
-        "tools/summarize_publication_policy.py",
-        "tools/summarize_selector_ablation.py",
-        "tools/summarize_selector_v2.py",
-        "tools/summarize_update_crossover.py",
-        "tools/validate_benchmark_preflight.py",
-        "tools/validate_campaign_readiness.py",
-        "tools/validate_public_dataset_plan.py",
-        "tools/validate_publication_measurements.py",
-        "tools/validate_publication_readiness.py",
-        "tools/validate_result_bundle.py",
-        "tools/verify_public_dataset.py",
-    )
-    for path in reproduction_tools:
-        copy_file(path, f"reproduction/tools/{Path(path).name}")
+    copy_tree("paper", "artifacts/paper")
+    copy_tree("docs", "methodology")
+    copy_tree("scripts", "reproduction/scripts")
+    copy_tree("tools", "reproduction/tools")
 
     source_commit = os.environ.get("GITHUB_SHA") or git("rev-parse", "HEAD")
     try:
@@ -171,8 +107,12 @@ def main() -> None:
         "source_commit": source_commit,
         "source_commit_date": source_commit_date,
         "huggingface_repository": "datasets/sauravsingla08/velographx-benchmarks",
-        "measurement_policy": "No benchmark values are generated by this exporter; versioned evidence is copied from the source repository.",
+        "measurement_policy": (
+            "No benchmark values are generated by this exporter; versioned "
+            "evidence is copied from the source repository."
+        ),
         "third_party_raw_graphs_redistributed": False,
+        "excluded_core_software_trees": ["include", "src", "python", "bindings"],
         "files": files,
     }
     manifest_path = OUT / "_provenance" / "source_manifest.json"
