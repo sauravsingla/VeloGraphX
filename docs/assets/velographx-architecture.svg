@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+  <title id="title">VeloGraphX Architecture</title>
+  <desc id="desc">Architecture of VeloGraphX showing dynamic graph updates, mutable graph storage, a pre-repair adaptive selector, localized maintenance or full recomputation, correctness validation, analytics, and reproducibility artifacts.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f7f9fc"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef5ff"/>
+      <stop offset="100%" stop-color="#dcecff"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f5efff"/>
+      <stop offset="100%" stop-color="#eadcff"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff5e9"/>
+      <stop offset="100%" stop-color="#ffe7c8"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#effbf2"/>
+      <stop offset="100%" stop-color="#daf5df"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff0f0"/>
+      <stop offset="100%" stop-color="#ffe0e0"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7f3ff"/>
+      <stop offset="100%" stop-color="#ece4ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0b1f44" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2f6fed"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#7a3fd1"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#1e9b4b"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#d63b3b"/>
+    </marker>
+    <style>
+      .title { font: 700 52px Arial, Helvetica, sans-serif; fill: #0b2d62; }
+      .subtitle { font: 600 24px Arial, Helvetica, sans-serif; fill: #263a5a; }
+      .head { font: 700 24px Arial, Helvetica, sans-serif; fill: #102a56; }
+      .head-green { font: 700 24px Arial, Helvetica, sans-serif; fill: #157a36; }
+      .head-red { font: 700 24px Arial, Helvetica, sans-serif; fill: #b62424; }
+      .head-purple { font: 700 24px Arial, Helvetica, sans-serif; fill: #5b2aa8; }
+      .step { font: 700 22px Arial, Helvetica, sans-serif; fill: white; }
+      .body { font: 600 18px Arial, Helvetica, sans-serif; fill: #173052; }
+      .small { font: 500 16px Arial, Helvetica, sans-serif; fill: #40536f; }
+      .tiny { font: 500 14px Arial, Helvetica, sans-serif; fill: #53657e; }
+      .metric { font: 700 16px Arial, Helvetica, sans-serif; fill: #20395b; }
+      .footer-head { font: 700 18px Arial, Helvetica, sans-serif; fill: #183250; }
+      .footer-sub { font: 500 15px Arial, Helvetica, sans-serif; fill: #5b6a7e; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1120" fill="url(#bg)"/>
+
+  <text x="800" y="66" text-anchor="middle" class="title">VeloGraphX Architecture</text>
+  <text x="800" y="102" text-anchor="middle" class="subtitle">Adaptive Analytics for Continuously Evolving Graphs</text>
+
+  <g filter="url(#shadow)">
+    <rect x="35" y="140" rx="18" ry="18" width="430" height="245" fill="url(#blue)" stroke="#2f6fed" stroke-width="2"/>
+    <circle cx="72" cy="176" r="22" fill="#2f6fed"/><text x="72" y="184" text-anchor="middle" class="step">1</text>
+    <text x="108" y="184" class="head">Graph Update Batch</text>
+    <rect x="62" y="212" rx="12" width="168" height="55" fill="#ffffff" opacity="0.86"/>
+    <text x="82" y="245" class="body">Edge Insertions</text>
+    <rect x="247" y="212" rx="12" width="168" height="55" fill="#ffffff" opacity="0.86"/>
+    <text x="267" y="245" class="body">Edge Deletions</text>
+    <rect x="62" y="282" rx="12" width="353" height="70" fill="#ffffff" opacity="0.86"/>
+    <text x="82" y="312" class="body">Dynamic Graph State</text>
+    <text x="82" y="338" class="small">batched mutations on a continuously evolving graph</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="585" y="140" rx="18" ry="18" width="430" height="245" fill="url(#purple)" stroke="#8a53d6" stroke-width="2"/>
+    <circle cx="622" cy="176" r="22" fill="#7a3fd1"/><text x="622" y="184" text-anchor="middle" class="step">2</text>
+    <text x="658" y="184" class="head-purple">Mutable Graph Storage</text>
+    <text x="615" y="230" class="body">• Segmented CSR</text>
+    <text x="615" y="264" class="body">• Packed delta arenas</text>
+    <text x="615" y="298" class="body">• Sparse row patches</text>
+    <text x="615" y="332" class="body">• Forward and reverse adjacency</text>
+    <text x="615" y="366" class="body">• Canonical CSR consolidation</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1135" y="140" rx="18" ry="18" width="430" height="245" fill="url(#orange)" stroke="#f09a27" stroke-width="2"/>
+    <circle cx="1172" cy="176" r="22" fill="#ef8b17"/><text x="1172" y="184" text-anchor="middle" class="step">3</text>
+    <text x="1208" y="184" class="head">Pre-Repair Adaptive Selector</text>
+    <rect x="1165" y="215" rx="12" width="175" height="116" fill="#ffffff" opacity="0.86"/>
+    <text x="1185" y="245" class="body">Graph + Update</text>
+    <text x="1185" y="272" class="body">Features</text>
+    <text x="1185" y="304" class="small">structure, batch size,</text>
+    <text x="1185" y="326" class="small">affected-work signals</text>
+    <rect x="1355" y="215" rx="12" width="180" height="116" fill="#ffffff" opacity="0.86"/>
+    <text x="1375" y="245" class="body">Historical</text>
+    <text x="1375" y="272" class="body">Measured Cost</text>
+    <text x="1375" y="304" class="small">incremental vs full</text>
+    <text x="1375" y="326" class="small">execution history</text>
+    <text x="1350" y="360" text-anchor="middle" class="metric">Chooses the physical plan before repair begins</text>
+  </g>
+
+  <line x1="465" y1="262" x2="575" y2="262" stroke="#2f6fed" stroke-width="6" marker-end="url(#arrow-blue)"/>
+  <line x1="1015" y1="262" x2="1125" y2="262" stroke="#7a3fd1" stroke-width="6" marker-end="url(#arrow-purple)"/>
+
+  <path d="M1350 385 C1350 420 1060 420 990 455" fill="none" stroke="#1e9b4b" stroke-width="6" marker-end="url(#arrow-green)"/>
+  <path d="M1350 385 C1350 420 1420 420 1420 455" fill="none" stroke="#d63b3b" stroke-width="6" marker-end="url(#arrow-red)"/>
+  <text x="1105" y="423" text-anchor="middle" class="metric" fill="#157a36">Select Localized Maintenance</text>
+  <text x="1420" y="423" text-anchor="middle" class="metric" fill="#b62424">Select Full Recomputation</text>
+
+  <g filter="url(#shadow)">
+    <rect x="160" y="465" rx="18" ry="18" width="615" height="250" fill="url(#green)" stroke="#27a651" stroke-width="2"/>
+    <circle cx="198" cy="501" r="22" fill="#1e9b4b"/><text x="198" y="509" text-anchor="middle" class="step">4a</text>
+    <text x="240" y="509" class="head-green">Localized Maintenance Path</text>
+    <text x="195" y="555" class="body">• Discover the affected region</text>
+    <text x="195" y="592" class="body">• Repair exact BFS / unweighted SSSP state</text>
+    <text x="195" y="629" class="body">• Maintain connected components, triangles, and k-core</text>
+    <text x="195" y="666" class="body">• Reuse prior valid state where possible</text>
+    <text x="195" y="700" class="small">Conservative fallback remains available when localized repair is not appropriate.</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="825" y="465" rx="18" ry="18" width="615" height="250" fill="url(#red)" stroke="#df4b4b" stroke-width="2"/>
+    <circle cx="863" cy="501" r="22" fill="#cf2c2c"/><text x="863" y="509" text-anchor="middle" class="step">4b</text>
+    <text x="905" y="509" class="head-red">Full Recomputation Path</text>
+    <text x="860" y="555" class="body">• Recompute from the current graph state</text>
+    <text x="860" y="592" class="body">• Exact BFS / shortest-path reference execution</text>
+    <text x="860" y="629" class="body">• Parallel CPU execution</text>
+    <text x="860" y="666" class="body">• Recovery and reference path for validation</text>
+    <text x="860" y="700" class="small">Used when recomputation is selected or when conservative fallback is triggered.</text>
+  </g>
+
+  <line x1="470" y1="715" x2="470" y2="755" stroke="#1e9b4b" stroke-width="6" marker-end="url(#arrow-green)"/>
+  <line x1="1130" y1="715" x2="1130" y2="755" stroke="#d63b3b" stroke-width="6" marker-end="url(#arrow-red)"/>
+  <g filter="url(#shadow)">
+    <rect x="130" y="765" rx="18" ry="18" width="1340" height="125" fill="url(#blue)" stroke="#2f6fed" stroke-width="2"/>
+    <circle cx="168" cy="801" r="22" fill="#2f6fed"/><text x="168" y="809" text-anchor="middle" class="step">5</text>
+    <text x="210" y="809" class="head">Correctness, Validation, and Fallback</text>
+    <rect x="200" y="830" rx="10" width="350" height="42" fill="#ffffff" opacity="0.88"/>
+    <text x="220" y="857" class="body">Exactness gates and consistency checks</text>
+    <rect x="625" y="830" rx="10" width="350" height="42" fill="#ffffff" opacity="0.88"/>
+    <text x="645" y="857" class="body">Cross-check against full recomputation</text>
+    <rect x="1050" y="830" rx="10" width="350" height="42" fill="#ffffff" opacity="0.88"/>
+    <text x="1070" y="857" class="body">Failure handling and conservative fallback</text>
+  </g>
+
+  <line x1="800" y1="890" x2="800" y2="920" stroke="#7a3fd1" stroke-width="6" marker-end="url(#arrow-purple)"/>
+  <g filter="url(#shadow)">
+    <rect x="55" y="930" rx="18" ry="18" width="1490" height="125" fill="url(#violet)" stroke="#8a53d6" stroke-width="2"/>
+    <circle cx="93" cy="972" r="22" fill="#7a3fd1"/><text x="93" y="980" text-anchor="middle" class="step">6</text>
+    <text x="135" y="966" class="head-purple">Analytics Contracts</text>
+    <text x="135" y="998" class="small">Exact: BFS / unweighted SSSP · weighted SSSP with conservative recomputation fallback</text>
+    <text x="135" y="1026" class="small">Exact: connected components · triangle count · k-core</text>
+    <text x="960" y="966" class="body">PageRank</text>
+    <text x="960" y="998" class="small">Residual / tolerance validated</text>
+    <text x="960" y="1026" class="small">Not presented as mathematically exact</text>
+  </g>
+
+  <rect x="0" y="1070" width="1600" height="50" fill="#eef2f7"/>
+  <text x="70" y="1100" class="footer-head">Evidence &amp; Reproducibility</text>
+  <text x="330" y="1100" class="footer-sub">GitHub source code</text>
+  <text x="555" y="1100" class="footer-sub">Hugging Face benchmark dataset</text>
+  <text x="880" y="1100" class="footer-sub">Zenodo DOI</text>
+  <text x="1055" y="1100" class="footer-sub">Reproducibility guide</text>
+  <text x="1310" y="1100" class="footer-sub">Paper artifact</text>
+</svg>
