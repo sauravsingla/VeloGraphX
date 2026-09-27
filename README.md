@@ -4,8 +4,10 @@
 
 ### High-Performance Dynamic Graph Analytics in C++20 + Python
 
-[Docs](https://sauravsingla.github.io/VeloGraphX/) · [Python](python/README.md) · [PyPI](https://pypi.org/project/velographx/) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Zenodo DOI](https://doi.org/10.5281/zenodo.22842292) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
+[Docs](https://sauravsingla.github.io/VeloGraphX/) · [Python](python/README.md) · [PyPI](https://pypi.org/project/velographx/) · [Hugging Face Dataset](https://huggingface.co/datasets/sauravsingla08/velographx-benchmarks) · [Reproducibility](REPRODUCIBILITY.md) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Zenodo DOI](https://doi.org/10.5281/zenodo.22842292) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
 
+[![Hugging Face Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset-yellow)](https://huggingface.co/datasets/sauravsingla08/velographx-benchmarks)
+[![Reproducible Benchmarks](https://img.shields.io/badge/benchmarks-reproducible-brightgreen)](https://huggingface.co/datasets/sauravsingla08/velographx-benchmarks)
 [![GitHub Repo stars](https://img.shields.io/github/stars/sauravsingla/VeloGraphX?style=flat&logo=github)](https://github.com/sauravsingla/VeloGraphX/stargazers)
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
 [![Software release](https://img.shields.io/badge/software-v0.8.2-blue)](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.2)
