@@ -24,9 +24,13 @@ VeloGraphX is a **high-performance C++20 and Python engine for dynamic graph ana
 
 The paper-facing claim is deliberately narrow: **the preferred execution strategy changes with graph and update regime, so an evolving-graph engine should expose the repair/recompute crossover as an observable physical-plan choice.** VeloGraphX does not claim universal superiority over other graph systems.
 
+## Architecture
+
 <p align="center">
-  <img src="docs/assets/velographx-flow.svg" alt="VeloGraphX dynamic analytics flow" width="90%">
+  <img src="docs/assets/velographx-architecture.svg" alt="VeloGraphX architecture: adaptive analytics for evolving graphs" width="100%">
 </p>
+
+The architecture keeps localized maintenance and full recomputation as explicit physical-plan choices, applies correctness and fallback checks, and links the implementation to reproducible benchmark evidence.
 
 ### Key features
 
