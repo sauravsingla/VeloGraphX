@@ -2,6 +2,12 @@ name: Publish VeloGraphX Hugging Face Space
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'hf-space/**'
+      - 'tools/build_huggingface_space.py'
+      - '.github/workflows/publish-huggingface-space.yml'
 
 permissions:
   id-token: write
