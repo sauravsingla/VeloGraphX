@@ -1,0 +1,33 @@
+name: Check Hugging Face Stats
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/check-hf-stats.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query VeloGraphX Hugging Face stats
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+
+          url = "https://huggingface.co/api/datasets/sauravsingla08/velographx-benchmarks"
+          with urllib.request.urlopen(url, timeout=30) as response:
+              data = json.load(response)
+
+          print("HF_REPO=" + str(data.get("id")))
+          print("HF_DOWNLOADS=" + str(data.get("downloads")))
+          print("HF_DOWNLOADS_ALL_TIME=" + str(data.get("downloadsAllTime")))
+          print("HF_LIKES=" + str(data.get("likes")))
+          print("HF_LAST_MODIFIED=" + str(data.get("lastModified")))
+          PY
