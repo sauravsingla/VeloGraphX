@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="VeloGraphX retained repair-vs-recompute selector regimes: exact, versioned benchmark evidence for evolving graph analytics." />
+  <title>VeloGraphX — Repair vs Recompute</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f7f8fb}
+    *{box-sizing:border-box} body{margin:0} main{max-width:1120px;margin:0 auto;padding:40px 20px 64px}
+    h1{font-size:clamp(2rem,5vw,3.6rem);margin:.25rem 0}.lede{max-width:820px;font-size:1.08rem;line-height:1.65;color:#465066}
+    .badges{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 28px}.badge{background:#fff;border:1px solid #dce1eb;border-radius:999px;padding:7px 11px;font-size:.86rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:22px 0}.card{background:#fff;border:1px solid #dce1eb;border-radius:16px;padding:18px;box-shadow:0 4px 18px rgba(30,45,80,.05)}
+    .metric{font-size:1.75rem;font-weight:750;margin-top:6px}.muted{color:#667085;font-size:.9rem}.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin:30px 0 14px}.controls label{display:grid;gap:6px;font-size:.9rem;color:#475467} select{padding:10px 12px;border:1px solid #cfd6e4;border-radius:10px;background:white}
+    .table-wrap{overflow:auto;background:#fff;border:1px solid #dce1eb;border-radius:16px}table{width:100%;border-collapse:collapse;min-width:900px}th,td{padding:11px 12px;border-bottom:1px solid #edf0f5;text-align:right;font-variant-numeric:tabular-nums}th:first-child,td:first-child{text-align:left}th{background:#fafbfc;font-size:.82rem;color:#475467;position:sticky;top:0}
+    .note{margin-top:24px;padding:16px 18px;background:#eef4ff;border-radius:14px;line-height:1.55}.links{margin-top:30px;display:flex;gap:15px;flex-wrap:wrap}.links a{color:#3346b5;text-decoration:none;font-weight:650}
+    .warn{color:#9a3412}.good{color:#166534}
+  </style>
+</head>
+<body>
+<main>
+  <div class="muted">VeloGraphX · reproducibility companion</div>
+  <h1>Repair vs recompute, made observable.</h1>
+  <p class="lede">Explore the nine retained graph/update regimes used to evaluate VeloGraphX's adaptive BFS selector. This page does not generate measurements: it renders the exact versioned CSV shipped by the canonical GitHub repository and Hugging Face benchmark dataset.</p>
+  <div class="badges"><span class="badge">C++20 + Python</span><span class="badge">Dynamic graphs</span><span class="badge">Exact BFS outputs</span><span class="badge">Versioned evidence</span></div>
+
+  <section class="grid">
+    <div class="card"><div class="muted">Retained regimes</div><div class="metric" id="regimeCount">9</div></div>
+    <div class="card"><div class="muted">Total observations</div><div class="metric" id="sampleCount">1,610</div></div>
+    <div class="card"><div class="muted">Datasets</div><div class="metric" id="datasetCount">3</div></div>
+    <div class="card"><div class="muted">Largest retained mean regret</div><div class="metric" id="maxMeanRegret">0.1748</div><div class="muted">web-Google · batch 24,576</div></div>
+  </section>
+
+  <div class="controls">
+    <label>Dataset<select id="datasetFilter"><option value="all">All datasets</option></select></label>
+    <label>Sort by<select id="sortBy"><option value="batch_size">Batch size</option><option value="mean_regret">Mean regret</option><option value="wrong_arm_rate">Wrong-arm rate</option><option value="median_batch_us">Median batch time</option></select></label>
+  </div>
+
+  <div class="table-wrap">
+    <table><thead><tr><th>Dataset</th><th>Batch</th><th>Samples</th><th>Median batch µs</th><th>Mean regret</th><th>P95 regret</th><th>Max regret</th><th>Wrong-arm rate</th><th>Full-choice fraction</th><th>Decision µs</th></tr></thead><tbody id="rows"><tr><td>ca-GrQc</td><td>96</td><td>380</td><td>33.383</td><td>0.0397</td><td>0.2057</td><td>0.8662</td><td>0.00%</td><td>0.00%</td><td>0.127</td></tr></tbody></table>
+  </div>
+
+  <div class="note"><strong>Interpretation boundary.</strong> Lower regret means the selector stayed closer to the faster of the retained repair/recompute alternatives for that regime. The largest retained <code>web-Google</code> regime is deliberately visible even though its tail behavior is worse; negative evidence is not filtered out. These are scoped benchmark results, not a universal performance claim.</div>
+
+  <div class="links"><a href="https://huggingface.co/datasets/sauravsingla08/velographx-benchmarks" target="_blank" rel="noreferrer">Dataset ↗</a><a href="https://github.com/sauravsingla/VeloGraphX" target="_blank" rel="noreferrer">GitHub ↗</a><a href="https://sauravsingla.github.io/VeloGraphX/" target="_blank" rel="noreferrer">Documentation ↗</a><a href="https://doi.org/10.5281/zenodo.22842292" target="_blank" rel="noreferrer">Frozen archive ↗</a></div>
+</main>
+<script>
+const numeric = new Set(['batch_size','repetitions','samples','median_batch_us','mean_regret','p95_regret','max_regret','wrong_arm_rate','full_choice_fraction','internal_fallback_fraction','mean_decision_us']);
+function parseCSV(text){const [head,...lines]=text.trim().split(/\r?\n/);const cols=head.split(',');return lines.filter(Boolean).map(line=>{const vals=line.split(',');const row={};cols.forEach((c,i)=>row[c]=numeric.has(c)?Number(vals[i]):vals[i]);return row;});}
+function pct(v){return `${(100*v).toFixed(2)}%`} function num(v,d=3){return Number(v).toFixed(d)}
+let data=[];
+function render(){const filter=document.getElementById('datasetFilter').value;const sort=document.getElementById('sortBy').value;const rows=data.filter(r=>filter==='all'||r.dataset===filter).sort((a,b)=>a[sort]-b[sort]);document.getElementById('rows').innerHTML=rows.map(r=>`<tr><td>${r.dataset}</td><td>${r.batch_size.toLocaleString()}</td><td>${r.samples.toLocaleString()}</td><td>${num(r.median_batch_us)}</td><td>${num(r.mean_regret,4)}</td><td>${num(r.p95_regret,4)}</td><td>${num(r.max_regret,4)}</td><td>${pct(r.wrong_arm_rate)}</td><td>${pct(r.full_choice_fraction)}</td><td>${num(r.mean_decision_us)}</td></tr>`).join('');}
+fetch('./data/current-selector-regimes.csv').then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.text()}).then(text=>{data=parseCSV(text);const datasets=[...new Set(data.map(r=>r.dataset))];document.getElementById('regimeCount').textContent=data.length.toLocaleString();document.getElementById('sampleCount').textContent=data.reduce((s,r)=>s+r.samples,0).toLocaleString();document.getElementById('datasetCount').textContent=datasets.length.toLocaleString();document.getElementById('maxMeanRegret').textContent=Math.max(...data.map(r=>r.mean_regret)).toFixed(4);const select=document.getElementById('datasetFilter');datasets.forEach(d=>{const o=document.createElement('option');o.value=d;o.textContent=d;select.appendChild(o)});render();}).catch(err=>{document.getElementById('rows').innerHTML=`<tr><td colspan="10" class="warn">Could not load retained CSV: ${err.message}</td></tr>`});
+document.getElementById('datasetFilter').addEventListener('change',render);document.getElementById('sortBy').addEventListener('change',render);
+</script>
+</body>
+</html>
