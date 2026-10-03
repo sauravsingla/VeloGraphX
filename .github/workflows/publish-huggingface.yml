@@ -78,7 +78,7 @@ jobs:
 
     steps:
       - name: Check out VeloGraphX
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build Hugging Face dataset bundle
         run: python tools/build_huggingface_dataset.py
