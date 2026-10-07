@@ -2,9 +2,11 @@
 
 # VeloGraphX
 
-### Dynamic graph analytics without always recomputing everything
+### Adaptive graph analytics for continuously evolving graphs
 
-**C++20 + Python · exact dynamic analytics · reproducible benchmarks**
+**Update what changed when possible. Recompute when that is faster.**
+
+`C++20` · `Python` · `Dynamic Graphs` · `Reproducible Benchmarks`
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/sauravsingla/VeloGraphX?style=flat&logo=github)](https://github.com/sauravsingla/VeloGraphX/stargazers)
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
@@ -49,7 +51,7 @@ If your workload has an evolving graph, start with the Python API above, then us
 
 - **Adaptive execution:** localized exact repair or exact full recomputation for dynamic BFS.
 - **Dynamic graph storage:** segmented CSR, delta structures, sparse patches and explicit consolidation.
-- **Correctness-first analytics:** exact maintained paths where supported, with conservative fallback where required.
+- **Correctness-first analytics:** exact maintained paths where supported, with validation and conservative fallback where required.
 - **C++ and Python:** native API plus Python bindings.
 - **Reproducible evidence:** pinned datasets, timing contracts, raw repetitions, checksums and machine-readable result artifacts.
 
