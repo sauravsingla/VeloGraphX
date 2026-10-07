@@ -71,30 +71,12 @@ The architecture keeps localized maintenance and full recomputation as explicit 
 - **CPU execution and interoperability**: multicore kernels, compression and partitioning support, graph-access abstractions, a native C++ API, and Python bindings.
 - **Reproducible systems evaluation**: checksum-pinned datasets, pinned competitor revisions, explicit timing contracts, exactness gates, retained raw repetitions, machine-readable evidence registries, and documented negative results.
 
-## Getting started
+## Installation and native build
 
-### Python
-
-Install from PyPI:
+For Python, install from PyPI:
 
 ```bash
 python -m pip install velographx
-```
-
-Minimal example:
-
-```python
-import velographx as vx
-
-g = vx.Graph(4, False)
-
-updates = vx.UpdateBatch()
-updates.add(0, 1)
-updates.add(1, 2)
-g.apply(updates)
-
-bfs = vx.IncrementalBFS(g, 0)
-print(bfs.distances)
 ```
 
 ### C++ / build from source
