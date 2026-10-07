@@ -2,27 +2,58 @@
 
 # VeloGraphX
 
-### High-Performance Dynamic Graph Analytics in C++20 + Python
+### Dynamic graph analytics without always recomputing everything
 
-[Docs](https://sauravsingla.github.io/VeloGraphX/) · [Python](python/README.md) · [PyPI](https://pypi.org/project/velographx/) · [Hugging Face Dataset](https://huggingface.co/datasets/sauravsingla08/velographx-benchmarks) · [Reproducibility](REPRODUCIBILITY.md) · [Benchmarks](docs/benchmark-methodology.md) · [Paper artifact](PAPER.md) · [Zenodo DOI](https://doi.org/10.5281/zenodo.22842292) · [Workflow catalog](docs/workflow-catalog.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
+**C++20 + Python · exact dynamic analytics · reproducible benchmarks**
 
-[![Hugging Face Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset-yellow)](https://huggingface.co/datasets/sauravsingla08/velographx-benchmarks)
-[![Reproducible Benchmarks](https://img.shields.io/badge/benchmarks-reproducible-brightgreen)](https://huggingface.co/datasets/sauravsingla08/velographx-benchmarks)
 [![GitHub Repo stars](https://img.shields.io/github/stars/sauravsingla/VeloGraphX?style=flat&logo=github)](https://github.com/sauravsingla/VeloGraphX/stargazers)
 [![PyPI](https://img.shields.io/pypi/v/velographx)](https://pypi.org/project/velographx/)
-[![Software release](https://img.shields.io/badge/software-v0.8.2-blue)](https://github.com/sauravsingla/VeloGraphX/releases/tag/v0.8.2)
-[![PVLDB submission artifact](https://img.shields.io/badge/PVLDB%20submission%20artifact-v4-purple)](https://github.com/sauravsingla/VeloGraphX/releases/tag/pvldb-2027-submission-v4)
 [![CI](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/VeloGraphX/actions/workflows/ci.yml)
-[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+[Docs](https://sauravsingla.github.io/VeloGraphX/) · [PyPI](https://pypi.org/project/velographx/) · [Benchmarks](docs/benchmark-methodology.md) · [Reproducibility](REPRODUCIBILITY.md) · [Paper artifact](PAPER.md) · [Releases](https://github.com/sauravsingla/VeloGraphX/releases)
 
 </div>
 
-## About
+## Why VeloGraphX?
 
-VeloGraphX is a **high-performance C++20 and Python engine for dynamic graph analytics on large, continuously evolving graphs**. It supports BFS/unweighted SSSP, weighted SSSP, connected components, triangle counting, k-core, and PageRank through dynamic maintenance and full-recomputation paths. Its central systems idea is to keep two semantically equivalent execution choices available for an evolving analytic: **localized maintenance of affected state** and **full recomputation**. A pre-repair policy can choose between them using graph/update structure and prior measured execution cost instead of assuming that either incremental processing or recomputation is always preferable.
+Large graphs change continuously, but recomputing every analytic from scratch after every update can waste work. VeloGraphX keeps **localized maintenance** and **full recomputation** as explicit execution choices and can select between them as the graph and update regime change.
 
-The paper-facing claim is deliberately narrow: **the preferred execution strategy changes with graph and update regime, so an evolving-graph engine should expose the repair/recompute crossover as an observable physical-plan choice.** VeloGraphX does not claim universal superiority over other graph systems.
+It supports **BFS/unweighted SSSP, weighted SSSP, connected components, triangle counting, k-core and PageRank** through a native C++20 engine and Python bindings.
+
+> **Correctness signal:** retained engineering stress testing covers **2,000,000 updates with 0 BFS mismatches and 0 triangle mismatches**.
+
+## Try it in 30 seconds
+
+```bash
+python -m pip install velographx
+```
+
+```python
+import velographx as vx
+
+g = vx.Graph(4, False)
+
+updates = vx.UpdateBatch()
+updates.add(0, 1)
+updates.add(1, 2)
+g.apply(updates)
+
+bfs = vx.IncrementalBFS(g, 0)
+print(bfs.distances)
+```
+
+If your workload has an evolving graph, start with the Python API above, then use the benchmark and reproducibility links for deeper evaluation.
+
+## What you get
+
+- **Adaptive execution:** localized exact repair or exact full recomputation for dynamic BFS.
+- **Dynamic graph storage:** segmented CSR, delta structures, sparse patches and explicit consolidation.
+- **Correctness-first analytics:** exact maintained paths where supported, with conservative fallback where required.
+- **C++ and Python:** native API plus Python bindings.
+- **Reproducible evidence:** pinned datasets, timing contracts, raw repetitions, checksums and machine-readable result artifacts.
+
+**Useful contributions are welcome:** try VeloGraphX on a graph you care about, report a workload where the selector behaves poorly, reproduce a benchmark, or open a PR.
 
 ## Architecture
 
