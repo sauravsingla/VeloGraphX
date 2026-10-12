@@ -8,10 +8,10 @@ cmake-build-*/
 *.dll
 *.exe
 .DS_Store
-.vscode/
 .idea/
 __pycache__/
 *.pyc
+temp_auto_push.bat
 
 # Local paper-artifact validation outputs
 artifacts/paper-minimal/
@@ -26,3 +26,5 @@ artifacts/paper-minimal/
 *.pfx
 credentials.json
 secrets.json
+.gitignore
+branch_structure.json
